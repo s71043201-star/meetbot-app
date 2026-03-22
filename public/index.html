@@ -139,6 +139,20 @@ body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-
 .member-chip{display:flex;align-items:center;gap:6px;background:var(--surf);border-radius:20px;padding:5px 12px 5px 6px}
 .parse-result{animation:fadeUp 0.4s ease}
 .parse-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+/* MODAL */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surf);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-width:480px;animation:slideUp 0.3s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:16px}
+.modal-label{font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.modal-input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:14px;outline:none;margin-bottom:12px}
+.modal-input:focus{border-color:var(--accent)}
+.modal-select{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:14px;outline:none;margin-bottom:12px;appearance:none}
+.modal-btns{display:flex;gap:8px;margin-top:4px}
+.btn-save{flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-delete{padding:13px 18px;border-radius:12px;border:none;background:rgba(255,91,121,0.15);color:var(--red);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-cancel{padding:13px 18px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
@@ -251,6 +265,26 @@ body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- 編輯任務 Modal -->
+<div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">✏️ 編輯任務</div>
+    <div class="modal-label">任務描述</div>
+    <textarea class="modal-input" id="editTitle" rows="3" style="resize:none"></textarea>
+    <div class="modal-label">負責人</div>
+    <select class="modal-select" id="editAssignee"></select>
+    <div class="modal-label">截止日期</div>
+    <input type="date" class="modal-input" id="editDeadline">
+    <div class="modal-label">來源會議</div>
+    <input type="text" class="modal-input" id="editMeeting">
+    <div class="modal-btns">
+      <button class="btn-delete" onclick="deleteTask()">🗑 刪除</button>
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-save" onclick="saveEdit()">儲存</button>
+    </div>
+  </div>
+</div>
 </div>
 
 <script>
@@ -404,17 +438,20 @@ function renderTasks() {
   });
   if (filtered.length === 0) { document.getElementById("taskList").innerHTML = `<div class="empty">沒有符合的任務</div>`; return; }
   document.getElementById("taskList").innerHTML = filtered.map(t => `
-    <div class="task-item ${t.urgent&&!t.done?'urgent':''} ${t.done?'done':''}" onclick="toggleDone(${t.id})">
-      <div class="task-check">${t.done?'✓':''}</div>
-      <div class="task-body">
-        <div class="task-title">${esc(t.title)}</div>
-        <div class="task-meta">
-          <div class="member-wrap">${avatar(t.assignee)}<span class="member-name">${t.assignee}</span></div>
-          ${deadlineBadge(t.deadline, t.done)}
-          ${t.urgent&&!t.done?'<span class="bdg bdg-urgent">⚡ 緊急</span>':''}
+    <div class="task-item ${t.urgent&&!t.done?'urgent':''} ${t.done?'done':''}" style="position:relative">
+      <div onclick="toggleDone(${t.id})" style="display:flex;gap:12px;align-items:flex-start;flex:1;cursor:pointer">
+        <div class="task-check">${t.done?'✓':''}</div>
+        <div class="task-body">
+          <div class="task-title">${esc(t.title)}</div>
+          <div class="task-meta">
+            <div class="member-wrap">${avatar(t.assignee)}<span class="member-name">${t.assignee}</span></div>
+            ${deadlineBadge(t.deadline, t.done)}
+            ${t.urgent&&!t.done?'<span class="bdg bdg-urgent">⚡ 緊急</span>':''}
+          </div>
+          <div class="task-meeting">📋 ${esc(t.meeting)}</div>
         </div>
-        <div class="task-meeting">📋 ${esc(t.meeting)}</div>
       </div>
+      <div onclick="openEdit(${t.id})" style="padding:4px 8px;cursor:pointer;color:var(--muted);font-size:18px;flex-shrink:0">✎</div>
     </div>
   `).join("");
 }
@@ -667,7 +704,68 @@ async function confirmTasks(filename) {
   renderAll();
   resetUpload();
   switchTab("dashboard");
-  showToast(`🔗 已同步 ${newTasks.length} 項任務給全團隊`);
+  showToast(`🔗 已同步 ${newTasks.length} 項任務，發送 LINE 通知中...`);
+  // 立即推播 LINE 給每位負責人
+  let notified = 0;
+  for (const task of newTasks) {
+    try {
+      const res = await fetch(`${BACKEND}/notify-new-task`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ task })
+      });
+      const data = await res.json();
+      if (data.ok) notified++;
+    } catch {}
+  }
+  if (notified > 0) showToast(`📨 已通知 ${notified} 位負責人`, "var(--green)");
+}
+
+// ── 編輯任務 ──────────────────────────────────
+let editingId = null;
+
+function openEdit(id) {
+  const t = tasks.find(t => t.id === id);
+  if (!t) return;
+  editingId = id;
+  document.getElementById("editTitle").value = t.title;
+  document.getElementById("editDeadline").value = t.deadline;
+  document.getElementById("editMeeting").value = t.meeting;
+  // 填入成員選項
+  const sel = document.getElementById("editAssignee");
+  sel.innerHTML = TEAM.map(n => `<option value="${n}" ${n===t.assignee?'selected':''}>${n}</option>`).join("");
+  document.getElementById("editModal").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("editModal").classList.remove("open");
+  editingId = null;
+}
+
+async function saveEdit() {
+  if (!editingId) return;
+  const title    = document.getElementById("editTitle").value.trim();
+  const assignee = document.getElementById("editAssignee").value;
+  const deadline = document.getElementById("editDeadline").value;
+  const meeting  = document.getElementById("editMeeting").value.trim();
+  if (!title || !deadline) { showToast("請填寫任務描述和截止日期","var(--red)"); return; }
+  tasks = tasks.map(t => t.id===editingId
+    ? {...t, title, assignee, deadline, meeting, urgent: daysLeft(deadline)<=1}
+    : t
+  );
+  await saveTasks();
+  renderAll();
+  closeModal();
+  showToast("✓ 任務已更新","var(--green)");
+}
+
+async function deleteTask() {
+  if (!editingId) return;
+  if (!confirm("確定要刪除這個任務嗎？")) return;
+  tasks = tasks.filter(t => t.id !== editingId);
+  await saveTasks();
+  renderAll();
+  closeModal();
+  showToast("已刪除任務","#6b7494");
 }
 
 function resetUpload() {
