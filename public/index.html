@@ -283,6 +283,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-
       <button class="btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn-save" onclick="saveEdit()">儲存</button>
     </div>
+    <button class="btn-secondary" onclick="notifyTask()" style="margin-top:8px;width:100%;padding:12px;border-radius:12px;border:1px solid rgba(0,229,195,0.3);background:rgba(0,229,195,0.08);color:var(--green);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">📨 立即發送 LINE 通知給負責人</button>
   </div>
 </div>
 </div>
@@ -766,6 +767,24 @@ async function deleteTask() {
   renderAll();
   closeModal();
   showToast("已刪除任務","#6b7494");
+}
+
+async function notifyTask() {
+  if (!editingId) return;
+  const task = tasks.find(t => t.id === editingId);
+  if (!task) return;
+  showToast("發送中...","#6b7494");
+  try {
+    const res = await fetch(`${BACKEND}/notify-new-task`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ task })
+    });
+    const data = await res.json();
+    if (data.ok) showToast(`📨 已通知 ${task.assignee}`,"var(--green)");
+    else showToast(`找不到 ${task.assignee} 的 LINE ID`,"var(--orange)");
+  } catch {
+    showToast("發送失敗，請稍後再試","var(--red)");
+  }
 }
 
 function resetUpload() {
