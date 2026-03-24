@@ -400,7 +400,24 @@ export default function MeetBot() {
     showToast(`已同步 ${newTasks.length} 項任務給全團隊`);
   };
 
-  const toggleDone = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t,done:!t.done} : t));
+  const toggleDone = (id) => {
+    setTasks(prev => {
+      const updated = prev.map(t => {
+        if (t.id !== id) return t;
+        const nowDone = !t.done;
+        // 剛變成完成時才發通知
+        if (nowDone) {
+          fetch(`${BACKEND_URL}/notify-task-done`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task: { ...t, done: true } })
+          }).catch(() => {});
+        }
+        return { ...t, done: nowDone };
+      });
+      return updated;
+    });
+  };
 
   // ── 儲存備註 ──
   const saveNote = (note) => {
