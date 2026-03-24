@@ -547,19 +547,21 @@ export default function MeetBot() {
         <div style={{ fontSize:34, color:"var(--muted)", marginTop:8 }}>來自：{t.meeting}</div>
       </div>
 
-      {/* 備註按鈕 */}
-      <div
-        onClick={() => setEditingTask(t)}
-        style={{
-          flexShrink:0, width:34, height:34, borderRadius:8, cursor:"pointer",
-          background: t.progressNote ? "rgba(79,140,255,0.15)" : "var(--surf)",
-          border:`1px solid ${t.progressNote ? "rgba(79,140,255,0.35)" : "var(--border)"}`,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:38, transition:"all 0.2s"
-        }}
-        title="編輯進度備註"
-      >📝</div>
     </div>
+
+    {/* 備註按鈕（全寬，底部） */}
+    <div
+      onClick={() => setEditingTask(t)}
+      style={{
+        marginTop:10, width:"100%", padding:"10px 0", borderRadius:10, cursor:"pointer",
+        background: t.progressNote ? "rgba(79,140,255,0.13)" : "var(--surf)",
+        border:`1.5px solid ${t.progressNote ? "rgba(79,140,255,0.4)" : "var(--border)"}`,
+        display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+        fontSize:30, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
+        transition:"all 0.2s"
+      }}
+    >📝 {t.progressNote ? "編輯工作進度備註" : "新增工作進度備註"}</div>
+  </div>
   );
 
   // ── 儀表板內容 ──
