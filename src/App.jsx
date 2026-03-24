@@ -508,60 +508,61 @@ export default function MeetBot() {
       background: t.done ? "rgba(24,29,42,0.5)" : "var(--card)",
       border: `1px solid ${t.urgent&&!t.done ? "rgba(255,91,121,0.35)" : "var(--border)"}`,
       borderRadius:14, padding:"15px 16px", marginBottom:10,
-      display:"flex", gap:14, alignItems:"flex-start",
+      display:"flex", flexDirection:"column", gap:10,
       opacity: t.done ? 0.6 : 1, transition:"all 0.2s",
     }}>
-      {/* 勾選圓圈 */}
-      <div
-        onClick={() => toggleDone(t.id)}
-        style={{
-          width:26, height:26, borderRadius:"50%", flexShrink:0, marginTop:2, cursor:"pointer",
-          border:`2.5px solid ${t.done?"var(--green)":t.urgent?"var(--red)":"var(--border)"}`,
-          background:t.done?"var(--green)":"transparent",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:34, color:"#fff", transition:"all 0.2s"
-        }}>{t.done?"✓":""}</div>
+      {/* 上排：勾選 + 內容 */}
+      <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+        {/* 勾選圓圈 */}
+        <div
+          onClick={() => toggleDone(t.id)}
+          style={{
+            width:26, height:26, borderRadius:"50%", flexShrink:0, marginTop:2, cursor:"pointer",
+            border:`2.5px solid ${t.done?"var(--green)":t.urgent?"var(--red)":"var(--border)"}`,
+            background:t.done?"var(--green)":"transparent",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:34, color:"#fff", transition:"all 0.2s"
+          }}>{t.done?"✓":""}</div>
 
-      {/* 內容 */}
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{
-          fontSize:38, fontWeight:500, lineHeight:1.5, marginBottom:8,
-          textDecoration:t.done?"line-through":"none",
-          color:t.done?"var(--muted)":"var(--text)"
-        }}>{t.title}</div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom: t.progressNote ? 8 : 0 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-            <Avatar name={t.assignee} size={22}/>
-            <span style={{ fontSize:34, color:"var(--muted)" }}>{t.assignee}</span>
+        {/* 內容 */}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{
+            fontSize:38, fontWeight:500, lineHeight:1.5, marginBottom:8,
+            textDecoration:t.done?"line-through":"none",
+            color:t.done?"var(--muted)":"var(--text)"
+          }}>{t.title}</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom: t.progressNote ? 8 : 0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+              <Avatar name={t.assignee} size={22}/>
+              <span style={{ fontSize:34, color:"var(--muted)" }}>{t.assignee}</span>
+            </div>
+            <DeadlineBadge deadline={t.deadline} done={t.done}/>
+            {t.urgent&&!t.done && <span style={bdg("var(--red)","rgba(255,91,121,0.1)")}>緊急</span>}
           </div>
-          <DeadlineBadge deadline={t.deadline} done={t.done}/>
-          {t.urgent&&!t.done && <span style={bdg("var(--red)","rgba(255,91,121,0.1)")}>緊急</span>}
+          {t.progressNote && (
+            <div style={{ background:"rgba(79,140,255,0.07)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:8, padding:"8px 12px", marginTop:4 }}>
+              <div style={{ fontSize:34, color:"var(--accent)", fontWeight:600, marginBottom:3 }}>📝 進度備註</div>
+              <div style={{ fontSize:34, color:"var(--text)", lineHeight:1.6 }}>{t.progressNote}</div>
+              {t.progressNoteTime && <div style={{ fontSize:30, color:"var(--muted)", marginTop:4 }}>{t.progressNoteTime}</div>}
+            </div>
+          )}
+          <div style={{ fontSize:34, color:"var(--muted)", marginTop:8 }}>來自：{t.meeting}</div>
         </div>
-        {t.progressNote && (
-          <div style={{ background:"rgba(79,140,255,0.07)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:8, padding:"8px 12px", marginTop:4 }}>
-            <div style={{ fontSize:34, color:"var(--accent)", fontWeight:600, marginBottom:3 }}>📝 進度備註</div>
-            <div style={{ fontSize:34, color:"var(--text)", lineHeight:1.6 }}>{t.progressNote}</div>
-            {t.progressNoteTime && <div style={{ fontSize:30, color:"var(--muted)", marginTop:4 }}>{t.progressNoteTime}</div>}
-          </div>
-        )}
-        <div style={{ fontSize:34, color:"var(--muted)", marginTop:8 }}>來自：{t.meeting}</div>
       </div>
 
+      {/* 備註按鈕（全寬，底部） */}
+      <div
+        onClick={() => setEditingTask(t)}
+        style={{
+          width:"100%", padding:"12px 0", borderRadius:10, cursor:"pointer",
+          background: t.progressNote ? "rgba(79,140,255,0.13)" : "var(--surf)",
+          border:`1.5px solid ${t.progressNote ? "rgba(79,140,255,0.4)" : "var(--border)"}`,
+          display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+          fontSize:30, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
+          transition:"all 0.2s"
+        }}
+      >📝 {t.progressNote ? "編輯工作進度備註" : "新增工作進度備註"}</div>
     </div>
-
-    {/* 備註按鈕（全寬，底部） */}
-    <div
-      onClick={() => setEditingTask(t)}
-      style={{
-        marginTop:10, width:"100%", padding:"10px 0", borderRadius:10, cursor:"pointer",
-        background: t.progressNote ? "rgba(79,140,255,0.13)" : "var(--surf)",
-        border:`1.5px solid ${t.progressNote ? "rgba(79,140,255,0.4)" : "var(--border)"}`,
-        display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        fontSize:30, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
-        transition:"all 0.2s"
-      }}
-    >📝 {t.progressNote ? "編輯工作進度備註" : "新增工作進度備註"}</div>
-  </div>
   );
 
   // ── 儀表板內容 ──
