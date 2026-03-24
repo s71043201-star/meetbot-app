@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/meetbot-app/static/js/main.e56d6dfa.js",
+    "main.js": "/meetbot-app/static/js/main.f8c419ce.js",
     "index.html": "/meetbot-app/index.html",
-    "main.e56d6dfa.js.map": "/meetbot-app/static/js/main.e56d6dfa.js.map"
+    "main.f8c419ce.js.map": "/meetbot-app/static/js/main.f8c419ce.js.map"
   },
   "entrypoints": [
-    "static/js/main.e56d6dfa.js"
+    "static/js/main.f8c419ce.js"
   ]
 }
