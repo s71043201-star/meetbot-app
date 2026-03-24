@@ -1,1 +1,914 @@
-<!doctype html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>MeetBot 會議任務追蹤</title><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet"><script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script><script src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script><script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-height:100vh}:root{--bg:#080b12;--surf:#10141e;--card:#181d2a;--border:#232840;--accent:#4f8cff;--green:#00e5c3;--orange:#ff9f43;--red:#ff5b79;--text:#e8eaf2;--muted:#5a6285}.app{max-width:480px;margin:0 auto;position:relative;min-height:100vh}.topbar{background:var(--surf);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}.logo{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#4f8cff,#00e5c3);display:flex;align-items:center;justify-content:center;font-size:24px;margin-right:10px}.logo-wrap{display:flex;align-items:center}.logo-title{font-weight:700;font-size:22px}.logo-sub{font-size:18px;color:var(--muted)}.sync-info{display:flex;flex-direction:column;align-items:flex-end;gap:4px}.badges{display:flex;gap:5px}.badge{font-size:18px;font-weight:700;padding:2px 7px;border-radius:20px}.badge-urgent{background:rgba(255,91,121,.15);border:1px solid var(--red);color:var(--red)}.badge-pct{background:rgba(0,229,195,.1);border:1px solid rgba(0,229,195,.3);color:var(--green)}.sync-dot-wrap{display:flex;align-items:center;gap:4px;font-size:18px;color:var(--muted)}.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}.tabs{display:flex;background:var(--surf);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tab{flex:1;min-width:64px;text-align:center;padding:10px 4px 8px;font-size:18px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap}.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}.tab-icon{font-size:26px;margin-bottom:2px}.page{display:none;padding:14px 14px 100px}.page.active{display:block}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px}.stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}.stat-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center}.stat-num{font-size:34px;font-weight:900;font-family:monospace;line-height:1}.stat-label{font-size:18px;color:var(--muted);margin-top:5px}.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:3px;transition:width .6s ease}.filter-row{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}.filter-row::-webkit-scrollbar{display:none}.filter-btn{padding:5px 12px;border-radius:20px;font-size:20px;font-weight:600;cursor:pointer;white-space:nowrap;background:var(--card);color:var(--muted);border:1px solid var(--border);transition:all .2s;font-family:inherit}.filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}.divider{width:1px;background:var(--border);margin:0 2px;flex-shrink:0}.task-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;transition:all .2s}.task-item.urgent{border-color:rgba(255,91,121,.3)}.task-item.done{opacity:.55}.task-check{width:22px;height:22px;border-radius:50%;flex-shrink:0;margin-top:1px;border:2px solid var(--border);background:0 0;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;transition:all .2s}.task-item.urgent .task-check{border-color:var(--red)}.task-item.done .task-check{background:var(--green);border-color:var(--green)}.task-body{flex:1;min-width:0}.task-title{font-size:22px;font-weight:500;line-height:1.5;margin-bottom:6px}.task-item.done .task-title{text-decoration:line-through;color:var(--muted)}.task-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.task-meeting{font-size:18px;color:var(--muted);margin-top:5px}.bdg{font-size:18px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}.bdg-done{background:rgba(0,229,195,.12);color:var(--green)}.bdg-overdue{background:rgba(255,91,121,.12);color:var(--red)}.bdg-today{background:rgba(255,91,121,.12);color:var(--red)}.bdg-soon{background:rgba(255,159,67,.12);color:var(--orange)}.bdg-normal{background:rgba(107,116,148,.12);color:var(--muted)}.bdg-urgent{background:rgba(255,91,121,.1);color:var(--red)}.avatar{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex-shrink:0}.member-wrap{display:flex;align-items:center;gap:4px}.member-name{font-size:18px;color:var(--muted)}.upload-zone{border:2px dashed var(--border);border-radius:14px;padding:32px 20px;text-align:center;cursor:pointer;background:var(--card);margin-bottom:14px;transition:border-color .2s}.upload-zone.parsing{border-color:var(--accent)}.upload-icon{font-size:48px;margin-bottom:10px}.upload-title{font-weight:700;margin-bottom:4px}.upload-sub{font-size:20px;color:var(--muted)}.loading-bar{margin-top:14px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}.loading-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));width:40%;animation:slide 1.2s infinite}@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}.btn-primary{width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--green),#00b89c);color:#fff;font-size:22px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px}.btn-secondary{width:100%;padding:13px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:20px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:10px}.member-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}.member-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.member-info{display:flex;align-items:center;gap:10px}.member-pct{font-family:monospace;font-size:30px;font-weight:700}.toggle-wrap{width:42px;height:24px;border-radius:12px;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}.toggle-knob{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)}.reminder-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px}.reminder-header{display:flex;align-items:center;justify-content:space-between}.reminder-icon{width:36px;height:36px;border-radius:10px;background:rgba(79,140,255,.12);display:flex;align-items:center;justify-content:center;font-size:26px}.reminder-title{font-size:22px;font-weight:600}.reminder-sub{font-size:18px;color:var(--muted)}.reminder-body{padding-top:14px;border-top:1px solid var(--border);margin-top:14px;display:flex;flex-direction:column;gap:12px}.reminder-row{display:flex;align-items:center;justify-content:space-between}.reminder-label{font-size:20px;color:var(--muted)}.hour-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.hour-btn{padding:4px 10px;border-radius:8px;font-size:20px;cursor:pointer;font-family:monospace;border:1px solid var(--border);background:var(--surf);color:var(--muted);transition:all .2s}.hour-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}.stepper{display:flex;align-items:center;gap:8px}.stepper-btn{width:28px;height:28px;border-radius:8px;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;user-select:none}.stepper-val{font-size:22px;font-weight:700;min-width:28px;text-align:center;font-family:monospace}.stepper-suffix{font-size:20px;color:var(--muted)}.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surf);border-top:1px solid var(--border);padding:8px 0 18px;display:flex;z-index:50}.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 0}.nav-icon{font-size:30px}.nav-label{font-size:18px;color:var(--muted)}.nav-item.active .nav-label{color:var(--accent);font-weight:700}.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);color:#fff;padding:10px 20px;border-radius:20px;font-size:20px;font-weight:600;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);animation:fadeUp .3s ease;display:none}@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}.section-label{font-size:18px;color:var(--muted);font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px}.refresh-btn{text-align:center;padding:16px 0;font-size:20px;color:var(--muted);cursor:pointer}.info-banner{background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px}.info-banner-icon{font-size:26px}.info-banner-title{font-size:20px;font-weight:600}.info-banner-sub{font-size:18px;color:var(--muted)}.next-reminder-box{background:rgba(255,159,67,.06);border:1px solid rgba(255,159,67,.2);border-radius:12px;padding:12px 14px;margin-bottom:12px}.next-reminder-title{font-size:18px;font-weight:700;color:var(--orange);margin-bottom:8px}.next-reminder-row{display:flex;justify-content:space-between;font-size:18px;color:var(--muted)}.next-reminder-time{color:var(--orange);font-weight:600;white-space:nowrap}.empty{text-align:center;color:var(--muted);padding:40px 0;font-size:20px}.weekday-btns{display:flex;gap:5px}.weekday-btn{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;border:1px solid var(--border);background:var(--surf);color:var(--muted);transition:all .2s}.weekday-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}.hint-box{background:rgba(79,140,255,.06);border:1px solid rgba(79,140,255,.2);border-radius:12px;padding:14px;margin-top:16px;font-size:20px;color:var(--muted);line-height:1.8}.hint-box-title{font-weight:700;color:var(--text);margin-bottom:6px}.member-chip{display:flex;align-items:center;gap:6px;background:var(--surf);border-radius:20px;padding:5px 12px 5px 6px}.parse-result{animation:fadeUp .4s ease}.parse-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px}.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:flex-end;justify-content:center}.modal-overlay.open{display:flex}.modal{background:var(--surf);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-width:480px;animation:slideUp .3s ease}@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}.modal-title{font-size:24px;font-weight:700;margin-bottom:16px}.modal-label{font-size:20px;color:var(--muted);margin-bottom:6px;font-weight:600}.modal-input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:22px;outline:0;margin-bottom:12px}.modal-input:focus{border-color:var(--accent)}.modal-select{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:22px;outline:0;margin-bottom:12px;appearance:none}.modal-btns{display:flex;gap:8px;margin-top:4px}.btn-save{flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:22px;font-weight:700;cursor:pointer;font-family:inherit}.btn-delete{padding:13px 18px;border-radius:12px;border:none;background:rgba(255,91,121,.15);color:var(--red);font-size:22px;font-weight:700;cursor:pointer;font-family:inherit}.btn-cancel{padding:13px 18px;border-radius:12px;border:1px solid var(--border);background:0 0;color:var(--muted);font-size:22px;cursor:pointer;font-family:inherit}</style><script defer="defer" src="/meetbot-app/static/js/main.cb0dc17b.js"></script></head><body><div class="app"><div class="topbar"><div class="logo-wrap"><div class="logo">📋</div><div><div class="logo-title">MeetBot</div><div class="logo-sub">會議任務追蹤系統</div></div></div><div class="sync-info"><div class="badges"><div class="badge badge-urgent" id="urgentBadge" style="display:none"></div><div class="badge badge-pct" id="pctBadge">0%</div></div><div class="sync-dot-wrap"><div class="sync-dot" id="syncDot"></div><span id="syncLabel">載入中...</span></div></div></div><div class="tabs"><div class="tab active" onclick='switchTab("dashboard")' id="tab-dashboard"><div class="tab-icon">📊</div>任務</div><div class="tab" onclick='switchTab("upload")' id="tab-upload"><div class="tab-icon">📄</div>上傳</div><div class="tab" onclick='switchTab("team")' id="tab-team"><div class="tab-icon">👥</div>成員</div><div class="tab" onclick='switchTab("reminders")' id="tab-reminders"><div class="tab-icon">⏰</div>提醒</div></div><div class="page active" id="page-dashboard"><div class="info-banner" style="margin-top:4px"><div class="info-banner-icon">🔗</div><div><div class="info-banner-title">Firebase 共用清單・即時同步</div><div class="info-banner-sub">所有成員共用同一份資料，30 秒自動更新</div></div></div><div class="stats-grid"><div class="stat-box"><div class="stat-num" id="statPending" style="color:var(--accent)">0</div><div class="stat-label">待完成</div></div><div class="stat-box"><div class="stat-num" id="statDone" style="color:var(--green)">0</div><div class="stat-label">已完成</div></div><div class="stat-box"><div class="stat-num" id="statUrgent" style="color:var(--red)">0</div><div class="stat-label">緊急</div></div></div><div class="card" style="padding:12px 14px"><div style="display:flex;justify-content:space-between;font-size:20px;margin-bottom:8px"><span style="color:var(--muted)">整體完成進度</span> <span style="font-weight:700;color:var(--green);font-family:monospace" id="progressLabel">0/0</span></div><div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div></div><div class="next-reminder-box" id="nextReminderBox" style="display:none"><div class="next-reminder-title">⏰ 即將觸發的提醒</div><div id="nextReminderList"></div></div><div class="filter-row" id="filterRow"></div><div id="taskList"></div><div class="refresh-btn" onclick="fetchAll(!0)">↻ 手動重新整理</div></div><div class="page" id="page-upload"><div class="card" style="margin-bottom:14px"><div style="font-weight:700;font-size:22px;margin-bottom:12px">新增單筆任務</div><input id="manualTitle" placeholder="任務名稱" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:0"> <select id="manualAssignee" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px"></select> <input id="manualDeadline" type="date" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:0"> <input id="manualMeeting" placeholder="會議名稱（選填）" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:12px;outline:0"> <button onclick="addManualTask()" style="width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--accent),#7c5fe6);color:#fff;font-size:20px;font-weight:700;cursor:pointer;font-family:inherit">新增任務</button></div><div class="upload-zone" id="uploadZone" onclick='document.getElementById("fileInput").click()'><input type="file" id="fileInput" accept=".docx" style="display:none" onchange="handleFile(this)"><div class="upload-icon">📄</div><div class="upload-title" id="uploadTitle">點擊上傳 .docx 會議紀錄</div><div class="upload-sub">AI 自動解析任務、負責人、截止日期</div></div><div id="parseResultArea"></div><div class="card" id="uploadHint"><div style="font-weight:700;margin-bottom:6px">📌 使用說明</div><div style="font-size:20px;color:var(--muted);line-height:1.8">上傳包含會議決議事項的 Word 文件<br>AI 會自動辨識「負責人」「任務」「截止時間」<br>確認後立即同步給所有團隊成員</div></div></div><div class="page" id="page-team"><div class="section-label">成員完成率</div><div id="memberList"></div><div class="section-label" style="margin-top:20px">固定成員</div><div class="card"><div id="memberChips" style="display:flex;flex-wrap:wrap;gap:10px"></div></div></div><div class="page" id="page-reminders"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div class="section-label" style="margin-bottom:0">提醒規則設定</div><div style="font-size:18px;color:var(--muted);font-weight:600" id="savedLabel">修改後自動儲存</div></div><div id="reminderCards"></div><div id="nextReminderPreview"></div><div class="hint-box"><div class="hint-box-title">💡 自動提醒說明</div>系統每小時整點自動檢查，符合條件時直接發 LINE 給負責人。</div><button class="btn-secondary" onclick="manualNotify()">📨 立即檢查並發送 LINE 提醒</button><div style="text-align:center;font-size:18px;color:var(--muted);margin-top:8px" id="lastNotifyLabel"></div></div><div class="bottom-nav"><div class="nav-item active" onclick='switchTab("dashboard")' id="nav-dashboard"><div class="nav-icon">📊</div><div class="nav-label">任務</div></div><div class="nav-item" onclick='switchTab("upload")' id="nav-upload"><div class="nav-icon">📄</div><div class="nav-label">上傳</div></div><div class="nav-item" onclick='switchTab("team")' id="nav-team"><div class="nav-icon">👥</div><div class="nav-label">成員</div></div><div class="nav-item" onclick='switchTab("reminders")' id="nav-reminders"><div class="nav-icon">⏰</div><div class="nav-label">提醒</div></div></div><div class="toast" id="toast"></div><div class="modal-overlay" id="editModal" onclick="event.target===this&&closeModal()"><div class="modal"><div class="modal-title">✏️ 編輯任務</div><div class="modal-label">任務描述</div><textarea class="modal-input" id="editTitle" rows="3" style="resize:none"></textarea><div class="modal-label">負責人</div><select class="modal-select" id="editAssignee"></select><div class="modal-label">截止日期</div><input type="date" class="modal-input" id="editDeadline"><div class="modal-label">來源會議</div><input class="modal-input" id="editMeeting"><div class="modal-btns"><button class="btn-delete" onclick="deleteTask()">🗑 刪除</button> <button class="btn-cancel" onclick="closeModal()">取消</button> <button class="btn-save" onclick="saveEdit()">儲存</button></div><button class="btn-secondary" onclick="notifyTask()" style="margin-top:8px;width:100%;padding:12px;border-radius:12px;border:1px solid rgba(0,229,195,.3);background:rgba(0,229,195,.08);color:var(--green);font-size:20px;font-weight:600;cursor:pointer;font-family:inherit">📨 立即發送 LINE 通知給負責人</button></div></div></div><script>const firebaseConfig={apiKey:"AIzaSyABlghqrAFcwFlSeV5FgIbuu5LLfCnxY0k",authDomain:"meetbot-ede53.firebaseapp.com",databaseURL:"https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"meetbot-ede53",storageBucket:"meetbot-ede53.firebasestorage.app",messagingSenderId:"452091108377",appId:"1:452091108377:web:6ce5396d7e55ae6a68de88"};firebase.initializeApp(firebaseConfig);const db=firebase.database(),TEAM=["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"],COLORS=["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399"],BACKEND="https://meetbot-backend.onrender.com",WEEKDAYS=["日","一","二","三","四","五","六"],DEMO_TASKS=[{id:1,title:"彙整各診所回報的處方數量，傳給主任",assignee:"怡君",deadline:"2026-03-28",meeting:"週會 3/21",done:!1,urgent:!1},{id:2,title:"確認 Q2 採購預算核准文件",assignee:"小明",deadline:"2026-03-28",meeting:"週會 3/21",done:!1,urgent:!1},{id:3,title:"更新居民追蹤名單並上傳系統",assignee:"阿偉",deadline:"2026-03-28",meeting:"週會 3/21",done:!1,urgent:!1}],DEFAULT_REMINDERS={dayBefore:{on:!0,days:1,hour:9},hourBefore:{on:!0,hours:2},overdueAlert:{on:!0},weeklyReport:{on:!1,weekday:5,hour:16}};let tasks=[],reminders={...DEFAULT_REMINDERS},filter="all",memberFilter="all",currentTab="dashboard",lastNotify=null;const today=()=>(new Date).toISOString().slice(0,10),daysLeft=e=>Math.ceil((new Date(e)-new Date(today()))/864e5),memberColor=e=>COLORS[TEAM.indexOf(e)%COLORS.length]||"#888",pad2=e=>String(e).padStart(2,"0"),esc=e=>e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");function deadlineBadge(e,t){if(t)return'<span class="bdg bdg-done">✓ 完成</span>';const n=daysLeft(e);return n<0?`<span class="bdg bdg-overdue">逾期 ${Math.abs(n)} 天</span>`:0===n?'<span class="bdg bdg-today">今天截止</span>':n<=2?`<span class="bdg bdg-soon">剩 ${n} 天</span>`:`<span class="bdg bdg-normal">${e.slice(5).replace("-","/")} 截止</span>`}function avatar(e,t=18){return`<div class="avatar" style="width:${t}px;height:${t}px;background:${memberColor(e)};font-size:${.42*t}px">${e[0]}</div>`}function showToast(e,t="#4f8cff"){const n=document.getElementById("toast");n.textContent=e,n.style.background=t,n.style.display="block",setTimeout(()=>n.style.display="none",2800)}async function loadTasks(){const e=await db.ref("meetbot/tasks").get();return e.exists()?Object.values(e.val()):(await db.ref("meetbot/tasks").set(Object.fromEntries(DEMO_TASKS.map(e=>[e.id,e]))),DEMO_TASKS)}async function saveTasks(){await db.ref("meetbot/tasks").set(Object.fromEntries(tasks.map(e=>[e.id,e])))}async function loadReminders(){const e=await db.ref("meetbot/reminders").get();return e.exists()?{...DEFAULT_REMINDERS,...e.val()}:DEFAULT_REMINDERS}async function saveReminders(){await db.ref("meetbot/reminders").set(reminders);const e=document.getElementById("savedLabel");e.textContent="✓ 已儲存",e.style.color="var(--green)",setTimeout(()=>{e.textContent="修改後自動儲存",e.style.color=""},1500)}async function fetchAll(e=!1){e?document.getElementById("syncDot").style.animation="pulse 1s infinite":(document.getElementById("syncLabel").textContent="載入中...",document.getElementById("syncDot").style.background="var(--accent)"),[tasks,reminders]=await Promise.all([loadTasks(),loadReminders()]),renderAll();const t=new Date;document.getElementById("syncLabel").textContent=`${pad2(t.getHours())}:${pad2(t.getMinutes())} 同步`,document.getElementById("syncDot").style.background="var(--green)",document.getElementById("syncDot").style.animation=""}function renderAll(){renderStats(),renderFilters(),renderTasks(),renderTeam(),renderReminderCards(),renderNextReminders()}function renderStats(){const e=tasks.filter(e=>!e.done).length,t=tasks.filter(e=>e.done).length,n=tasks.filter(e=>!e.done&&daysLeft(e.deadline)<=2).length,s=tasks.length?Math.round(t/tasks.length*100):0;document.getElementById("statPending").textContent=e,document.getElementById("statDone").textContent=t,document.getElementById("statUrgent").textContent=n,document.getElementById("progressLabel").textContent=`${t}/${tasks.length}`,document.getElementById("progressFill").style.width=s+"%",document.getElementById("pctBadge").textContent=s+"%";const a=document.getElementById("urgentBadge");n>0?(a.textContent=`⚡${n}`,a.style.display=""):a.style.display="none"}function renderFilters(){let e=[["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"]].map(([e,t])=>`<button class="filter-btn ${filter===e?"active":""}" onclick="setFilter('${e}')">${t}</button>`).join("");e+='<div class="divider"></div>',e+=["all",...TEAM].map(e=>{const t="all"===e?"":memberColor(e),n=memberFilter===e;return`<button class="filter-btn ${n?"active":""}" onclick="setMemberFilter('${e}')" style="${n&&"all"!==e?`background:${t};border-color:${t}`:""}">${"all"===e?"全員":e}</button>`}).join(""),document.getElementById("filterRow").innerHTML=e}function renderTasks(){const e=tasks.filter(e=>("all"===memberFilter||e.assignee===memberFilter)&&("pending"===filter?!e.done:"urgent"===filter?!e.done&&daysLeft(e.deadline)<=2:"done"!==filter||e.done));0!==e.length?document.getElementById("taskList").innerHTML=e.map(e=>`\n    <div class="task-item ${e.urgent&&!e.done?"urgent":""} ${e.done?"done":""}" style="position:relative;flex-direction:column;gap:8px">\n      <div style="display:flex;gap:12px;align-items:flex-start;width:100%">\n        <div onclick="toggleDone(${e.id})" class="task-check" style="cursor:pointer;margin-top:2px">${e.done?"✓":""}</div>\n        <div class="task-body" onclick="toggleDone(${e.id})" style="cursor:pointer;flex:1;min-width:0">\n          <div class="task-title">${esc(e.title)}</div>\n          <div class="task-meta">\n            <div class="member-wrap">${avatar(e.assignee)}<span class="member-name">${e.assignee}</span></div>\n            ${deadlineBadge(e.deadline,e.done)}\n            ${e.urgent&&!e.done?'<span class="bdg bdg-urgent">⚡ 緊急</span>':""}\n          </div>\n          <div class="task-meeting">📋 ${esc(e.meeting)}</div>\n        </div>\n        <div onclick="openEdit(${e.id})" style="padding:4px 8px;cursor:pointer;color:var(--muted);font-size:26px;flex-shrink:0">✎</div>\n      </div>\n      ${e.progressNote?`<div style="background:rgba(79,140,255,0.07);border:1px solid rgba(79,140,255,0.2);border-radius:8px;padding:8px 12px;font-size:20px;color:var(--accent)">📝 ${esc(e.progressNote)}</div>`:""}\n      <div onclick="openNote(${e.id})" style="width:100%;padding:10px 0;border-radius:10px;cursor:pointer;background:${e.progressNote?"rgba(79,140,255,0.1)":"var(--surf)"};border:1.5px solid ${e.progressNote?"rgba(79,140,255,0.35)":"var(--border)"};display:flex;align-items:center;justify-content:center;gap:6px;font-size:20px;font-weight:600;color:${e.progressNote?"var(--accent)":"var(--muted)"}">📝 ${e.progressNote?"編輯工作進度備註":"新增工作進度備註"}</div>\n    </div>\n  `).join(""):document.getElementById("taskList").innerHTML='<div class="empty">沒有符合的任務</div>'}function renderTeam(){const e=TEAM.map(e=>{const t=tasks.filter(t=>t.assignee===e),n=t.filter(e=>e.done).length;return{name:e,total:t.length,done:n,pct:t.length?Math.round(n/t.length*100):0}}).filter(e=>e.total>0);document.getElementById("memberList").innerHTML=0===e.length?'<div class="empty">尚無任務資料</div>':e.map(e=>`\n      <div class="member-card">\n        <div class="member-header">\n          <div class="member-info">\n            ${avatar(e.name,36)}\n            <div><div style="font-weight:700;font-size:22px">${e.name}</div><div style="font-size:18px;color:var(--muted)">${e.done}/${e.total} 項完成</div></div>\n          </div>\n          <div class="member-pct" style="color:${100===e.pct?"var(--green)":e.pct>=50?"var(--accent)":"var(--orange)"}">${e.pct}%</div>\n        </div>\n        <div class="progress-bar"><div class="progress-fill" style="width:${e.pct}%;background:linear-gradient(90deg,${memberColor(e.name)},${memberColor(e.name)}aa)"></div></div>\n        ${tasks.filter(t=>t.assignee===e.name&&!t.done).slice(0,2).map(e=>`\n          <div style="font-size:18px;color:var(--muted);padding:5px 0;border-top:1px solid var(--border);margin-top:8px;display:flex;justify-content:space-between;gap:8px">\n            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">• ${esc(e.title)}</span>\n            ${deadlineBadge(e.deadline,!1)}\n          </div>\n        `).join("")}\n      </div>\n    `).join(""),document.getElementById("memberChips").innerHTML=TEAM.map(e=>`\n    <div class="member-chip">${avatar(e,22)}<span style="font-size:20px">${e}</span></div>\n  `).join("")}function renderReminderCards(){document.getElementById("reminderCards").innerHTML=[{key:"dayBefore",icon:"📅",title:"截止日前提醒",sub:"在截止日的前幾天早上提醒"},{key:"hourBefore",icon:"⏰",title:"截止前緊急提醒",sub:"截止前幾小時發出最後警示"},{key:"overdueAlert",icon:"🚨",title:"逾期高亮提示",sub:"逾期任務在儀表板醒目標示"},{key:"weeklyReport",icon:"📊",title:"每週完成率報告",sub:"固定時間推播團隊整體進度"}].map(e=>{const t=reminders[e.key],n=t.on;let s="";return n&&"dayBefore"===e.key&&(s=`<div class="reminder-body">\n        <div class="reminder-row"><span class="reminder-label">提前幾天</span>\n          <div class="stepper">\n            <div class="stepper-btn" onclick="stepReminder('dayBefore','days',-1,1,7)">−</div>\n            <div class="stepper-val" id="dayBefore-days">${t.days}</div>\n            <div class="stepper-btn" onclick="stepReminder('dayBefore','days',1,1,7)">+</div>\n            <span class="stepper-suffix">天前</span>\n          </div>\n        </div>\n        <div class="reminder-row"><span class="reminder-label">提醒時間</span>\n          <div class="hour-btns">${[7,8,9,10,12,14].map(e=>`<div class="hour-btn ${t.hour===e?"active":""}" onclick="setReminderHour('dayBefore',${e})">${pad2(e)}:00</div>`).join("")}</div>\n        </div>\n      </div>`),n&&"hourBefore"===e.key&&(s=`<div class="reminder-body">\n        <div class="reminder-row"><span class="reminder-label">提前幾小時</span>\n          <div class="stepper">\n            <div class="stepper-btn" onclick="stepReminder('hourBefore','hours',-1,1,24)">−</div>\n            <div class="stepper-val" id="hourBefore-hours">${t.hours}</div>\n            <div class="stepper-btn" onclick="stepReminder('hourBefore','hours',1,1,24)">+</div>\n            <span class="stepper-suffix">小時前</span>\n          </div>\n        </div>\n      </div>`),n&&"weeklyReport"===e.key&&(s=`<div class="reminder-body">\n        <div class="reminder-row"><span class="reminder-label">每週幾</span>\n          <div class="weekday-btns">${[1,2,3,4,5].map(e=>`<div class="weekday-btn ${t.weekday===e?"active":""}" onclick="setReminderWeekday(${e})">週${WEEKDAYS[e]}</div>`).join("")}</div>\n        </div>\n        <div class="reminder-row"><span class="reminder-label">發送時間</span>\n          <div class="hour-btns">${[9,12,14,16,17,18].map(e=>`<div class="hour-btn ${t.hour===e?"active":""}" onclick="setReminderHour('weeklyReport',${e})">${pad2(e)}:00</div>`).join("")}</div>\n        </div>\n      </div>`),`<div class="reminder-card">\n      <div class="reminder-header" style="margin-bottom:${n&&s?14:0}px">\n        <div style="display:flex;align-items:center;gap:10px">\n          <div class="reminder-icon">${e.icon}</div>\n          <div><div class="reminder-title">${e.title}</div><div class="reminder-sub">${e.sub}</div></div>\n        </div>\n        <div class="toggle-wrap" style="background:${n?"var(--accent)":"var(--border)"}" onclick="toggleReminder('${e.key}')">\n          <div class="toggle-knob" style="left:${n?21:3}px"></div>\n        </div>\n      </div>\n      ${s}\n    </div>`}).join("")}function renderNextReminders(){const e=[],t=new Date;tasks.filter(e=>!e.done).forEach(n=>{const s=new Date(n.deadline+"T23:59:00");if(reminders.hourBefore?.on){const a=new Date(s.getTime()-36e5*reminders.hourBefore.hours);a>t&&e.push({task:n,at:a,type:`截止前 ${reminders.hourBefore.hours} 小時`})}if(reminders.dayBefore?.on){const a=new Date(s);a.setDate(a.getDate()-reminders.dayBefore.days),a.setHours(reminders.dayBefore.hour,0,0,0),a>t&&e.push({task:n,at:a,type:`截止前 ${reminders.dayBefore.days} 天`})}}),e.sort((e,t)=>e.at-t.at);const n=e.slice(0,3),s=document.getElementById("nextReminderBox");n.length>0?(s.style.display="",document.getElementById("nextReminderList").innerHTML=n.map((e,t)=>`\n      <div class="next-reminder-row" style="${t>0?"border-top:1px solid var(--border);margin-top:6px;padding-top:6px":""}">\n        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">• ${esc(e.task.title)}</span>\n        <span class="next-reminder-time">${e.type} · ${pad2(e.at.getMonth()+1)}/${pad2(e.at.getDate())} ${pad2(e.at.getHours())}:00</span>\n      </div>\n    `).join("")):s.style.display="none";const a=document.getElementById("nextReminderPreview");n.length>0?a.innerHTML=`<div style="margin-top:20px"><div class="section-label">即將提醒</div>${n.map(e=>`\n      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px">\n        <div style="flex:1;min-width:0">\n          <div style="font-size:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.task.title)}</div>\n          <div style="font-size:18px;color:var(--muted);margin-top:3px">${e.task.assignee} · ${e.type}</div>\n        </div>\n        <div style="font-size:18px;color:var(--orange);font-weight:700;font-family:monospace;white-space:nowrap">${pad2(e.at.getMonth()+1)}/${pad2(e.at.getDate())} ${pad2(e.at.getHours())}:00</div>\n      </div>\n    `).join("")}</div>`:a.innerHTML=""}function switchTab(e){document.querySelectorAll(".tab").forEach(e=>e.classList.remove("active")),document.querySelectorAll(".page").forEach(e=>e.classList.remove("active")),document.querySelectorAll(".nav-item").forEach(e=>e.classList.remove("active")),document.getElementById("tab-"+e).classList.add("active"),document.getElementById("page-"+e).classList.add("active"),document.getElementById("nav-"+e).classList.add("active"),currentTab=e,"upload"===e&&initManualForm()}function setFilter(e){filter=e,renderFilters(),renderTasks()}function setMemberFilter(e){memberFilter=e,renderFilters(),renderTasks()}async function toggleDone(e){const t=tasks.find(t=>t.id===e)?.done;if(tasks=tasks.map(t=>t.id===e?{...t,done:!t.done}:t),renderAll(),await saveTasks(),t)showToast("已更新！","#4f8cff");else{const t=tasks.find(t=>t.id===e);showToast("✅ 任務完成！","#00e5c3"),fetch("https://meetbot-check-in-system.onrender.com/notify-task-done",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:t})}).catch(()=>{})}}function openNote(e){const t=tasks.find(t=>t.id===e);t&&(document.getElementById("noteTaskId").value=e,document.getElementById("noteInput").value=t.progressNote||"",document.getElementById("noteModal").classList.add("open"))}async function saveNote(){const e=parseInt(document.getElementById("noteTaskId").value),t=document.getElementById("noteInput").value.trim(),n=(new Date).toLocaleString("zh-TW",{timeZone:"Asia/Taipei",hour12:!1}).replace(/\//g,"-");tasks=tasks.map(s=>s.id===e?{...s,progressNote:t,progressNoteTime:t?n:""}:s),document.getElementById("noteModal").classList.remove("open"),renderAll(),await saveTasks(),showToast("備註已儲存","#00e5c3")}function toggleReminder(e){reminders[e].on=!reminders[e].on,renderReminderCards(),renderNextReminders(),saveReminders()}function stepReminder(e,t,n,s,a){const i=Math.min(a,Math.max(s,reminders[e][t]+n));reminders[e][t]=i,document.getElementById(`${e}-${t}`).textContent=i,renderNextReminders(),saveReminders()}function setReminderHour(e,t){reminders[e].hour=t,renderReminderCards(),renderNextReminders(),saveReminders()}function setReminderWeekday(e){reminders.weeklyReport.weekday=e,renderReminderCards(),saveReminders()}function initManualForm(){const e=document.getElementById("manualAssignee");!e||e.options.length>0||TEAM.forEach(t=>{const n=document.createElement("option");n.value=n.textContent=t,e.appendChild(n)})}async function addManualTask(){const e=document.getElementById("manualTitle").value.trim(),t=document.getElementById("manualAssignee").value,n=document.getElementById("manualDeadline").value,s=document.getElementById("manualMeeting").value.trim()||"手動新增";if(!e||!n)return void alert("請填寫任務名稱與截止日期");const a={id:Date.now(),title:e,assignee:t,deadline:n,meeting:s,done:!1,urgent:daysLeft(n)<=1,progressNote:"",progressNoteTime:""};tasks.unshift(a),await saveTasks(),document.getElementById("manualTitle").value="",document.getElementById("manualDeadline").value="",document.getElementById("manualMeeting").value="",renderAll(),showToast("已新增 1 項任務")}async function handleFile(e){const t=e.files[0];if(!t)return;const n=document.getElementById("uploadZone"),s=document.getElementById("uploadTitle"),a=document.getElementById("uploadHint");n.classList.add("parsing"),s.textContent="AI 解析中...",a.style.display="none",document.getElementById("parseResultArea").innerHTML='<div class="upload-zone parsing" style="cursor:default"><div style="font-size:40px;margin-bottom:10px">⚙️</div><div style="font-weight:700;margin-bottom:4px">AI 解析中...</div><div class="loading-bar"><div class="loading-fill"></div></div></div>';try{const e=await t.arrayBuffer(),{value:n}=await mammoth.extractRawText({arrayBuffer:e});renderParseResult(await parseWithAI(n,t.name),t.name)}catch(e){showToast("解析失敗，請再試一次","var(--red)"),resetUpload()}}async function parseWithAI(e,t){const n=await fetch(`${BACKEND}/parse-meeting`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:e})}),s=await n.json();if(s.error)throw new Error(s.error);return s.items}let pendingItems=[];function renderParseResult(e,t){pendingItems=e;document.getElementById("uploadZone").style.display="none",document.getElementById("parseResultArea").innerHTML=`\n    <div class="parse-result">\n      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:20px;color:var(--green);font-weight:700">✦ 找到 ${e.length} 項任務，確認後同步給全團隊</div>\n      ${e.map(e=>`<div class="parse-item"><div style="font-size:22px;font-weight:500;margin-bottom:6px">${esc(e.title)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="member-wrap">${avatar(e.assignee)}<span class="member-name">${e.assignee}</span></div><span class="bdg bdg-soon">📅 ${e.deadline}</span></div></div>`).join("")}\n      <button class="btn-primary" onclick="confirmTasks('${t}')">🔗 同步給全團隊</button>\n      <button class="btn-secondary" onclick="resetUpload()" style="margin-top:8px">取消</button>\n    </div>\n  `}async function confirmTasks(e){const t=e.replace(/\.docx$/i,"")||"匯入會議",n=pendingItems.map((e,n)=>({id:Date.now()+n,title:e.title,assignee:e.assignee,deadline:e.deadline,meeting:t,done:!1,urgent:daysLeft(e.deadline)<=1}));tasks=[...n,...tasks],await saveTasks(),renderAll(),resetUpload(),switchTab("dashboard"),showToast(`🔗 已同步 ${n.length} 項任務，發送 LINE 通知中...`);let s=0;for(const e of n)try{const t=await fetch(`${BACKEND}/notify-new-task`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:e})});(await t.json()).ok&&s++}catch{}s>0&&showToast(`📨 已通知 ${s} 位負責人`,"var(--green)")}let editingId=null;function openEdit(e){const t=tasks.find(t=>t.id===e);if(!t)return;editingId=e,document.getElementById("editTitle").value=t.title,document.getElementById("editDeadline").value=t.deadline,document.getElementById("editMeeting").value=t.meeting;document.getElementById("editAssignee").innerHTML=TEAM.map(e=>`<option value="${e}" ${e===t.assignee?"selected":""}>${e}</option>`).join(""),document.getElementById("editModal").classList.add("open")}function closeModal(){document.getElementById("editModal").classList.remove("open"),editingId=null}async function saveEdit(){if(!editingId)return;const e=document.getElementById("editTitle").value.trim(),t=document.getElementById("editAssignee").value,n=document.getElementById("editDeadline").value,s=document.getElementById("editMeeting").value.trim();e&&n?(tasks=tasks.map(a=>a.id===editingId?{...a,title:e,assignee:t,deadline:n,meeting:s,urgent:daysLeft(n)<=1}:a),await saveTasks(),renderAll(),closeModal(),showToast("✓ 任務已更新","var(--green)")):showToast("請填寫任務描述和截止日期","var(--red)")}async function deleteTask(){editingId&&confirm("確定要刪除這個任務嗎？")&&(tasks=tasks.filter(e=>e.id!==editingId),await saveTasks(),renderAll(),closeModal(),showToast("已刪除任務","#6b7494"))}async function notifyTask(){if(!editingId)return;const e=tasks.find(e=>e.id===editingId);if(e){showToast("發送中...","#6b7494");try{const t=await fetch(`${BACKEND}/notify-new-task`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:e})});(await t.json()).ok?showToast(`📨 已通知 ${e.assignee}`,"var(--green)"):showToast(`找不到 ${e.assignee} 的 LINE ID`,"var(--orange)")}catch{showToast("發送失敗，請稍後再試","var(--red)")}}}function resetUpload(){document.getElementById("uploadZone").style.display="",document.getElementById("uploadZone").classList.remove("parsing"),document.getElementById("uploadTitle").textContent="點擊上傳 .docx 會議紀錄",document.getElementById("uploadHint").style.display="",document.getElementById("parseResultArea").innerHTML="",document.getElementById("fileInput").value="",pendingItems=[]}async function manualNotify(){showToast("發送中...","#6b7494");const e=await checkAndNotify();e>0?(lastNotify=new Date,document.getElementById("lastNotifyLabel").textContent=`上次發送：${pad2(lastNotify.getHours())}:${pad2(lastNotify.getMinutes())}`,showToast(`📨 已發送 ${e} 則 LINE 提醒`,"var(--green)")):showToast("目前沒有符合條件的提醒","#6b7494")}async function checkAndNotify(){try{const e=await fetch(`${BACKEND}/check-reminders`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tasks:tasks,reminders:reminders})});return(await e.json()).sent||0}catch{return 0}}fetchAll(!1),setInterval(()=>fetchAll(!0),3e4),setInterval(async()=>{const e=await checkAndNotify();e>0&&(lastNotify=new Date,showToast(`📨 已發送 ${e} 則 LINE 提醒`,"var(--green)"))},36e5)</script><div class="modal-overlay" id="noteModal" onclick='event.target===this&&document.getElementById("noteModal").classList.remove("open")'><div class="modal"><div class="modal-title" style="font-size:22px">📝 工作進度備註</div><input type="hidden" id="noteTaskId"><div class="modal-label">目前工作進度</div><textarea id="noteInput" class="modal-input" rows="4" placeholder="請輸入目前工作進度備註..." style="resize:vertical;min-height:100px"></textarea><div class="modal-btns"><button class="btn-save" onclick="saveNote()">儲存備註</button> <button class="btn-cancel" onclick='document.getElementById("noteModal").classList.remove("open")'>取消</button></div></div></div></body></html>
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>MeetBot 會議任務追蹤</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-height:100vh}
+:root{--bg:#080b12;--surf:#10141e;--card:#181d2a;--border:#232840;--accent:#4f8cff;--green:#00e5c3;--orange:#ff9f43;--red:#ff5b79;--text:#e8eaf2;--muted:#5a6285}
+.app{max-width:480px;margin:0 auto;position:relative;min-height:100vh}
+/* TOPBAR */
+.topbar{background:var(--surf);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.logo{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#4f8cff,#00e5c3);display:flex;align-items:center;justify-content:center;font-size:24px;margin-right:10px}
+.logo-wrap{display:flex;align-items:center}
+.logo-title{font-weight:700;font-size:22px}
+.logo-sub{font-size:18px;color:var(--muted)}
+.sync-info{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.badges{display:flex;gap:5px}
+.badge{font-size:18px;font-weight:700;padding:2px 7px;border-radius:20px}
+.badge-urgent{background:rgba(255,91,121,0.15);border:1px solid var(--red);color:var(--red)}
+.badge-pct{background:rgba(0,229,195,0.1);border:1px solid rgba(0,229,195,0.3);color:var(--green)}
+.sync-dot-wrap{display:flex;align-items:center;gap:4px;font-size:18px;color:var(--muted)}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+/* TABS */
+.tabs{display:flex;background:var(--surf);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:1;min-width:64px;text-align:center;padding:10px 4px 8px;font-size:18px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.tab-icon{font-size:26px;margin-bottom:2px}
+/* PAGES */
+.page{display:none;padding:14px 14px 100px}
+.page.active{display:block}
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.stat-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center}
+.stat-num{font-size:34px;font-weight:900;font-family:monospace;line-height:1}
+.stat-label{font-size:18px;color:var(--muted);margin-top:5px}
+/* PROGRESS */
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:3px;transition:width 0.6s ease}
+/* FILTERS */
+.filter-row{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.filter-row::-webkit-scrollbar{display:none}
+.filter-btn{padding:5px 12px;border-radius:20px;font-size:20px;font-weight:600;cursor:pointer;white-space:nowrap;background:var(--card);color:var(--muted);border:1px solid var(--border);transition:all 0.2s;font-family:inherit}
+.filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.divider{width:1px;background:var(--border);margin:0 2px;flex-shrink:0}
+/* TASK ITEMS */
+.task-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;transition:all 0.2s}
+.task-item.urgent{border-color:rgba(255,91,121,0.3)}
+.task-item.done{opacity:0.55}
+.task-check{width:22px;height:22px;border-radius:50%;flex-shrink:0;margin-top:1px;border:2px solid var(--border);background:transparent;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;transition:all 0.2s}
+.task-item.urgent .task-check{border-color:var(--red)}
+.task-item.done .task-check{background:var(--green);border-color:var(--green)}
+.task-body{flex:1;min-width:0}
+.task-title{font-size:22px;font-weight:500;line-height:1.5;margin-bottom:6px}
+.task-item.done .task-title{text-decoration:line-through;color:var(--muted)}
+.task-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.task-meeting{font-size:18px;color:var(--muted);margin-top:5px}
+/* BADGES */
+.bdg{font-size:18px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap}
+.bdg-done{background:rgba(0,229,195,0.12);color:var(--green)}
+.bdg-overdue{background:rgba(255,91,121,0.12);color:var(--red)}
+.bdg-today{background:rgba(255,91,121,0.12);color:var(--red)}
+.bdg-soon{background:rgba(255,159,67,0.12);color:var(--orange)}
+.bdg-normal{background:rgba(107,116,148,0.12);color:var(--muted)}
+.bdg-urgent{background:rgba(255,91,121,0.1);color:var(--red)}
+/* AVATAR */
+.avatar{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex-shrink:0}
+.member-wrap{display:flex;align-items:center;gap:4px}
+.member-name{font-size:18px;color:var(--muted)}
+/* UPLOAD */
+.upload-zone{border:2px dashed var(--border);border-radius:14px;padding:32px 20px;text-align:center;cursor:pointer;background:var(--card);margin-bottom:14px;transition:border-color 0.2s}
+.upload-zone.parsing{border-color:var(--accent)}
+.upload-icon{font-size:48px;margin-bottom:10px}
+.upload-title{font-weight:700;margin-bottom:4px}
+.upload-sub{font-size:20px;color:var(--muted)}
+.loading-bar{margin-top:14px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.loading-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));width:40%;animation:slide 1.2s infinite}
+@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+/* BUTTONS */
+.btn-primary{width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--green),#00b89c);color:#fff;font-size:22px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px}
+.btn-secondary{width:100%;padding:13px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:20px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:10px}
+/* MEMBER STATS */
+.member-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}
+.member-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.member-info{display:flex;align-items:center;gap:10px}
+.member-pct{font-family:monospace;font-size:30px;font-weight:700}
+/* TOGGLE */
+.toggle-wrap{width:42px;height:24px;border-radius:12px;cursor:pointer;position:relative;flex-shrink:0;transition:background 0.2s}
+.toggle-knob{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;transition:left 0.2s;box-shadow:0 1px 4px rgba(0,0,0,0.3)}
+/* REMINDER CARD */
+.reminder-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px}
+.reminder-header{display:flex;align-items:center;justify-content:space-between}
+.reminder-icon{width:36px;height:36px;border-radius:10px;background:rgba(79,140,255,0.12);display:flex;align-items:center;justify-content:center;font-size:26px}
+.reminder-title{font-size:22px;font-weight:600}
+.reminder-sub{font-size:18px;color:var(--muted)}
+.reminder-body{padding-top:14px;border-top:1px solid var(--border);margin-top:14px;display:flex;flex-direction:column;gap:12px}
+.reminder-row{display:flex;align-items:center;justify-content:space-between}
+.reminder-label{font-size:20px;color:var(--muted)}
+.hour-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hour-btn{padding:4px 10px;border-radius:8px;font-size:20px;cursor:pointer;font-family:monospace;border:1px solid var(--border);background:var(--surf);color:var(--muted);transition:all 0.2s}
+.hour-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper-btn{width:28px;height:28px;border-radius:8px;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;user-select:none}
+.stepper-val{font-size:22px;font-weight:700;min-width:28px;text-align:center;font-family:monospace}
+.stepper-suffix{font-size:20px;color:var(--muted)}
+/* BOTTOM NAV */
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surf);border-top:1px solid var(--border);padding:8px 0 18px;display:flex;z-index:50}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 0}
+.nav-icon{font-size:30px}
+.nav-label{font-size:18px;color:var(--muted)}
+.nav-item.active .nav-label{color:var(--accent);font-weight:700}
+/* TOAST */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);color:#fff;padding:10px 20px;border-radius:20px;font-size:20px;font-weight:600;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.4);animation:fadeUp 0.3s ease;display:none}
+@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+/* MISC */
+.section-label{font-size:18px;color:var(--muted);font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px}
+.refresh-btn{text-align:center;padding:16px 0;font-size:20px;color:var(--muted);cursor:pointer}
+.info-banner{background:rgba(79,140,255,0.08);border:1px solid rgba(79,140,255,0.25);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.info-banner-icon{font-size:26px}
+.info-banner-title{font-size:20px;font-weight:600}
+.info-banner-sub{font-size:18px;color:var(--muted)}
+.next-reminder-box{background:rgba(255,159,67,0.06);border:1px solid rgba(255,159,67,0.2);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.next-reminder-title{font-size:18px;font-weight:700;color:var(--orange);margin-bottom:8px}
+.next-reminder-row{display:flex;justify-content:space-between;font-size:18px;color:var(--muted)}
+.next-reminder-time{color:var(--orange);font-weight:600;white-space:nowrap}
+.empty{text-align:center;color:var(--muted);padding:40px 0;font-size:20px}
+.weekday-btns{display:flex;gap:5px}
+.weekday-btn{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;border:1px solid var(--border);background:var(--surf);color:var(--muted);transition:all 0.2s}
+.weekday-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hint-box{background:rgba(79,140,255,0.06);border:1px solid rgba(79,140,255,0.2);border-radius:12px;padding:14px;margin-top:16px;font-size:20px;color:var(--muted);line-height:1.8}
+.hint-box-title{font-weight:700;color:var(--text);margin-bottom:6px}
+.member-chip{display:flex;align-items:center;gap:6px;background:var(--surf);border-radius:20px;padding:5px 12px 5px 6px}
+.parse-result{animation:fadeUp 0.4s ease}
+.parse-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+/* MODAL */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:flex-end;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surf);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-width:480px;animation:slideUp 0.3s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-title{font-size:24px;font-weight:700;margin-bottom:16px}
+.modal-label{font-size:20px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.modal-input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:22px;outline:none;margin-bottom:12px}
+.modal-input:focus{border-color:var(--accent)}
+.modal-select{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font-family:inherit;font-size:22px;outline:none;margin-bottom:12px;appearance:none}
+.modal-btns{display:flex;gap:8px;margin-top:4px}
+.btn-save{flex:1;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:22px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-delete{padding:13px 18px;border-radius:12px;border:none;background:rgba(255,91,121,0.15);color:var(--red);font-size:22px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-cancel{padding:13px 18px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:22px;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo-wrap">
+    <div class="logo">📋</div>
+    <div>
+      <div class="logo-title">MeetBot</div>
+      <div class="logo-sub">會議任務追蹤系統</div>
+    </div>
+  </div>
+  <div class="sync-info">
+    <div class="badges">
+      <div class="badge badge-urgent" id="urgentBadge" style="display:none"></div>
+      <div class="badge badge-pct" id="pctBadge">0%</div>
+    </div>
+    <div class="sync-dot-wrap">
+      <div class="sync-dot" id="syncDot"></div>
+      <span id="syncLabel">載入中...</span>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('dashboard')" id="tab-dashboard"><div class="tab-icon">📊</div>任務</div>
+  <div class="tab" onclick="switchTab('upload')" id="tab-upload"><div class="tab-icon">📄</div>上傳</div>
+  <div class="tab" onclick="switchTab('team')" id="tab-team"><div class="tab-icon">👥</div>成員</div>
+  <div class="tab" onclick="switchTab('reminders')" id="tab-reminders"><div class="tab-icon">⏰</div>提醒</div>
+</div>
+
+<!-- PAGE: 儀表板 -->
+<div class="page active" id="page-dashboard">
+  <div class="info-banner" style="margin-top:4px">
+    <div class="info-banner-icon">🔗</div>
+    <div>
+      <div class="info-banner-title">Firebase 共用清單・即時同步</div>
+      <div class="info-banner-sub">所有成員共用同一份資料，30 秒自動更新</div>
+    </div>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-box"><div class="stat-num" id="statPending" style="color:var(--accent)">0</div><div class="stat-label">待完成</div></div>
+    <div class="stat-box"><div class="stat-num" id="statDone" style="color:var(--green)">0</div><div class="stat-label">已完成</div></div>
+    <div class="stat-box"><div class="stat-num" id="statUrgent" style="color:var(--red)">0</div><div class="stat-label">緊急</div></div>
+  </div>
+  <div class="card" style="padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;font-size:20px;margin-bottom:8px">
+      <span style="color:var(--muted)">整體完成進度</span>
+      <span style="font-weight:700;color:var(--green);font-family:monospace" id="progressLabel">0/0</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+  <div class="next-reminder-box" id="nextReminderBox" style="display:none">
+    <div class="next-reminder-title">⏰ 即將觸發的提醒</div>
+    <div id="nextReminderList"></div>
+  </div>
+  <div class="filter-row" id="filterRow"></div>
+  <div id="taskList"></div>
+  <div class="refresh-btn" onclick="fetchAll(true)">↻ 手動重新整理</div>
+</div>
+
+<!-- PAGE: 上傳 -->
+<div class="page" id="page-upload">
+  <!-- 新增單筆任務 -->
+  <div class="card" style="margin-bottom:14px">
+    <div style="font-weight:700;font-size:22px;margin-bottom:12px">新增單筆任務</div>
+    <input id="manualTitle" type="text" placeholder="任務名稱" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:none">
+    <select id="manualAssignee" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px"></select>
+    <input id="manualDeadline" type="date" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:none">
+    <input id="manualMeeting" type="text" placeholder="會議名稱（選填）" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:12px;outline:none">
+    <button onclick="addManualTask()" style="width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--accent),#7c5fe6);color:#fff;font-size:20px;font-weight:700;cursor:pointer;font-family:inherit">新增任務</button>
+  </div>
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <input type="file" id="fileInput" accept=".docx" style="display:none" onchange="handleFile(this)">
+    <div class="upload-icon">📄</div>
+    <div class="upload-title" id="uploadTitle">點擊上傳 .docx 會議紀錄</div>
+    <div class="upload-sub">AI 自動解析任務、負責人、截止日期</div>
+  </div>
+  <div id="parseResultArea"></div>
+  <div class="card" id="uploadHint">
+    <div style="font-weight:700;margin-bottom:6px">📌 使用說明</div>
+    <div style="font-size:20px;color:var(--muted);line-height:1.8">上傳包含會議決議事項的 Word 文件<br>AI 會自動辨識「負責人」「任務」「截止時間」<br>確認後立即同步給所有團隊成員</div>
+  </div>
+</div>
+
+<!-- PAGE: 成員 -->
+<div class="page" id="page-team">
+  <div class="section-label">成員完成率</div>
+  <div id="memberList"></div>
+  <div class="section-label" style="margin-top:20px">固定成員</div>
+  <div class="card"><div id="memberChips" style="display:flex;flex-wrap:wrap;gap:10px"></div></div>
+</div>
+
+<!-- PAGE: 提醒 -->
+<div class="page" id="page-reminders">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div class="section-label" style="margin-bottom:0">提醒規則設定</div>
+    <div style="font-size:18px;color:var(--muted);font-weight:600" id="savedLabel">修改後自動儲存</div>
+  </div>
+  <div id="reminderCards"></div>
+  <div id="nextReminderPreview"></div>
+  <div class="hint-box">
+    <div class="hint-box-title">💡 自動提醒說明</div>
+    系統每小時整點自動檢查，符合條件時直接發 LINE 給負責人。
+  </div>
+  <button class="btn-secondary" onclick="manualNotify()">📨 立即檢查並發送 LINE 提醒</button>
+  <div style="text-align:center;font-size:18px;color:var(--muted);margin-top:8px" id="lastNotifyLabel"></div>
+</div>
+
+<!-- BOTTOM NAV -->
+<div class="bottom-nav">
+  <div class="nav-item active" onclick="switchTab('dashboard')" id="nav-dashboard"><div class="nav-icon">📊</div><div class="nav-label">任務</div></div>
+  <div class="nav-item" onclick="switchTab('upload')" id="nav-upload"><div class="nav-icon">📄</div><div class="nav-label">上傳</div></div>
+  <div class="nav-item" onclick="switchTab('team')" id="nav-team"><div class="nav-icon">👥</div><div class="nav-label">成員</div></div>
+  <div class="nav-item" onclick="switchTab('reminders')" id="nav-reminders"><div class="nav-icon">⏰</div><div class="nav-label">提醒</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 編輯任務 Modal -->
+<div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">✏️ 編輯任務</div>
+    <div class="modal-label">任務描述</div>
+    <textarea class="modal-input" id="editTitle" rows="3" style="resize:none"></textarea>
+    <div class="modal-label">負責人</div>
+    <select class="modal-select" id="editAssignee"></select>
+    <div class="modal-label">截止日期</div>
+    <input type="date" class="modal-input" id="editDeadline">
+    <div class="modal-label">來源會議</div>
+    <input type="text" class="modal-input" id="editMeeting">
+    <div class="modal-btns">
+      <button class="btn-delete" onclick="deleteTask()">🗑 刪除</button>
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-save" onclick="saveEdit()">儲存</button>
+    </div>
+    <button class="btn-secondary" onclick="notifyTask()" style="margin-top:8px;width:100%;padding:12px;border-radius:12px;border:1px solid rgba(0,229,195,0.3);background:rgba(0,229,195,0.08);color:var(--green);font-size:20px;font-weight:600;cursor:pointer;font-family:inherit">📨 立即發送 LINE 通知給負責人</button>
+  </div>
+</div>
+</div>
+
+<script>
+// ── Firebase ──────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyABlghqrAFcwFlSeV5FgIbuu5LLfCnxY0k",
+  authDomain: "meetbot-ede53.firebaseapp.com",
+  databaseURL: "https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "meetbot-ede53",
+  storageBucket: "meetbot-ede53.firebasestorage.app",
+  messagingSenderId: "452091108377",
+  appId: "1:452091108377:web:6ce5396d7e55ae6a68de88"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ── 設定 ──────────────────────────────────────
+const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
+const COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399"];
+const BACKEND = "https://meetbot-backend.onrender.com";
+const WEEKDAYS = ["日","一","二","三","四","五","六"];
+
+const DEMO_TASKS = [
+  {id:1,title:"彙整各診所回報的處方數量，傳給主任",assignee:"怡君",deadline:"2026-03-28",meeting:"週會 3/21",done:false,urgent:false},
+  {id:2,title:"確認 Q2 採購預算核准文件",assignee:"小明",deadline:"2026-03-28",meeting:"週會 3/21",done:false,urgent:false},
+  {id:3,title:"更新居民追蹤名單並上傳系統",assignee:"阿偉",deadline:"2026-03-28",meeting:"週會 3/21",done:false,urgent:false},
+];
+
+const DEFAULT_REMINDERS = {
+  dayBefore:{on:true,days:1,hour:9},
+  hourBefore:{on:true,hours:2},
+  overdueAlert:{on:true},
+  weeklyReport:{on:false,weekday:5,hour:16}
+};
+
+// ── 狀態 ──────────────────────────────────────
+let tasks = [];
+let reminders = {...DEFAULT_REMINDERS};
+let filter = "all";
+let memberFilter = "all";
+let currentTab = "dashboard";
+let lastNotify = null;
+
+// ── 工具 ──────────────────────────────────────
+const today = () => new Date().toISOString().slice(0,10);
+const daysLeft = d => Math.ceil((new Date(d) - new Date(today())) / 86400000);
+const memberColor = n => COLORS[TEAM.indexOf(n) % COLORS.length] || "#888";
+const pad2 = n => String(n).padStart(2,"0");
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function deadlineBadge(deadline, done) {
+  if (done) return `<span class="bdg bdg-done">✓ 完成</span>`;
+  const d = daysLeft(deadline);
+  if (d < 0)   return `<span class="bdg bdg-overdue">逾期 ${Math.abs(d)} 天</span>`;
+  if (d === 0) return `<span class="bdg bdg-today">今天截止</span>`;
+  if (d <= 2)  return `<span class="bdg bdg-soon">剩 ${d} 天</span>`;
+  return `<span class="bdg bdg-normal">${deadline.slice(5).replace("-","/")} 截止</span>`;
+}
+
+function avatar(name, size=18) {
+  return `<div class="avatar" style="width:${size}px;height:${size}px;background:${memberColor(name)};font-size:${size*0.42}px">${name[0]}</div>`;
+}
+
+function showToast(msg, color="#4f8cff") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.background = color; t.style.display = "block";
+  setTimeout(() => t.style.display = "none", 2800);
+}
+
+// ── Firebase CRUD ─────────────────────────────
+async function loadTasks() {
+  const snap = await db.ref("meetbot/tasks").get();
+  if (snap.exists()) return Object.values(snap.val());
+  await db.ref("meetbot/tasks").set(Object.fromEntries(DEMO_TASKS.map(t=>[t.id,t])));
+  return DEMO_TASKS;
+}
+async function saveTasks() {
+  await db.ref("meetbot/tasks").set(Object.fromEntries(tasks.map(t=>[t.id,t])));
+}
+async function loadReminders() {
+  const snap = await db.ref("meetbot/reminders").get();
+  return snap.exists() ? {...DEFAULT_REMINDERS,...snap.val()} : DEFAULT_REMINDERS;
+}
+async function saveReminders() {
+  await db.ref("meetbot/reminders").set(reminders);
+  const el = document.getElementById("savedLabel");
+  el.textContent = "✓ 已儲存"; el.style.color = "var(--green)";
+  setTimeout(() => { el.textContent = "修改後自動儲存"; el.style.color = ""; }, 1500);
+}
+
+// ── 主要載入 ──────────────────────────────────
+async function fetchAll(quiet=false) {
+  if (!quiet) {
+    document.getElementById("syncLabel").textContent = "載入中...";
+    document.getElementById("syncDot").style.background = "var(--accent)";
+  } else {
+    document.getElementById("syncDot").style.animation = "pulse 1s infinite";
+  }
+  [tasks, reminders] = await Promise.all([loadTasks(), loadReminders()]);
+  renderAll();
+  const now = new Date();
+  document.getElementById("syncLabel").textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} 同步`;
+  document.getElementById("syncDot").style.background = "var(--green)";
+  document.getElementById("syncDot").style.animation = "";
+}
+
+// ── 渲染 ──────────────────────────────────────
+function renderAll() {
+  renderStats();
+  renderFilters();
+  renderTasks();
+  renderTeam();
+  renderReminderCards();
+  renderNextReminders();
+}
+
+function renderStats() {
+  const pending = tasks.filter(t=>!t.done).length;
+  const done = tasks.filter(t=>t.done).length;
+  const urgent = tasks.filter(t=>!t.done&&daysLeft(t.deadline)<=2).length;
+  const pct = tasks.length ? Math.round(done/tasks.length*100) : 0;
+  document.getElementById("statPending").textContent = pending;
+  document.getElementById("statDone").textContent = done;
+  document.getElementById("statUrgent").textContent = urgent;
+  document.getElementById("progressLabel").textContent = `${done}/${tasks.length}`;
+  document.getElementById("progressFill").style.width = pct+"%";
+  document.getElementById("pctBadge").textContent = pct+"%";
+  const ub = document.getElementById("urgentBadge");
+  if (urgent > 0) { ub.textContent = `⚡${urgent}`; ub.style.display=""; } else ub.style.display="none";
+}
+
+function renderFilters() {
+  const filters = [["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"]];
+  let html = filters.map(([k,l]) => `<button class="filter-btn ${filter===k?'active':''}" onclick="setFilter('${k}')">${l}</button>`).join("");
+  html += `<div class="divider"></div>`;
+  html += ["all",...TEAM].map(m => {
+    const color = m==="all" ? "" : memberColor(m);
+    const active = memberFilter===m;
+    return `<button class="filter-btn ${active?'active':''}" onclick="setMemberFilter('${m}')" style="${active&&m!=='all'?`background:${color};border-color:${color}`:''}">${m==="all"?"全員":m}</button>`;
+  }).join("");
+  document.getElementById("filterRow").innerHTML = html;
+}
+
+function renderTasks() {
+  const filtered = tasks.filter(t => {
+    if (memberFilter!=="all" && t.assignee!==memberFilter) return false;
+    if (filter==="pending") return !t.done;
+    if (filter==="urgent")  return !t.done && daysLeft(t.deadline)<=2;
+    if (filter==="done")    return t.done;
+    return true;
+  });
+  if (filtered.length === 0) { document.getElementById("taskList").innerHTML = `<div class="empty">沒有符合的任務</div>`; return; }
+  document.getElementById("taskList").innerHTML = filtered.map(t => `
+    <div class="task-item ${t.urgent&&!t.done?'urgent':''} ${t.done?'done':''}" style="position:relative;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:12px;align-items:flex-start;width:100%">
+        <div onclick="toggleDone(${t.id})" class="task-check" style="cursor:pointer;margin-top:2px">${t.done?'✓':''}</div>
+        <div class="task-body" onclick="toggleDone(${t.id})" style="cursor:pointer;flex:1;min-width:0">
+          <div class="task-title">${esc(t.title)}</div>
+          <div class="task-meta">
+            <div class="member-wrap">${avatar(t.assignee)}<span class="member-name">${t.assignee}</span></div>
+            ${deadlineBadge(t.deadline, t.done)}
+            ${t.urgent&&!t.done?'<span class="bdg bdg-urgent">⚡ 緊急</span>':''}
+          </div>
+          <div class="task-meeting">📋 ${esc(t.meeting)}</div>
+        </div>
+        <div onclick="openEdit(${t.id})" style="padding:4px 8px;cursor:pointer;color:var(--muted);font-size:26px;flex-shrink:0">✎</div>
+      </div>
+      ${t.progressNote?`<div style="background:rgba(79,140,255,0.07);border:1px solid rgba(79,140,255,0.2);border-radius:8px;padding:8px 12px;font-size:20px;color:var(--accent)">📝 ${esc(t.progressNote)}</div>`:''}
+      <div onclick="openNote(${t.id})" style="width:100%;padding:10px 0;border-radius:10px;cursor:pointer;background:${t.progressNote?'rgba(79,140,255,0.1)':'var(--surf)'};border:1.5px solid ${t.progressNote?'rgba(79,140,255,0.35)':'var(--border)'};display:flex;align-items:center;justify-content:center;gap:6px;font-size:20px;font-weight:600;color:${t.progressNote?'var(--accent)':'var(--muted)'}">📝 ${t.progressNote?'編輯工作進度備註':'新增工作進度備註'}</div>
+    </div>
+  `).join("");
+}
+
+function renderTeam() {
+  const stats = TEAM.map(name => {
+    const mine = tasks.filter(t=>t.assignee===name);
+    const done = mine.filter(t=>t.done).length;
+    return {name, total:mine.length, done, pct: mine.length?Math.round(done/mine.length*100):0};
+  }).filter(m=>m.total>0);
+
+  document.getElementById("memberList").innerHTML = stats.length === 0
+    ? `<div class="empty">尚無任務資料</div>`
+    : stats.map(m => `
+      <div class="member-card">
+        <div class="member-header">
+          <div class="member-info">
+            ${avatar(m.name, 36)}
+            <div><div style="font-weight:700;font-size:22px">${m.name}</div><div style="font-size:18px;color:var(--muted)">${m.done}/${m.total} 項完成</div></div>
+          </div>
+          <div class="member-pct" style="color:${m.pct===100?'var(--green)':m.pct>=50?'var(--accent)':'var(--orange)'}">${m.pct}%</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${m.pct}%;background:linear-gradient(90deg,${memberColor(m.name)},${memberColor(m.name)}aa)"></div></div>
+        ${tasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,2).map(t=>`
+          <div style="font-size:18px;color:var(--muted);padding:5px 0;border-top:1px solid var(--border);margin-top:8px;display:flex;justify-content:space-between;gap:8px">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">• ${esc(t.title)}</span>
+            ${deadlineBadge(t.deadline, false)}
+          </div>
+        `).join("")}
+      </div>
+    `).join("");
+
+  document.getElementById("memberChips").innerHTML = TEAM.map(name => `
+    <div class="member-chip">${avatar(name, 22)}<span style="font-size:20px">${name}</span></div>
+  `).join("");
+}
+
+function renderReminderCards() {
+  const rows = [
+    {key:"dayBefore", icon:"📅", title:"截止日前提醒", sub:"在截止日的前幾天早上提醒"},
+    {key:"hourBefore", icon:"⏰", title:"截止前緊急提醒", sub:"截止前幾小時發出最後警示"},
+    {key:"overdueAlert", icon:"🚨", title:"逾期高亮提示", sub:"逾期任務在儀表板醒目標示"},
+    {key:"weeklyReport", icon:"📊", title:"每週完成率報告", sub:"固定時間推播團隊整體進度"},
+  ];
+
+  document.getElementById("reminderCards").innerHTML = rows.map(row => {
+    const r = reminders[row.key];
+    const on = r.on;
+    let extraHtml = "";
+    if (on && row.key==="dayBefore") {
+      extraHtml = `<div class="reminder-body">
+        <div class="reminder-row"><span class="reminder-label">提前幾天</span>
+          <div class="stepper">
+            <div class="stepper-btn" onclick="stepReminder('dayBefore','days',-1,1,7)">−</div>
+            <div class="stepper-val" id="dayBefore-days">${r.days}</div>
+            <div class="stepper-btn" onclick="stepReminder('dayBefore','days',1,1,7)">+</div>
+            <span class="stepper-suffix">天前</span>
+          </div>
+        </div>
+        <div class="reminder-row"><span class="reminder-label">提醒時間</span>
+          <div class="hour-btns">${[7,8,9,10,12,14].map(h=>`<div class="hour-btn ${r.hour===h?'active':''}" onclick="setReminderHour('dayBefore',${h})">${pad2(h)}:00</div>`).join("")}</div>
+        </div>
+      </div>`;
+    }
+    if (on && row.key==="hourBefore") {
+      extraHtml = `<div class="reminder-body">
+        <div class="reminder-row"><span class="reminder-label">提前幾小時</span>
+          <div class="stepper">
+            <div class="stepper-btn" onclick="stepReminder('hourBefore','hours',-1,1,24)">−</div>
+            <div class="stepper-val" id="hourBefore-hours">${r.hours}</div>
+            <div class="stepper-btn" onclick="stepReminder('hourBefore','hours',1,1,24)">+</div>
+            <span class="stepper-suffix">小時前</span>
+          </div>
+        </div>
+      </div>`;
+    }
+    if (on && row.key==="weeklyReport") {
+      extraHtml = `<div class="reminder-body">
+        <div class="reminder-row"><span class="reminder-label">每週幾</span>
+          <div class="weekday-btns">${[1,2,3,4,5].map(d=>`<div class="weekday-btn ${r.weekday===d?'active':''}" onclick="setReminderWeekday(${d})">週${WEEKDAYS[d]}</div>`).join("")}</div>
+        </div>
+        <div class="reminder-row"><span class="reminder-label">發送時間</span>
+          <div class="hour-btns">${[9,12,14,16,17,18].map(h=>`<div class="hour-btn ${r.hour===h?'active':''}" onclick="setReminderHour('weeklyReport',${h})">${pad2(h)}:00</div>`).join("")}</div>
+        </div>
+      </div>`;
+    }
+    return `<div class="reminder-card">
+      <div class="reminder-header" style="margin-bottom:${on&&extraHtml?14:0}px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="reminder-icon">${row.icon}</div>
+          <div><div class="reminder-title">${row.title}</div><div class="reminder-sub">${row.sub}</div></div>
+        </div>
+        <div class="toggle-wrap" style="background:${on?'var(--accent)':'var(--border)'}" onclick="toggleReminder('${row.key}')">
+          <div class="toggle-knob" style="left:${on?21:3}px"></div>
+        </div>
+      </div>
+      ${extraHtml}
+    </div>`;
+  }).join("");
+}
+
+function renderNextReminders() {
+  const hits = [];
+  const now = new Date();
+  tasks.filter(t=>!t.done).forEach(t => {
+    const dl = new Date(t.deadline+"T23:59:00");
+    if (reminders.hourBefore?.on) {
+      const at = new Date(dl.getTime() - reminders.hourBefore.hours*3600000);
+      if (at > now) hits.push({task:t, at, type:`截止前 ${reminders.hourBefore.hours} 小時`});
+    }
+    if (reminders.dayBefore?.on) {
+      const at = new Date(dl);
+      at.setDate(at.getDate()-reminders.dayBefore.days);
+      at.setHours(reminders.dayBefore.hour,0,0,0);
+      if (at > now) hits.push({task:t, at, type:`截止前 ${reminders.dayBefore.days} 天`});
+    }
+  });
+  hits.sort((a,b)=>a.at-b.at);
+  const top = hits.slice(0,3);
+
+  // 儀表板上的提醒預覽
+  const box = document.getElementById("nextReminderBox");
+  if (top.length > 0) {
+    box.style.display = "";
+    document.getElementById("nextReminderList").innerHTML = top.map((r,i) => `
+      <div class="next-reminder-row" style="${i>0?'border-top:1px solid var(--border);margin-top:6px;padding-top:6px':''}">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">• ${esc(r.task.title)}</span>
+        <span class="next-reminder-time">${r.type} · ${pad2(r.at.getMonth()+1)}/${pad2(r.at.getDate())} ${pad2(r.at.getHours())}:00</span>
+      </div>
+    `).join("");
+  } else { box.style.display = "none"; }
+
+  // 提醒頁籤的預覽
+  const preview = document.getElementById("nextReminderPreview");
+  if (top.length > 0) {
+    preview.innerHTML = `<div style="margin-top:20px"><div class="section-label">即將提醒</div>${top.map(r=>`
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.task.title)}</div>
+          <div style="font-size:18px;color:var(--muted);margin-top:3px">${r.task.assignee} · ${r.type}</div>
+        </div>
+        <div style="font-size:18px;color:var(--orange);font-weight:700;font-family:monospace;white-space:nowrap">${pad2(r.at.getMonth()+1)}/${pad2(r.at.getDate())} ${pad2(r.at.getHours())}:00</div>
+      </div>
+    `).join("")}</div>`;
+  } else { preview.innerHTML = ""; }
+}
+
+// ── 互動 ──────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  document.getElementById("tab-"+id).classList.add("active");
+  document.getElementById("page-"+id).classList.add("active");
+  document.getElementById("nav-"+id).classList.add("active");
+  currentTab = id;
+  if (id === "upload") initManualForm();
+}
+
+function setFilter(f) { filter = f; renderFilters(); renderTasks(); }
+function setMemberFilter(m) { memberFilter = m; renderFilters(); renderTasks(); }
+
+async function toggleDone(id) {
+  const wasDone = tasks.find(t=>t.id===id)?.done;
+  tasks = tasks.map(t => t.id===id ? {...t, done:!t.done} : t);
+  renderAll();
+  await saveTasks();
+  if (!wasDone) {
+    const t = tasks.find(t=>t.id===id);
+    showToast("✅ 任務完成！","#00e5c3");
+    fetch("https://meetbot-check-in-system.onrender.com/notify-task-done", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({task: t})
+    }).catch(()=>{});
+  } else {
+    showToast("已更新！","#4f8cff");
+  }
+}
+
+function openNote(id) {
+  const t = tasks.find(t=>t.id===id);
+  if (!t) return;
+  document.getElementById("noteTaskId").value = id;
+  document.getElementById("noteInput").value = t.progressNote||"";
+  document.getElementById("noteModal").classList.add("open");
+}
+
+async function saveNote() {
+  const id = parseInt(document.getElementById("noteTaskId").value);
+  const note = document.getElementById("noteInput").value.trim();
+  const now = new Date().toLocaleString("zh-TW",{timeZone:"Asia/Taipei",hour12:false}).replace(/\//g,"-");
+  tasks = tasks.map(t => t.id===id ? {...t, progressNote:note, progressNoteTime:note?now:""} : t);
+  document.getElementById("noteModal").classList.remove("open");
+  renderAll();
+  await saveTasks();
+  showToast("備註已儲存","#00e5c3");
+}
+
+function toggleReminder(key) {
+  reminders[key].on = !reminders[key].on;
+  renderReminderCards();
+  renderNextReminders();
+  saveReminders();
+}
+
+function stepReminder(key, field, delta, min, max) {
+  const val = Math.min(max, Math.max(min, reminders[key][field] + delta));
+  reminders[key][field] = val;
+  document.getElementById(`${key}-${field}`).textContent = val;
+  renderNextReminders();
+  saveReminders();
+}
+
+function setReminderHour(key, h) {
+  reminders[key].hour = h;
+  renderReminderCards();
+  renderNextReminders();
+  saveReminders();
+}
+
+function setReminderWeekday(d) {
+  reminders.weeklyReport.weekday = d;
+  renderReminderCards();
+  saveReminders();
+}
+
+// ── 手動新增單筆任務 ──────────────────────────
+function initManualForm() {
+  const sel = document.getElementById("manualAssignee");
+  if (!sel || sel.options.length > 0) return;
+  TEAM.forEach(name => { const o = document.createElement("option"); o.value = o.textContent = name; sel.appendChild(o); });
+}
+async function addManualTask() {
+  const title    = document.getElementById("manualTitle").value.trim();
+  const assignee = document.getElementById("manualAssignee").value;
+  const deadline = document.getElementById("manualDeadline").value;
+  const meeting  = document.getElementById("manualMeeting").value.trim() || "手動新增";
+  if (!title || !deadline) { alert("請填寫任務名稱與截止日期"); return; }
+  const newTask = { id: Date.now(), title, assignee, deadline, meeting, done: false, urgent: daysLeft(deadline) <= 1, progressNote: "", progressNoteTime: "" };
+  tasks.unshift(newTask);
+  await saveTasks();
+  document.getElementById("manualTitle").value = "";
+  document.getElementById("manualDeadline").value = "";
+  document.getElementById("manualMeeting").value = "";
+  renderAll();
+  showToast("已新增 1 項任務");
+}
+
+// ── 上傳 & AI 解析 ───────────────────────────
+async function handleFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const zone = document.getElementById("uploadZone");
+  const title = document.getElementById("uploadTitle");
+  const hint = document.getElementById("uploadHint");
+  zone.classList.add("parsing");
+  title.textContent = "AI 解析中...";
+  hint.style.display = "none";
+  document.getElementById("parseResultArea").innerHTML = `<div class="upload-zone parsing" style="cursor:default"><div style="font-size:40px;margin-bottom:10px">⚙️</div><div style="font-weight:700;margin-bottom:4px">AI 解析中...</div><div class="loading-bar"><div class="loading-fill"></div></div></div>`;
+
+  try {
+    const ab = await file.arrayBuffer();
+    const {value: text} = await mammoth.extractRawText({arrayBuffer: ab});
+    const items = await parseWithAI(text, file.name);
+    renderParseResult(items, file.name);
+  } catch(e) {
+    showToast("解析失敗，請再試一次","var(--red)");
+    resetUpload();
+  }
+}
+
+async function parseWithAI(text, filename) {
+  const res = await fetch(`${BACKEND}/parse-meeting`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.items;
+}
+
+let pendingItems = [];
+function renderParseResult(items, filename) {
+  pendingItems = items;
+  const zone = document.getElementById("uploadZone");
+  zone.style.display = "none";
+  document.getElementById("parseResultArea").innerHTML = `
+    <div class="parse-result">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:20px;color:var(--green);font-weight:700">✦ 找到 ${items.length} 項任務，確認後同步給全團隊</div>
+      ${items.map(t=>`<div class="parse-item"><div style="font-size:22px;font-weight:500;margin-bottom:6px">${esc(t.title)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="member-wrap">${avatar(t.assignee)}<span class="member-name">${t.assignee}</span></div><span class="bdg bdg-soon">📅 ${t.deadline}</span></div></div>`).join("")}
+      <button class="btn-primary" onclick="confirmTasks('${filename}')">🔗 同步給全團隊</button>
+      <button class="btn-secondary" onclick="resetUpload()" style="margin-top:8px">取消</button>
+    </div>
+  `;
+}
+
+async function confirmTasks(filename) {
+  const meeting = filename.replace(/\.docx$/i,"") || "匯入會議";
+  const newTasks = pendingItems.map((t,i) => ({id:Date.now()+i, title:t.title, assignee:t.assignee, deadline:t.deadline, meeting, done:false, urgent:daysLeft(t.deadline)<=1}));
+  tasks = [...newTasks, ...tasks];
+  await saveTasks();
+  renderAll();
+  resetUpload();
+  switchTab("dashboard");
+  showToast(`🔗 已同步 ${newTasks.length} 項任務，發送 LINE 通知中...`);
+  // 立即推播 LINE 給每位負責人
+  let notified = 0;
+  for (const task of newTasks) {
+    try {
+      const res = await fetch(`${BACKEND}/notify-new-task`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ task })
+      });
+      const data = await res.json();
+      if (data.ok) notified++;
+    } catch {}
+  }
+  if (notified > 0) showToast(`📨 已通知 ${notified} 位負責人`, "var(--green)");
+}
+
+// ── 編輯任務 ──────────────────────────────────
+let editingId = null;
+
+function openEdit(id) {
+  const t = tasks.find(t => t.id === id);
+  if (!t) return;
+  editingId = id;
+  document.getElementById("editTitle").value = t.title;
+  document.getElementById("editDeadline").value = t.deadline;
+  document.getElementById("editMeeting").value = t.meeting;
+  // 填入成員選項
+  const sel = document.getElementById("editAssignee");
+  sel.innerHTML = TEAM.map(n => `<option value="${n}" ${n===t.assignee?'selected':''}>${n}</option>`).join("");
+  document.getElementById("editModal").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("editModal").classList.remove("open");
+  editingId = null;
+}
+
+async function saveEdit() {
+  if (!editingId) return;
+  const title    = document.getElementById("editTitle").value.trim();
+  const assignee = document.getElementById("editAssignee").value;
+  const deadline = document.getElementById("editDeadline").value;
+  const meeting  = document.getElementById("editMeeting").value.trim();
+  if (!title || !deadline) { showToast("請填寫任務描述和截止日期","var(--red)"); return; }
+  tasks = tasks.map(t => t.id===editingId
+    ? {...t, title, assignee, deadline, meeting, urgent: daysLeft(deadline)<=1}
+    : t
+  );
+  await saveTasks();
+  renderAll();
+  closeModal();
+  showToast("✓ 任務已更新","var(--green)");
+}
+
+async function deleteTask() {
+  if (!editingId) return;
+  if (!confirm("確定要刪除這個任務嗎？")) return;
+  tasks = tasks.filter(t => t.id !== editingId);
+  await saveTasks();
+  renderAll();
+  closeModal();
+  showToast("已刪除任務","#6b7494");
+}
+
+async function notifyTask() {
+  if (!editingId) return;
+  const task = tasks.find(t => t.id === editingId);
+  if (!task) return;
+  showToast("發送中...","#6b7494");
+  try {
+    const res = await fetch(`${BACKEND}/notify-new-task`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ task })
+    });
+    const data = await res.json();
+    if (data.ok) showToast(`📨 已通知 ${task.assignee}`,"var(--green)");
+    else showToast(`找不到 ${task.assignee} 的 LINE ID`,"var(--orange)");
+  } catch {
+    showToast("發送失敗，請稍後再試","var(--red)");
+  }
+}
+
+function resetUpload() {
+  document.getElementById("uploadZone").style.display = "";
+  document.getElementById("uploadZone").classList.remove("parsing");
+  document.getElementById("uploadTitle").textContent = "點擊上傳 .docx 會議紀錄";
+  document.getElementById("uploadHint").style.display = "";
+  document.getElementById("parseResultArea").innerHTML = "";
+  document.getElementById("fileInput").value = "";
+  pendingItems = [];
+}
+
+// ── LINE 提醒 ─────────────────────────────────
+async function manualNotify() {
+  showToast("發送中...","#6b7494");
+  const sent = await checkAndNotify();
+  if (sent > 0) {
+    lastNotify = new Date();
+    document.getElementById("lastNotifyLabel").textContent = `上次發送：${pad2(lastNotify.getHours())}:${pad2(lastNotify.getMinutes())}`;
+    showToast(`📨 已發送 ${sent} 則 LINE 提醒`,"var(--green)");
+  } else {
+    showToast("目前沒有符合條件的提醒","#6b7494");
+  }
+}
+
+async function checkAndNotify() {
+  try {
+    const res = await fetch(`${BACKEND}/check-reminders`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({tasks, reminders})
+    });
+    const data = await res.json();
+    return data.sent || 0;
+  } catch { return 0; }
+}
+
+// ── 啟動 ──────────────────────────────────────
+fetchAll(false);
+setInterval(() => fetchAll(true), 30000);
+setInterval(async () => {
+  const sent = await checkAndNotify();
+  if (sent > 0) {
+    lastNotify = new Date();
+    showToast(`📨 已發送 ${sent} 則 LINE 提醒`,"var(--green)");
+  }
+}, 3600000);
+</script>
+
+<!-- 進度備註 Modal -->
+<div class="modal-overlay" id="noteModal" onclick="if(event.target===this)document.getElementById('noteModal').classList.remove('open')">
+  <div class="modal">
+    <div class="modal-title" style="font-size:22px">📝 工作進度備註</div>
+    <input type="hidden" id="noteTaskId">
+    <div class="modal-label">目前工作進度</div>
+    <textarea id="noteInput" class="modal-input" rows="4" placeholder="請輸入目前工作進度備註..." style="resize:vertical;min-height:100px"></textarea>
+    <div class="modal-btns">
+      <button class="btn-save" onclick="saveNote()">儲存備註</button>
+      <button class="btn-cancel" onclick="document.getElementById('noteModal').classList.remove('open')">取消</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
