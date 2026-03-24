@@ -307,6 +307,7 @@ export default function MeetBot() {
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
+  const [manualForm,   setManualForm]   = useState({ title:"", assignee:TEAM[0], deadline:"", meeting:"" });
   const [toast,        setToast]        = useState(null);
   const [savedPulse,   setSavedPulse]   = useState(false);
   const [editingTask,  setEditingTask]  = useState(null); // 備註 modal
@@ -398,6 +399,22 @@ export default function MeetBot() {
     setTasks(prev => [...newTasks,...prev]);
     setParseResult(null); setDocName(""); setTab("dashboard");
     showToast(`已同步 ${newTasks.length} 項任務給全團隊`);
+  };
+
+  const addManualTask = () => {
+    if (!manualForm.title.trim() || !manualForm.deadline) {
+      showToast("請填寫任務名稱與截止日期","#ff5b79"); return;
+    }
+    const newTask = {
+      id: Date.now(), title: manualForm.title.trim(),
+      assignee: manualForm.assignee, deadline: manualForm.deadline,
+      meeting: manualForm.meeting.trim() || "手動新增",
+      done: false, urgent: daysLeft(manualForm.deadline) <= 1,
+      progressNote: "", progressNoteTime: "",
+    };
+    setTasks(prev => [newTask, ...prev]);
+    setManualForm({ title:"", assignee:TEAM[0], deadline:"", meeting:"" });
+    showToast("已新增 1 項任務");
   };
 
   const toggleDone = (id) => {
@@ -686,6 +703,35 @@ export default function MeetBot() {
           確認後立即同步給所有團隊成員
         </div>
       )}
+      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginTop:16 }}>
+        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:38 }}>手動新增任務</div>
+        <input
+          placeholder="任務名稱"
+          value={manualForm.title}
+          onChange={e=>setManualForm(f=>({...f,title:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+        />
+        <select
+          value={manualForm.assignee}
+          onChange={e=>setManualForm(f=>({...f,assignee:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10 }}
+        >
+          {TEAM.map(name=><option key={name} value={name}>{name}</option>)}
+        </select>
+        <input
+          type="date"
+          value={manualForm.deadline}
+          onChange={e=>setManualForm(f=>({...f,deadline:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+        />
+        <input
+          placeholder="會議名稱（選填）"
+          value={manualForm.meeting}
+          onChange={e=>setManualForm(f=>({...f,meeting:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:14, outline:"none" }}
+        />
+        <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:38, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
+      </div>
     </div>
   );
 
