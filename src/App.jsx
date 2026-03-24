@@ -665,6 +665,35 @@ export default function MeetBot() {
   // ── 上傳內容 ──
   const UploadContent = () => (
     <div className="mb-content-pad">
+      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginBottom:16 }}>
+        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:38 }}>新增單筆任務</div>
+        <input
+          placeholder="任務名稱"
+          value={manualForm.title}
+          onChange={e=>setManualForm(f=>({...f,title:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+        />
+        <select
+          value={manualForm.assignee}
+          onChange={e=>setManualForm(f=>({...f,assignee:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10 }}
+        >
+          {TEAM.map(name=><option key={name} value={name}>{name}</option>)}
+        </select>
+        <input
+          type="date"
+          value={manualForm.deadline}
+          onChange={e=>setManualForm(f=>({...f,deadline:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+        />
+        <input
+          placeholder="會議名稱（選填）"
+          value={manualForm.meeting}
+          onChange={e=>setManualForm(f=>({...f,meeting:e.target.value}))}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:14, outline:"none" }}
+        />
+        <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:38, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
+      </div>
       <div onClick={()=>!parsing&&fileRef.current.click()} style={{ border:`2px dashed ${parsing?"var(--accent)":"var(--border)"}`, borderRadius:16, padding:"36px 20px", textAlign:"center", cursor:"pointer", background:"var(--card)", marginBottom:16, transition:"border-color 0.2s" }}>
         <input ref={fileRef} type="file" accept=".docx" onChange={handleFile} style={{ display:"none" }}/>
         {parsing ? (<>
@@ -703,35 +732,6 @@ export default function MeetBot() {
           確認後立即同步給所有團隊成員
         </div>
       )}
-      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginTop:16 }}>
-        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:38 }}>手動新增任務</div>
-        <input
-          placeholder="任務名稱"
-          value={manualForm.title}
-          onChange={e=>setManualForm(f=>({...f,title:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
-        />
-        <select
-          value={manualForm.assignee}
-          onChange={e=>setManualForm(f=>({...f,assignee:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10 }}
-        >
-          {TEAM.map(name=><option key={name} value={name}>{name}</option>)}
-        </select>
-        <input
-          type="date"
-          value={manualForm.deadline}
-          onChange={e=>setManualForm(f=>({...f,deadline:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:10, outline:"none" }}
-        />
-        <input
-          placeholder="會議名稱（選填）"
-          value={manualForm.meeting}
-          onChange={e=>setManualForm(f=>({...f,meeting:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:34, fontFamily:"inherit", marginBottom:14, outline:"none" }}
-        />
-        <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:38, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
-      </div>
     </div>
   );
 
