@@ -1,0 +1,10 @@
+{
+  "files": {
+    "main.js": "/meetbot-app/static/js/main.cb0dc17b.js",
+    "index.html": "/meetbot-app/index.html",
+    "main.cb0dc17b.js.map": "/meetbot-app/static/js/main.cb0dc17b.js.map"
+  },
+  "entrypoints": [
+    "static/js/main.cb0dc17b.js"
+  ]
+}
