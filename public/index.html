@@ -219,6 +219,15 @@ body{font-family:'Noto Sans TC',sans-serif;background:#080b12;color:#e8eaf2;min-
 
 <!-- PAGE: 上傳 -->
 <div class="page" id="page-upload">
+  <!-- 新增單筆任務 -->
+  <div class="card" style="margin-bottom:14px">
+    <div style="font-weight:700;font-size:22px;margin-bottom:12px">新增單筆任務</div>
+    <input id="manualTitle" type="text" placeholder="任務名稱" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:none">
+    <select id="manualAssignee" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px"></select>
+    <input id="manualDeadline" type="date" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:8px;outline:none">
+    <input id="manualMeeting" type="text" placeholder="會議名稱（選填）" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:20px;font-family:inherit;margin-bottom:12px;outline:none">
+    <button onclick="addManualTask()" style="width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,var(--accent),#7c5fe6);color:#fff;font-size:20px;font-weight:700;cursor:pointer;font-family:inherit">新增任務</button>
+  </div>
   <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
     <input type="file" id="fileInput" accept=".docx" style="display:none" onchange="handleFile(this)">
     <div class="upload-icon">📄</div>
@@ -611,6 +620,7 @@ function switchTab(id) {
   document.getElementById("page-"+id).classList.add("active");
   document.getElementById("nav-"+id).classList.add("active");
   currentTab = id;
+  if (id === "upload") initManualForm();
 }
 
 function setFilter(f) { filter = f; renderFilters(); renderTasks(); }
@@ -678,6 +688,28 @@ function setReminderWeekday(d) {
   reminders.weeklyReport.weekday = d;
   renderReminderCards();
   saveReminders();
+}
+
+// ── 手動新增單筆任務 ──────────────────────────
+function initManualForm() {
+  const sel = document.getElementById("manualAssignee");
+  if (!sel || sel.options.length > 0) return;
+  TEAM.forEach(name => { const o = document.createElement("option"); o.value = o.textContent = name; sel.appendChild(o); });
+}
+async function addManualTask() {
+  const title    = document.getElementById("manualTitle").value.trim();
+  const assignee = document.getElementById("manualAssignee").value;
+  const deadline = document.getElementById("manualDeadline").value;
+  const meeting  = document.getElementById("manualMeeting").value.trim() || "手動新增";
+  if (!title || !deadline) { alert("請填寫任務名稱與截止日期"); return; }
+  const newTask = { id: Date.now(), title, assignee, deadline, meeting, done: false, urgent: daysLeft(deadline) <= 1, progressNote: "", progressNoteTime: "" };
+  tasks.unshift(newTask);
+  await saveTasks();
+  document.getElementById("manualTitle").value = "";
+  document.getElementById("manualDeadline").value = "";
+  document.getElementById("manualMeeting").value = "";
+  renderAll();
+  showToast("已新增 1 項任務");
 }
 
 // ── 上傳 & AI 解析 ───────────────────────────
