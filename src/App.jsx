@@ -485,42 +485,55 @@ async function parseWithAI(text) {
 }
 
 // ── Firebase Storage ──────────────────────────
+let _lastSaveError = 0;
 async function loadTasks() {
   try {
     const res = await fetch(`${FB_BASE}/tasks.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data) return Object.values(data);
-    // 初次使用：寫入示範任務
     const obj = Object.fromEntries(DEMO_TASKS.map(t => [t.id, t]));
     await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
     return DEMO_TASKS;
-  } catch { return DEMO_TASKS; }
+  } catch(e) { console.error("loadTasks failed:", e); return DEMO_TASKS; }
 }
 async function saveTasks(tasks) {
   try {
     const obj = Object.fromEntries(tasks.map(t => [t.id, t]));
-    await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
-  } catch {}
+    const res = await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _lastSaveError = 0;
+  } catch(e) {
+    console.error("saveTasks failed:", e);
+    _lastSaveError = Date.now();
+    throw e; // 讓呼叫端知道儲存失敗
+  }
 }
 async function loadReminders() {
   try {
     const res = await fetch(`${FB_BASE}/reminders.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     return data ? { ...DEFAULT_REMINDERS, ...data } : DEFAULT_REMINDERS;
-  } catch { return DEFAULT_REMINDERS; }
+  } catch(e) { console.error("loadReminders failed:", e); return DEFAULT_REMINDERS; }
 }
 async function saveReminders(r) {
   try {
-    await fetch(`${FB_BASE}/reminders.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(r) });
-  } catch {}
+    const res = await fetch(`${FB_BASE}/reminders.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(r) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch(e) { console.error("saveReminders failed:", e); }
 }
 
 // ── 例行任務 Firebase ─────────────────────────
 function getWeekKey() {
   const d = new Date();
-  const start = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
-  return `${d.getFullYear()}-W${String(week).padStart(2,'0')}`;
+  // ISO 8601 週數：以最近的週四所在年份為基準
+  const thu = new Date(d);
+  thu.setDate(thu.getDate() + 3 - ((thu.getDay() + 6) % 7));
+  const year = thu.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const week = 1 + Math.round(((thu - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return `${year}-W${String(week).padStart(2,'0')}`;
 }
 async function loadRoutineTasks() {
   try {
@@ -786,13 +799,17 @@ export default function MeetBot() {
     return () => { clearInterval(poll); clearInterval(reminderCheck); clearInterval(slackCheck); };
   }, [fetchAll]);
 
-  // ── 任務自動存 ──
+  // ── 任務自動存（含超時保護 + 失敗提示）──
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     if (loading) return;
     tasksRef.current = tasks;
     isSaving.current = true;
-    saveTasks(tasks).finally(() => { isSaving.current = false; setLastSync(new Date()); });
+    const timeout = setTimeout(() => { isSaving.current = false; }, 10000); // 10秒超時保護
+    saveTasks(tasks)
+      .then(() => setLastSync(new Date()))
+      .catch(() => showToast("⚠️ 儲存失敗，請檢查網路","#ff5b79"))
+      .finally(() => { clearTimeout(timeout); isSaving.current = false; });
   }, [tasks, loading]);
 
   // ── 提醒設定存檔 ──
