@@ -821,8 +821,8 @@ export default function MeetBot() {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
         {[{num:pendingCount,label:"待完成",color:"var(--accent)"},{num:doneCount,label:"已完成",color:"var(--green)"},{num:urgentCount,label:"緊急",color:"var(--red)"}].map(s=>(
           <div key={s.label} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 8px", textAlign:"center" }}>
-            <div style={{ fontSize:22, fontWeight:900, fontFamily:"'DM Mono',monospace", color:s.color, lineHeight:1 }}>{s.num}</div>
-            <div style={{ fontSize:15, color:"var(--muted)", marginTop:6 }}>{s.label}</div>
+            <div style={{ fontSize:36, fontWeight:900, fontFamily:"'DM Mono',monospace", color:s.color, lineHeight:1 }}>{s.num}</div>
+            <div style={{ fontSize:18, color:"var(--muted)", marginTop:8 }}>{s.label}</div>
           </div>
         ))}
       </div>
