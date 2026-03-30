@@ -329,12 +329,18 @@ async function deleteMeetingFromFB(id) {
   try { await fetch(`${MEETINGS_FB}/${id}.json`, { method:"DELETE" }); } catch {}
 }
 
-// ── Slack Webhook 儲存 ─────────────────────────
-function loadSlackWebhook() {
-  try { return localStorage.getItem(SLACK_WEBHOOK_KEY) || ""; } catch { return ""; }
+// ── Slack Webhook 儲存（Firebase 共用）──────────
+async function loadSlackWebhook() {
+  try {
+    const res = await fetch(`${FB_BASE}/slackWebhook.json`);
+    const data = await res.json();
+    return data || "";
+  } catch { return ""; }
 }
-function saveSlackWebhookLocal(url) {
-  try { localStorage.setItem(SLACK_WEBHOOK_KEY, url); } catch {}
+async function saveSlackWebhookFB(url) {
+  try {
+    await fetch(`${FB_BASE}/slackWebhook.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(url) });
+  } catch {}
 }
 
 // ── 會議表單 Modal ─────────────────────────────
@@ -458,7 +464,7 @@ export default function MeetBot() {
   const [selectedDate,    setSelectedDate]    = useState(null);
   const [showMeetingModal,setShowMeetingModal]= useState(false);
   const [editingMeeting, setEditingMeeting]  = useState(null);
-  const [slackWebhook,   setSlackWebhook]    = useState(() => loadSlackWebhook());
+  const [slackWebhook,   setSlackWebhook]    = useState("");
 
   const [isWide, setIsWide] = useState(false);
 
@@ -490,8 +496,8 @@ export default function MeetBot() {
   // ── 初始載入 ──
   const fetchAll = useCallback(async (quiet=false) => {
     if (!quiet) setLoading(true); else setSyncing(true);
-    const [t, r, m] = await Promise.all([loadTasks(), loadReminders(), loadMeetingsFromFB()]);
-    setTasks(t); setReminders(r); setMeetings(m);
+    const [t, r, m, wh] = await Promise.all([loadTasks(), loadReminders(), loadMeetingsFromFB(), loadSlackWebhook()]);
+    setTasks(t); setReminders(r); setMeetings(m); setSlackWebhook(wh);
     tasksRef.current = t; remindersRef.current = r;
     setLastSync(new Date());
     if (!quiet) setLoading(false); else setSyncing(false);
@@ -506,7 +512,7 @@ export default function MeetBot() {
     }, 3600000);
     // Slack 會議提醒（每小時檢查一次）
     const slackCheck = setInterval(async () => {
-      const wh = loadSlackWebhook();
+      const wh = await loadSlackWebhook();
       if (!wh) return;
       try {
         const res = await fetch(`${BACKEND_URL}/check-meeting-reminders`, {
@@ -1333,7 +1339,7 @@ export default function MeetBot() {
         </div>
         <input
           value={slackWebhook}
-          onChange={e => { setSlackWebhook(e.target.value); saveSlackWebhookLocal(e.target.value); }}
+          onChange={e => { setSlackWebhook(e.target.value); saveSlackWebhookFB(e.target.value); }}
           placeholder="https://hooks.slack.com/services/..."
           style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:30, padding:"12px 14px", outline:"none", fontFamily:"inherit", marginBottom:10, boxSizing:"border-box" }}
         />
