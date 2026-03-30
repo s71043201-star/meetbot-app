@@ -5,6 +5,46 @@ import * as mammoth from "mammoth";
 const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
 const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4"];
 const ADMINS = ["蔡蕙芳", "戴豐逸"]; // 有權設定優先等級
+
+// ── 中會議室會前準備模板 ─────────────────────────
+const PREP_TEMPLATE = [
+  { title:"電腦連線正常", assignee:"吳亞璇" },
+  { title:"投影機開啟並連線至電腦", assignee:"吳亞璇" },
+  { title:"架設視訊鏡頭用腳架", assignee:"吳亞璇" },
+  { title:"架設視訊鏡頭並測試連線正常", assignee:"吳亞璇" },
+  { title:"投影幕已開啟", assignee:"吳亞璇" },
+  { title:"視訊畫面導出外部測試正常", assignee:"吳亞璇" },
+  { title:"電腦畫面連線至大會議室電視與主席桌螢幕", assignee:"吳亞璇" },
+  { title:"將喇叭連線至電腦並確認外部輸入音量正常", assignee:"戴豐逸" },
+  { title:"會議室麥克風皆裝好電池並可正常開啟", assignee:"戴豐逸" },
+  { title:"確認會議室中現場麥克風音量", assignee:"戴豐逸" },
+  { title:"連線至WEBEX測試線上會議室音量", assignee:"戴豐逸" },
+  { title:"印製簽到單（前一天準備好）", assignee:"沛晴" },
+  { title:"於會議期間於會議室待命", assignee:"沛晴" },
+  { title:"會前10分鐘聯絡尚未到達的出席者", assignee:"沛晴" },
+  { title:"及時彙報名單變動狀況", assignee:"沛晴" },
+  { title:"測試簽到處用筆正常", assignee:"陳佩研" },
+  { title:"引導與會人員簽到並入座", assignee:"陳佩研" },
+  { title:"於會議室入口待命引導入場", assignee:"陳佩研" },
+  { title:"印製當日會議議程並清點數量正確", assignee:"陳佩研" },
+  { title:"「健康台灣深耕計畫」布條懸掛與固定", assignee:"張鈺微" },
+  { title:"錄音筆、簡報筆準備並測試正常", assignee:"張鈺微" },
+  { title:"桌牌準備（前一天準備好）", assignee:"張鈺微" },
+  { title:"便當、餐巾紙等準備（如有需要）", assignee:"張鈺微" },
+  { title:"會議中拍照記錄", assignee:"張鈺微" },
+  { title:"麥克風電池移除並歸位", assignee:"吳承儒" },
+  { title:"投影幕已升起", assignee:"吳承儒" },
+  { title:"喇叭已關閉並歸位", assignee:"吳承儒" },
+  { title:"投影機已關閉", assignee:"吳承儒" },
+  { title:"空調開關已關閉", assignee:"吳承儒" },
+  { title:"視訊機器、電腦已關閉並歸位", assignee:"吳承儒" },
+  { title:"會議電子檔下載至隨身碟留存", assignee:"黃琴茹" },
+  { title:"簡報筆、錄音筆關機並歸位", assignee:"黃琴茹" },
+  { title:"桌牌、簽到單回收", assignee:"黃琴茹" },
+  { title:"腳架收好並歸位", assignee:"黃琴茹" },
+  { title:"場地復原，檢查遺落物品", assignee:"黃琴茹" },
+  { title:"關電燈 + 確認會議室已淨空", assignee:"黃琴茹" },
+];
 const BACKEND_URL   = "https://meetbot-backend.onrender.com";
 const FB_BASE       = "https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app/meetbot";
 const MEETINGS_FB   = FB_BASE + "/meetings";
@@ -615,6 +655,17 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
             <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>
               📋 會前準備清單 {prepItems.length > 0 && <span style={{ color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>({prepDone}/{prepItems.length})</span>}
             </div>
+            {prepItems.length === 0 && (
+              <div onClick={() => {
+                const tpl = PREP_TEMPLATE.map((p,i) => ({ id: Date.now()+i, title: `[${p.assignee}] ${p.title}`, done: false }));
+                setPrepItems(tpl);
+                onSavePrep(tpl);
+              }} style={{
+                padding:"5px 12px", borderRadius:8, fontSize:12, fontWeight:600,
+                background:"rgba(79,140,255,0.1)", color:"var(--accent)",
+                border:"1px solid rgba(79,140,255,0.3)", cursor:"pointer"
+              }}>📄 載入中會議室模板</div>
+            )}
           </div>
           {prepItems.length > 0 && (
             <div style={{ height:5, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:10 }}>
