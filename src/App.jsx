@@ -299,6 +299,39 @@ async function saveReminders(r) {
   } catch {}
 }
 
+// ── 例行任務 Firebase ─────────────────────────
+function getWeekKey() {
+  const d = new Date();
+  const start = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${String(week).padStart(2,'0')}`;
+}
+async function loadRoutineTasks() {
+  try {
+    const res = await fetch(`${FB_BASE}/routineTasks.json`);
+    const data = await res.json();
+    return data ? Object.values(data) : [];
+  } catch { return []; }
+}
+async function saveRoutineTasks(list) {
+  try {
+    const obj = Object.fromEntries(list.map(t => [t.id, t]));
+    await fetch(`${FB_BASE}/routineTasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
+  } catch {}
+}
+async function loadRoutineChecks() {
+  try {
+    const res = await fetch(`${FB_BASE}/routineChecks/${getWeekKey()}.json`);
+    const data = await res.json();
+    return data || {};
+  } catch { return {}; }
+}
+async function saveRoutineChecks(checks) {
+  try {
+    await fetch(`${FB_BASE}/routineChecks/${getWeekKey()}.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(checks) });
+  } catch {}
+}
+
 // ── 呼叫後端發送 LINE 提醒 ────────────────────
 async function checkAndNotify(tasks, reminders) {
   try {
@@ -468,6 +501,12 @@ export default function MeetBot() {
   const [editingMeeting, setEditingMeeting]  = useState(null);
   const [slackWebhook,   setSlackWebhook]    = useState("");
 
+  // ── 例行任務 ──
+  const [routineTasks,   setRoutineTasks]   = useState([]);
+  const [routineChecks,  setRoutineChecks]  = useState({});
+  const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [routineForm,    setRoutineForm]    = useState({ title:"", assignee:TEAM[0] });
+
   const [isWide, setIsWide] = useState(false);
 
   const fileRef       = useRef();
@@ -498,8 +537,9 @@ export default function MeetBot() {
   // ── 初始載入 ──
   const fetchAll = useCallback(async (quiet=false) => {
     if (!quiet) setLoading(true); else setSyncing(true);
-    const [t, r, m, wh] = await Promise.all([loadTasks(), loadReminders(), loadMeetingsFromFB(), loadSlackWebhook()]);
+    const [t, r, m, wh, rt, rc] = await Promise.all([loadTasks(), loadReminders(), loadMeetingsFromFB(), loadSlackWebhook(), loadRoutineTasks(), loadRoutineChecks()]);
     setTasks(t); setReminders(r); setMeetings(m); setSlackWebhook(wh);
+    setRoutineTasks(rt); setRoutineChecks(rc);
     tasksRef.current = t; remindersRef.current = r;
     setLastSync(new Date());
     if (!quiet) setLoading(false); else setSyncing(false);
@@ -614,6 +654,31 @@ export default function MeetBot() {
     ));
     setEditingTask(null);
     showToast("備註已儲存","#00e5c3");
+  };
+
+  // ── 例行任務操作 ──
+  const toggleRoutineCheck = (id) => {
+    setRoutineChecks(prev => {
+      const next = { ...prev, [id]: !prev[id] };
+      saveRoutineChecks(next);
+      return next;
+    });
+  };
+  const addRoutineTask = () => {
+    if (!routineForm.title.trim()) { showToast("請填寫任務名稱","#ff5b79"); return; }
+    const newTask = { id: Date.now(), title: routineForm.title.trim(), assignee: routineForm.assignee };
+    const next = [...routineTasks, newTask];
+    setRoutineTasks(next);
+    saveRoutineTasks(next);
+    setRoutineForm({ title:"", assignee:TEAM[0] });
+    setShowAddRoutine(false);
+    showToast("已新增例行任務");
+  };
+  const removeRoutineTask = (id) => {
+    const next = routineTasks.filter(t => t.id !== id);
+    setRoutineTasks(next);
+    saveRoutineTasks(next);
+    showToast("已刪除例行任務","#6b7494");
   };
 
   // ── 會議管理 ──
@@ -837,6 +902,88 @@ export default function MeetBot() {
         <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
           <div style={{ height:"100%", width:`${pct}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:4, transition:"width 0.6s ease" }}/>
         </div>
+      </div>
+
+      {/* 例行任務清單 */}
+      {routineTasks.length > 0 && (
+        <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:18, fontWeight:700 }}>🔄 例行任務 <span style={{ fontSize:14, color:"var(--muted)", fontWeight:400 }}>（每週重置）</span></div>
+            <div style={{ fontSize:14, color:"var(--green)", fontWeight:700, fontFamily:"'DM Mono',monospace" }}>
+              {routineTasks.filter(t => routineChecks[t.id]).length}/{routineTasks.length}
+            </div>
+          </div>
+          <div style={{ height:6, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:12 }}>
+            <div style={{ height:"100%", width:`${routineTasks.length ? Math.round(routineTasks.filter(t=>routineChecks[t.id]).length/routineTasks.length*100) : 0}%`, borderRadius:3, background:"linear-gradient(90deg,#00e5c3,#4f8cff)", transition:"width 0.6s" }}/>
+          </div>
+          {routineTasks.map(t => (
+            <div key={t.id} style={{
+              display:"flex", alignItems:"center", gap:12, padding:"10px 0",
+              borderTop:"1px solid var(--border)"
+            }}>
+              <div onClick={() => toggleRoutineCheck(t.id)} style={{
+                width:28, height:28, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                border:`2.5px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
+                background: routineChecks[t.id] ? "var(--green)" : "transparent",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:15, color:"#fff", transition:"all 0.2s"
+              }}>{routineChecks[t.id] ? "✓" : ""}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{
+                  fontSize:16, fontWeight:500, lineHeight:1.4,
+                  textDecoration: routineChecks[t.id] ? "line-through" : "none",
+                  color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
+                  opacity: routineChecks[t.id] ? 0.6 : 1
+                }}>{t.title}</div>
+                {t.assignee && <div style={{ fontSize:14, color:"var(--muted)", marginTop:2 }}>{t.assignee}</div>}
+              </div>
+              <div onClick={() => removeRoutineTask(t.id)} style={{
+                padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:14, fontWeight:600, opacity:0.6
+              }}>✕</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 新增例行任務 */}
+      <div style={{ marginBottom:14 }}>
+        {!showAddRoutine ? (
+          <div onClick={() => setShowAddRoutine(true)} style={{
+            background:"var(--card)", border:"1.5px dashed var(--border)", borderRadius:14,
+            padding:"14px 16px", textAlign:"center", cursor:"pointer", fontSize:15,
+            color:"var(--muted)", fontWeight:600, transition:"all 0.2s"
+          }}>＋ 新增例行任務</div>
+        ) : (
+          <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
+            <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
+            <input
+              placeholder="例行任務名稱"
+              value={routineForm.title}
+              onChange={e => setRoutineForm(f => ({...f, title:e.target.value}))}
+              style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }}
+            />
+            <select
+              value={routineForm.assignee}
+              onChange={e => setRoutineForm(f => ({...f, assignee:e.target.value}))}
+              style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
+            >
+              <option value="">不指定負責人</option>
+              {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={() => setShowAddRoutine(false)} style={{
+                flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
+                background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
+                cursor:"pointer", fontFamily:"inherit"
+              }}>取消</button>
+              <button onClick={addRoutineTask} style={{
+                flex:2, padding:"12px", borderRadius:10, border:"none",
+                background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
+                fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
+              }}>新增</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {nextReminders.length>0 && (
