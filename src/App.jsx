@@ -167,18 +167,45 @@ function NoteModal({ task, onSave, onClose }) {
 }
 
 // ── 任務編輯 Modal ───────────────────────────────
-function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority }) {
+function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser }) {
   const [form, setForm] = useState({
     title: task.title || "",
     assignee: task.assignee || TEAM[0],
     deadline: task.deadline || "",
     meeting: task.meeting || "",
     priority: task.priority || "medium",
+    subtasks: task.subtasks || [],
+    comments: task.comments || [],
   });
+  const [newSubtask, setNewSubtask] = useState("");
+  const [commentText, setCommentText] = useState("");
+  const [editTab, setEditTab] = useState("info"); // "info" | "subtasks" | "comments"
+
+  // 子任務操作
+  const addSubtask = () => {
+    if (!newSubtask.trim()) return;
+    setForm(f => ({...f, subtasks: [...f.subtasks, { id: Date.now(), title: newSubtask.trim(), done: false }]}));
+    setNewSubtask("");
+  };
+  const toggleSubtask = (id) => {
+    setForm(f => ({...f, subtasks: f.subtasks.map(s => s.id === id ? {...s, done: !s.done} : s)}));
+  };
+  const removeSubtask = (id) => {
+    setForm(f => ({...f, subtasks: f.subtasks.filter(s => s.id !== id)}));
+  };
+  // 留言操作
+  const addComment = () => {
+    if (!commentText.trim()) return;
+    setForm(f => ({...f, comments: [...f.comments, { id: Date.now(), author: currentUser || "匿名", text: commentText.trim(), time: nowTW() }]}));
+    setCommentText("");
+  };
+
   const handleSave = () => {
     if (!form.title.trim()) return;
     onSave({ ...form, title: form.title.trim() });
   };
+  const subtaskDone = form.subtasks.filter(s => s.done).length;
+  const subtaskTotal = form.subtasks.length;
   return (
     <div style={{
       position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200,
@@ -186,66 +213,189 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
     }}>
       <div style={{
         background:"var(--card)", border:"1px solid var(--border)", borderRadius:16,
-        padding:"24px", width:"100%", maxWidth:520, display:"flex", flexDirection:"column", gap:14,
+        padding:"24px", width:"100%", maxWidth:560, display:"flex", flexDirection:"column", gap:14,
         maxHeight:"90vh", overflowY:"auto"
       }}>
         <div style={{ fontSize:22, fontWeight:700 }}>✏️ 編輯任務</div>
-        <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>任務名稱</div>
-          <input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))}
-            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+
+        {/* 頁籤切換 */}
+        <div style={{ display:"flex", gap:6, borderBottom:"1px solid var(--border)", paddingBottom:10 }}>
+          {[["info","📋 基本"],["subtasks",`✓ 子任務${subtaskTotal?` (${subtaskDone}/${subtaskTotal})`:""}`],["comments",`💬 留言${form.comments.length?` (${form.comments.length})`:""}`]].map(([k,l])=>(
+            <div key={k} onClick={()=>setEditTab(k)} style={{
+              padding:"7px 14px", borderRadius:10, fontSize:14, fontWeight: editTab===k ? 700 : 400,
+              cursor:"pointer", background: editTab===k ? "rgba(79,140,255,0.12)" : "transparent",
+              color: editTab===k ? "var(--accent)" : "var(--muted)",
+              border: editTab===k ? "1px solid rgba(79,140,255,0.25)" : "1px solid transparent",
+              transition:"all 0.2s", whiteSpace:"nowrap"
+            }}>{l}</div>
+          ))}
         </div>
-        <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人</div>
-          <select value={form.assignee} onChange={e => setForm(f=>({...f,assignee:e.target.value}))}
-            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box" }}>
-            {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>截止日期（例行任務可留空）</div>
-          <input type="date" value={form.deadline} onChange={e => setForm(f=>({...f,deadline:e.target.value}))}
-            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
-        </div>
-        <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>來源會議</div>
-          <input value={form.meeting} onChange={e => setForm(f=>({...f,meeting:e.target.value}))}
-            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
-        </div>
-        {canSetPriority && (
+
+        {/* ── 基本資訊頁籤 ── */}
+        {editTab==="info" && (<>
           <div>
-            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {PRIORITIES.map(p => (
-                <div key={p.key} onClick={() => setForm(f=>({...f,priority:p.key}))}
-                  style={{
-                    flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
-                    textAlign:"center", minWidth:60,
-                    background: form.priority===p.key ? p.bg : "var(--surf)",
-                    color: form.priority===p.key ? p.color : "var(--muted)",
-                    border: `1.5px solid ${form.priority===p.key ? p.color : "var(--border)"}`,
-                    transition:"all 0.2s"
-                  }}>{p.label}</div>
-              ))}
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>任務名稱</div>
+            <input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+          </div>
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人</div>
+            <select value={form.assignee} onChange={e => setForm(f=>({...f,assignee:e.target.value}))}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box" }}>
+              {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>截止日期（例行任務可留空）</div>
+            <input type="date" value={form.deadline} onChange={e => setForm(f=>({...f,deadline:e.target.value}))}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+          </div>
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>來源會議</div>
+            <input value={form.meeting} onChange={e => setForm(f=>({...f,meeting:e.target.value}))}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+          </div>
+          {canSetPriority && (
+            <div>
+              <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {PRIORITIES.map(p => (
+                  <div key={p.key} onClick={() => setForm(f=>({...f,priority:p.key}))}
+                    style={{
+                      flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
+                      textAlign:"center", minWidth:60,
+                      background: form.priority===p.key ? p.bg : "var(--surf)",
+                      color: form.priority===p.key ? p.color : "var(--muted)",
+                      border: `1.5px solid ${form.priority===p.key ? p.color : "var(--border)"}`,
+                      transition:"all 0.2s"
+                    }}>{p.label}</div>
+                ))}
+              </div>
             </div>
+          )}
+          {!canSetPriority && form.priority && form.priority !== "medium" && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, color:"var(--muted)" }}>
+              優先等級：<PriorityBadge priority={form.priority}/>
+            </div>
+          )}
+          <button onClick={onNotify} style={{
+            width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
+            background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit", marginTop:2
+          }}>📨 立即發送 LINE 通知給 {form.assignee}</button>
+        </>)}
+
+        {/* ── 子任務頁籤 ── */}
+        {editTab==="subtasks" && (<>
+          {/* 子任務進度 */}
+          {subtaskTotal > 0 && (
+            <div>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, color:"var(--muted)", marginBottom:6 }}>
+                <span>子任務進度</span>
+                <span style={{ fontWeight:700, color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>{subtaskDone}/{subtaskTotal}</span>
+              </div>
+              <div style={{ height:6, background:"var(--border)", borderRadius:3, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${subtaskTotal?Math.round(subtaskDone/subtaskTotal*100):0}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:3, transition:"width 0.4s" }}/>
+              </div>
+            </div>
+          )}
+          {/* 子任務列表 */}
+          {form.subtasks.map(s => (
+            <div key={s.id} style={{
+              display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+              background:"var(--surf)", borderRadius:10, border:"1px solid var(--border)"
+            }}>
+              <div onClick={() => toggleSubtask(s.id)} style={{
+                width:22, height:22, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                border:`2px solid ${s.done ? "var(--green)" : "var(--border)"}`,
+                background: s.done ? "var(--green)" : "transparent",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:12, color:"#fff", transition:"all 0.2s"
+              }}>{s.done ? "✓" : ""}</div>
+              <span style={{
+                flex:1, fontSize:15, lineHeight:1.4,
+                textDecoration: s.done ? "line-through" : "none",
+                color: s.done ? "var(--muted)" : "var(--text)",
+                opacity: s.done ? 0.6 : 1
+              }}>{s.title}</span>
+              <div onClick={() => removeSubtask(s.id)} style={{
+                padding:"2px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.6, flexShrink:0
+              }}>✕</div>
+            </div>
+          ))}
+          {form.subtasks.length === 0 && (
+            <div style={{ textAlign:"center", color:"var(--muted)", fontSize:14, padding:"16px 0" }}>尚無子任務，新增一個吧</div>
+          )}
+          {/* 新增子任務 */}
+          <div style={{ display:"flex", gap:8 }}>
+            <input
+              value={newSubtask}
+              onChange={e => setNewSubtask(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addSubtask(); }}
+              placeholder="輸入子任務名稱..."
+              style={{
+                flex:1, padding:"10px 14px", borderRadius:10,
+                border:"1px solid var(--border)", background:"var(--surf)",
+                color:"var(--text)", fontSize:14, fontFamily:"inherit", outline:"none"
+              }}
+            />
+            <button onClick={addSubtask} style={{
+              padding:"10px 16px", borderRadius:10, border:"none",
+              background:"var(--accent)", color:"#fff", fontSize:14, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap"
+            }}>＋ 新增</button>
           </div>
-        )}
-        {!canSetPriority && form.priority && form.priority !== "medium" && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, color:"var(--muted)" }}>
-            優先等級：<PriorityBadge priority={form.priority}/>
+        </>)}
+
+        {/* ── 留言頁籤 ── */}
+        {editTab==="comments" && (<>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, maxHeight:300, overflowY:"auto" }}>
+            {form.comments.length === 0 && (
+              <div style={{ textAlign:"center", color:"var(--muted)", fontSize:14, padding:"16px 0" }}>尚無留言</div>
+            )}
+            {form.comments.map(c => (
+              <div key={c.id} style={{
+                background:"var(--surf)", borderRadius:12, padding:"10px 14px",
+                border:"1px solid var(--border)"
+              }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <Avatar name={c.author} size={22}/>
+                  <span style={{ fontSize:14, fontWeight:600, color:"var(--text)" }}>{c.author}</span>
+                  <span style={{ fontSize:12, color:"var(--muted)", marginLeft:"auto" }}>{c.time}</span>
+                </div>
+                <div style={{ fontSize:15, color:"var(--text)", lineHeight:1.6, paddingLeft:30 }}>{c.text}</div>
+              </div>
+            ))}
           </div>
-        )}
-        <button onClick={onNotify} style={{
-          width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
-          background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
-          cursor:"pointer", fontFamily:"inherit", marginTop:2
-        }}>📨 立即發送 LINE 通知給 {form.assignee}</button>
-        <div style={{ display:"flex", gap:10, marginTop:4 }}>
+          {/* 新增留言 */}
+          <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
+            <textarea
+              value={commentText}
+              onChange={e => setCommentText(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addComment(); }}}
+              placeholder={`以 ${currentUser || "匿名"} 的身份留言...`}
+              style={{
+                flex:1, padding:"10px 14px", borderRadius:10,
+                border:"1px solid var(--border)", background:"var(--surf)",
+                color:"var(--text)", fontSize:14, fontFamily:"inherit", outline:"none",
+                resize:"none", minHeight:42, maxHeight:120, lineHeight:1.5
+              }}
+            />
+            <button onClick={addComment} style={{
+              padding:"10px 16px", borderRadius:10, border:"none",
+              background:"var(--accent)", color:"#fff", fontSize:14, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", alignSelf:"flex-end"
+            }}>發送</button>
+          </div>
+        </>)}
+
+        {/* 底部操作按鈕 */}
+        <div style={{ display:"flex", gap:10, marginTop:4, borderTop:"1px solid var(--border)", paddingTop:14 }}>
           <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
             padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
             background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit"
-          }}>🗑 刪除</button>
+          }}>🗑</button>
           <button onClick={onClose} style={{
             flex:1, padding:"13px", borderRadius:10, border:"1px solid var(--border)",
             background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
@@ -984,6 +1134,8 @@ export default function MeetBot() {
         ...t, title: form.title, assignee: form.assignee,
         deadline: form.deadline, meeting: form.meeting,
         priority: form.priority || t.priority || "medium",
+        subtasks: form.subtasks || t.subtasks || [],
+        comments: form.comments || t.comments || [],
       } : t
     ));
     setEditingTaskFull(null);
@@ -1196,7 +1348,27 @@ export default function MeetBot() {
             </div>
             <DeadlineBadge deadline={t.deadline} done={t.done}/>
             {t.priority && t.priority!=="medium" && t.priority!=="low" && !t.done && <PriorityBadge priority={t.priority}/>}
+            {t.subtasks?.length > 0 && (
+              <span style={bdg("var(--accent)","rgba(79,140,255,0.12)")}>✓ {t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>
+            )}
+            {t.comments?.length > 0 && (
+              <span style={{ fontSize:14, color:"var(--muted)", display:"flex", alignItems:"center", gap:3 }}>💬 {t.comments.length}</span>
+            )}
           </div>
+          {/* 子任務快速預覽 */}
+          {t.subtasks?.length > 0 && !t.done && (
+            <div style={{ marginTop:4 }}>
+              {t.subtasks.filter(s=>!s.done).slice(0,3).map(s => (
+                <div key={s.id} style={{ fontSize:14, color:"var(--muted)", padding:"2px 0", display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ width:5, height:5, borderRadius:"50%", background:"var(--border)", flexShrink:0 }}/>
+                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.title}</span>
+                </div>
+              ))}
+              {t.subtasks.filter(s=>!s.done).length > 3 && (
+                <div style={{ fontSize:13, color:"var(--muted)", paddingLeft:11 }}>...還有 {t.subtasks.filter(s=>!s.done).length - 3} 項</div>
+              )}
+            </div>
+          )}
           {t.progressNote && (
             <div style={{ background:"rgba(79,140,255,0.07)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:8, padding:"8px 12px", marginTop:4 }}>
               <div style={{ fontSize:15, color:"var(--accent)", fontWeight:600, marginBottom:3 }}>📝 進度備註</div>
@@ -2046,7 +2218,7 @@ export default function MeetBot() {
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
 
         {/* 任務編輯 Modal */}
-        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)}/>}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)} currentUser={currentUser}/>}
 
         {/* 會議詳情 Modal */}
         {viewingMeeting && <MeetingDetailModal
