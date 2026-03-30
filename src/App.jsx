@@ -4,6 +4,7 @@ import * as mammoth from "mammoth";
 // ── 固定團隊成員 ──────────────────────────────
 const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
 const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4"];
+const ADMINS = ["蔡蕙芳", "戴豐逸"]; // 有權設定優先等級
 const BACKEND_URL   = "https://meetbot-backend.onrender.com";
 const FB_BASE       = "https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app/meetbot";
 const MEETINGS_FB   = FB_BASE + "/meetings";
@@ -46,6 +47,25 @@ function Avatar({ name, size = 32 }) {
       fontFamily: "'Noto Sans TC', sans-serif"
     }}>{name[0]}</div>
   );
+}
+
+// ── 優先等級設定 ─────────────────────────────
+const PRIORITIES = [
+  { key:"critical", label:"緊急", color:"#ff5b79", bg:"rgba(255,91,121,0.12)" },
+  { key:"high",     label:"高",   color:"#ff9f43", bg:"rgba(255,159,67,0.12)" },
+  { key:"medium",   label:"中",   color:"#4f8cff", bg:"rgba(79,140,255,0.12)" },
+  { key:"low",      label:"低",   color:"#6b7494", bg:"rgba(107,116,148,0.12)" },
+];
+const PRIORITY_MAP = Object.fromEntries(PRIORITIES.map(p => [p.key, p]));
+function PriorityBadge({ priority }) {
+  const p = PRIORITY_MAP[priority];
+  if (!p) return null;
+  return <span style={bdg(p.color, p.bg)}>{p.label}</span>;
+}
+// 舊資料遷移：urgent → priority
+function migrateTask(t) {
+  if (t.priority) return t;
+  return { ...t, priority: t.urgent ? "critical" : "medium", deletedAt: t.deletedAt || null };
 }
 
 // ── DeadlineBadge ─────────────────────────────
@@ -147,12 +167,13 @@ function NoteModal({ task, onSave, onClose }) {
 }
 
 // ── 任務編輯 Modal ───────────────────────────────
-function TaskEditModal({ task, onSave, onDelete, onNotify, onClose }) {
+function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority }) {
   const [form, setForm] = useState({
     title: task.title || "",
     assignee: task.assignee || TEAM[0],
     deadline: task.deadline || "",
     meeting: task.meeting || "",
+    priority: task.priority || "medium",
   });
   const handleSave = () => {
     if (!form.title.trim()) return;
@@ -191,6 +212,29 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose }) {
           <input value={form.meeting} onChange={e => setForm(f=>({...f,meeting:e.target.value}))}
             style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
         </div>
+        {canSetPriority && (
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {PRIORITIES.map(p => (
+                <div key={p.key} onClick={() => setForm(f=>({...f,priority:p.key}))}
+                  style={{
+                    flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
+                    textAlign:"center", minWidth:60,
+                    background: form.priority===p.key ? p.bg : "var(--surf)",
+                    color: form.priority===p.key ? p.color : "var(--muted)",
+                    border: `1.5px solid ${form.priority===p.key ? p.color : "var(--border)"}`,
+                    transition:"all 0.2s"
+                  }}>{p.label}</div>
+              ))}
+            </div>
+          </div>
+        )}
+        {!canSetPriority && form.priority && form.priority !== "medium" && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, color:"var(--muted)" }}>
+            優先等級：<PriorityBadge priority={form.priority}/>
+          </div>
+        )}
         <button onClick={onNotify} style={{
           width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
           background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
@@ -491,11 +535,22 @@ async function loadTasks() {
     const res = await fetch(`${FB_BASE}/tasks.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data) return Object.values(data);
-    const obj = Object.fromEntries(DEMO_TASKS.map(t => [t.id, t]));
+    if (data) {
+      let tasks = Object.values(data).map(migrateTask);
+      // 自動清理 7 天前的垃圾桶項目
+      const cutoff = Date.now() - 7 * 86400000;
+      const before = tasks.length;
+      tasks = tasks.filter(t => !t.deletedAt || t.deletedAt > cutoff);
+      if (tasks.length < before) {
+        const obj = Object.fromEntries(tasks.map(t => [t.id, t]));
+        await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) }).catch(()=>{});
+      }
+      return tasks;
+    }
+    const obj = Object.fromEntries(DEMO_TASKS.map(t => [t.id, migrateTask(t)]));
     await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
-    return DEMO_TASKS;
-  } catch(e) { console.error("loadTasks failed:", e); return DEMO_TASKS; }
+    return DEMO_TASKS.map(migrateTask);
+  } catch(e) { console.error("loadTasks failed:", e); return DEMO_TASKS.map(migrateTask); }
 }
 async function saveTasks(tasks) {
   try {
@@ -713,10 +768,13 @@ export default function MeetBot() {
   const [tab,          setTab]          = useState("dashboard");
   const [filter,       setFilter]       = useState("all");
   const [memberFilter, setMemberFilter] = useState("all");
+  const [searchQuery,  setSearchQuery]  = useState("");
+  const [showTrash,    setShowTrash]    = useState(false);
+  const [currentUser,  setCurrentUser]  = useState(() => localStorage.getItem("meetbot-user") || "");
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
-  const [manualForm,   setManualForm]   = useState({ title:"", assignee:TEAM[0], deadline:"", meeting:"" });
+  const [manualForm,   setManualForm]   = useState({ title:"", assignee:TEAM[0], deadline:"", meeting:"", priority:"medium" });
   const [toast,        setToast]        = useState(null);
   const [savedPulse,   setSavedPulse]   = useState(false);
   const [editingTask,  setEditingTask]  = useState(null); // 備註 modal
@@ -837,7 +895,8 @@ export default function MeetBot() {
     const newTasks = parseResult.map((t,i) => ({
       id: Date.now()+i, title:t.title, assignee:t.assignee,
       deadline:t.deadline, meeting, done:false,
-      urgent: daysLeft(t.deadline)<=1,
+      priority: daysLeft(t.deadline)<=1 ? "critical" : "medium",
+      deletedAt: null,
       progressNote: "", progressNoteTime: "",
     }));
     setTasks(prev => [...newTasks,...prev]);
@@ -853,11 +912,12 @@ export default function MeetBot() {
       id: Date.now(), title: manualForm.title.trim(),
       assignee: manualForm.assignee, deadline: manualForm.deadline || "",
       meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
-      done: false, urgent: manualForm.deadline ? daysLeft(manualForm.deadline) <= 1 : false,
+      done: false, priority: manualForm.priority || "medium",
+      deletedAt: null,
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
-    setManualForm({ title:"", assignee:TEAM[0], deadline:"", meeting:"" });
+    setManualForm({ title:"", assignee:TEAM[0], deadline:"", meeting:"", priority:"medium" });
     showToast("已新增 1 項任務");
   };
 
@@ -923,17 +983,30 @@ export default function MeetBot() {
       t.id === editingTaskFull.id ? {
         ...t, title: form.title, assignee: form.assignee,
         deadline: form.deadline, meeting: form.meeting,
-        urgent: form.deadline ? daysLeft(form.deadline) <= 1 : false,
+        priority: form.priority || t.priority || "medium",
       } : t
     ));
     setEditingTaskFull(null);
     showToast("任務已更新","#00e5c3");
   };
+  // 軟刪除（移至垃圾桶，7 天後自動清除）
   const deleteTask = () => {
     if (!editingTaskFull) return;
-    setTasks(prev => prev.filter(t => t.id !== editingTaskFull.id));
+    setTasks(prev => prev.map(t =>
+      t.id === editingTaskFull.id ? { ...t, deletedAt: Date.now() } : t
+    ));
     setEditingTaskFull(null);
-    showToast("任務已刪除","#6b7494");
+    showToast("已移至垃圾桶（7 天後自動清除）","#6b7494");
+  };
+  // 從垃圾桶還原
+  const restoreTask = (id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, deletedAt: null } : t));
+    showToast("任務已還原","#00e5c3");
+  };
+  // 永久刪除
+  const permanentDeleteTask = (id) => {
+    setTasks(prev => prev.filter(t => t.id !== id));
+    showToast("已永久刪除","#ff5b79");
   };
   const notifyTask = async () => {
     if (!editingTaskFull) return;
@@ -985,20 +1058,25 @@ export default function MeetBot() {
     } catch { showToast("發送失敗，請檢查 Webhook URL", "#ff5b79"); }
   };
 
-  // ── 衍生統計 ──
-  const filtered = tasks.filter(t => {
+  // ── 衍生統計（排除垃圾桶）──
+  const activeTasks = tasks.filter(t => !t.deletedAt);
+  const trashedTasks = tasks.filter(t => t.deletedAt);
+  const sq = searchQuery.toLowerCase().trim();
+  const filtered = activeTasks.filter(t => {
+    if (sq && !t.title.toLowerCase().includes(sq) && !t.assignee.toLowerCase().includes(sq) && !(t.meeting||"").toLowerCase().includes(sq)) return false;
     if (memberFilter!=="all" && t.assignee!==memberFilter) return false;
     if (filter==="pending") return !t.done;
-    if (filter==="urgent")  return !t.done && t.deadline && daysLeft(t.deadline)<=2;
+    if (filter==="critical") return !t.done && t.priority==="critical";
+    if (filter==="urgent")  return !t.done && (t.priority==="critical" || t.priority==="high");
     if (filter==="done")    return t.done;
     return true;
   });
-  const pendingCount = tasks.filter(t=>!t.done).length;
-  const doneCount    = tasks.filter(t=>t.done).length;
-  const urgentCount  = tasks.filter(t=>!t.done && t.deadline && daysLeft(t.deadline)<=2).length;
-  const pct = tasks.length ? Math.round(doneCount/tasks.length*100) : 0;
+  const pendingCount = activeTasks.filter(t=>!t.done).length;
+  const doneCount    = activeTasks.filter(t=>t.done).length;
+  const urgentCount  = activeTasks.filter(t=>!t.done && (t.priority==="critical" || t.priority==="high")).length;
+  const pct = activeTasks.length ? Math.round(doneCount/activeTasks.length*100) : 0;
   const memberStats = TEAM.map(name => {
-    const mine = tasks.filter(t=>t.assignee===name);
+    const mine = activeTasks.filter(t=>t.assignee===name);
     const done = mine.filter(t=>t.done).length;
     return { name, total:mine.length, done, pct: mine.length ? Math.round(done/mine.length*100):0 };
   }).filter(m=>m.total>0);
@@ -1117,7 +1195,7 @@ export default function MeetBot() {
               <span style={{ fontSize:15, color:"var(--muted)" }}>{t.assignee}</span>
             </div>
             <DeadlineBadge deadline={t.deadline} done={t.done}/>
-            {t.urgent&&!t.done && <span style={bdg("var(--red)","rgba(255,91,121,0.1)")}>緊急</span>}
+            {t.priority && t.priority!=="medium" && t.priority!=="low" && !t.done && <PriorityBadge priority={t.priority}/>}
           </div>
           {t.progressNote && (
             <div style={{ background:"rgba(79,140,255,0.07)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:8, padding:"8px 12px", marginTop:4 }}>
@@ -1280,6 +1358,21 @@ export default function MeetBot() {
         </div>
       )}
 
+      {/* 搜尋列 */}
+      <div style={{ marginBottom:12 }}>
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="🔍 搜尋任務、負責人、會議..."
+          style={{
+            width:"100%", padding:"11px 14px", borderRadius:12,
+            border:"1px solid var(--border)", background:"var(--card)",
+            color:"var(--text)", fontSize:15, fontFamily:"inherit", outline:"none",
+            boxSizing:"border-box"
+          }}
+        />
+      </div>
+
       {/* 篩選列 */}
       <div style={{ display:"flex", gap:7, marginBottom:12, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
         {[["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"]].map(([k,l])=>(
@@ -1296,6 +1389,52 @@ export default function MeetBot() {
       <div className="mb-task-grid">
         {filtered.map(t => <TaskCard key={t.id} t={t}/>)}
       </div>
+
+      {/* 垃圾桶 */}
+      {trashedTasks.length > 0 && (
+        <div style={{ marginTop:8 }}>
+          <div onClick={() => setShowTrash(!showTrash)} style={{
+            display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+            padding:"12px", borderRadius:12, cursor:"pointer", fontSize:15, fontWeight:600,
+            color:"var(--muted)", background:"var(--card)", border:"1px solid var(--border)",
+            transition:"all 0.2s", marginBottom: showTrash ? 12 : 0
+          }}>
+            🗑 垃圾桶（{trashedTasks.length}）{showTrash ? "▲" : "▼"}
+          </div>
+          {showTrash && trashedTasks.map(t => (
+            <div key={t.id} style={{
+              background:"var(--card)", border:"1px solid var(--border)", borderRadius:14,
+              padding:"14px 16px", marginBottom:8, opacity:0.7, animation:"fadeUp 0.3s ease"
+            }}>
+              <div style={{ fontSize:16, fontWeight:500, marginBottom:6, textDecoration:"line-through", color:"var(--muted)" }}>{t.title}</div>
+              <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:10, flexWrap:"wrap" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                  <Avatar name={t.assignee} size={20}/>
+                  <span style={{ fontSize:14, color:"var(--muted)" }}>{t.assignee}</span>
+                </div>
+                <span style={{ fontSize:13, color:"var(--muted)" }}>
+                  刪除於 {new Date(t.deletedAt).toLocaleDateString("zh-TW")}
+                </span>
+                {t.deletedAt && <span style={{ fontSize:13, color:"var(--orange)" }}>
+                  {Math.max(0, 7 - Math.floor((Date.now() - t.deletedAt) / 86400000))} 天後自動清除
+                </span>}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => restoreTask(t.id)} style={{
+                  flex:1, padding:"10px", borderRadius:10, border:"1px solid var(--green)",
+                  background:"rgba(0,229,195,0.08)", color:"var(--green)", fontSize:14,
+                  fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+                }}>↩ 還原</button>
+                <button onClick={() => { if(window.confirm("確定永久刪除？此操作無法還原。")) permanentDeleteTask(t.id); }} style={{
+                  flex:1, padding:"10px", borderRadius:10, border:"1px solid var(--red)",
+                  background:"rgba(255,91,121,0.08)", color:"var(--red)", fontSize:14,
+                  fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+                }}>✕ 永久刪除</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div onClick={()=>fetchAll(true)} style={{ textAlign:"center", padding:"18px 0", fontSize:15, color:"var(--muted)", cursor:"pointer" }}>↻ 手動重新整理</div>
     </div>
@@ -1332,6 +1471,24 @@ export default function MeetBot() {
           onChange={e=>setManualForm(f=>({...f,meeting:e.target.value}))}
           style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:14, outline:"none" }}
         />
+        {ADMINS.includes(currentUser) && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {PRIORITIES.map(p => (
+                <div key={p.key} onClick={() => setManualForm(f=>({...f,priority:p.key}))}
+                  style={{
+                    flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
+                    textAlign:"center", minWidth:60,
+                    background: manualForm.priority===p.key ? p.bg : "var(--surf)",
+                    color: manualForm.priority===p.key ? p.color : "var(--muted)",
+                    border: `1.5px solid ${manualForm.priority===p.key ? p.color : "var(--border)"}`,
+                    transition:"all 0.2s"
+                  }}>{p.label}</div>
+              ))}
+            </div>
+          </div>
+        )}
         <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:18, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
       </div>
       <div onClick={()=>!parsing&&fileRef.current.click()} style={{ border:`2px dashed ${parsing?"var(--accent)":"var(--border)"}`, borderRadius:16, padding:"36px 20px", textAlign:"center", cursor:"pointer", background:"var(--card)", marginBottom:16, transition:"border-color 0.2s" }}>
@@ -1816,6 +1973,15 @@ export default function MeetBot() {
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            {currentUser && (
+              <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); }}} style={{
+                display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"3px 12px",
+                borderRadius:20, background:"rgba(79,140,255,0.1)", border:"1px solid rgba(79,140,255,0.3)"
+              }}>
+                <Avatar name={currentUser} size={20}/>
+                <span style={{ fontSize:14, fontWeight:600, color:"var(--accent)" }}>{currentUser}</span>
+              </div>
+            )}
             {urgentCount>0 && <div style={{ background:"rgba(255,91,121,0.15)", border:"1px solid var(--red)", color:"var(--red)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>緊急 {urgentCount} 項</div>}
             <div style={{ background:"rgba(0,229,195,0.1)", border:"1px solid rgba(0,229,195,0.3)", color:"var(--green)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>{pct}% 完成</div>
             <button onClick={()=>exportToWord(tasks)} style={{
@@ -1880,7 +2046,7 @@ export default function MeetBot() {
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
 
         {/* 任務編輯 Modal */}
-        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)}/>}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)}/>}
 
         {/* 會議詳情 Modal */}
         {viewingMeeting && <MeetingDetailModal
@@ -1894,6 +2060,37 @@ export default function MeetBot() {
         {/* Toast */}
         {toast && (
           <div style={{ position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", background:toast.color, color:"#fff", padding:"12px 24px", borderRadius:24, fontSize:15, fontWeight:600, zIndex:999, whiteSpace:"nowrap", boxShadow:"0 4px 20px rgba(0,0,0,0.4)", animation:"fadeUp 0.3s ease" }}>{toast.msg}</div>
+        )}
+
+        {/* 使用者身份選擇（首次進入） */}
+        {!currentUser && (
+          <div style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:300,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:"20px"
+          }}>
+            <div style={{
+              background:"var(--card)", border:"1px solid var(--border)", borderRadius:16,
+              padding:"24px", width:"100%", maxWidth:400, display:"flex", flexDirection:"column", gap:16,
+              maxHeight:"90vh", overflowY:"auto"
+            }}>
+              <div style={{ fontSize:24, fontWeight:700, textAlign:"center" }}>👋 歡迎使用 MeetBot</div>
+              <div style={{ fontSize:15, color:"var(--muted)", textAlign:"center", lineHeight:1.6 }}>請選擇你的身份<br/>（用於權限識別與操作記錄）</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {TEAM.map(name => (
+                  <div key={name} onClick={() => { setCurrentUser(name); localStorage.setItem("meetbot-user", name); }} style={{
+                    display:"flex", alignItems:"center", gap:12, padding:"13px 16px",
+                    borderRadius:12, cursor:"pointer", background:"var(--surf)",
+                    border:"1px solid var(--border)", transition:"all 0.2s",
+                    fontSize:16, fontWeight:500
+                  }}>
+                    <Avatar name={name} size={34}/>
+                    <span>{name}</span>
+                    {ADMINS.includes(name) && <span style={{ marginLeft:"auto", fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(255,159,67,0.12)", color:"var(--orange)", fontWeight:600 }}>管理員</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </>
