@@ -999,6 +999,8 @@ export default function MeetBot() {
   const [currentUser,  setCurrentUser]  = useState(() => localStorage.getItem("meetbot-user") || "");
   const [batchMode,    setBatchMode]    = useState(false);
   const [selectedIds,  setSelectedIds]  = useState(new Set());
+  const [theme,        setTheme]        = useState(() => localStorage.getItem("meetbot-theme") || "dark");
+  const [browserNotif, setBrowserNotif] = useState(() => localStorage.getItem("meetbot-browser-notif") === "true");
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
@@ -1037,6 +1039,33 @@ export default function MeetBot() {
     setToast({ msg, color });
     setTimeout(() => setToast(null), 2800);
   };
+
+  // ── 主題切換 ──
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("meetbot-theme", next);
+  };
+
+  // ── 瀏覽器通知 ──
+  const toggleBrowserNotif = async () => {
+    if (!browserNotif) {
+      if (!("Notification" in window)) { showToast("此瀏覽器不支援通知","#ff5b79"); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { showToast("通知權限被拒絕","#ff5b79"); return; }
+      setBrowserNotif(true);
+      localStorage.setItem("meetbot-browser-notif", "true");
+      showToast("已開啟瀏覽器通知","#00e5c3");
+    } else {
+      setBrowserNotif(false);
+      localStorage.setItem("meetbot-browser-notif", "false");
+      showToast("已關閉瀏覽器通知","#6b7494");
+    }
+  };
+  const sendBrowserNotif = useCallback((title, body) => {
+    if (!browserNotif || Notification.permission !== "granted") return;
+    try { new Notification(title, { body, icon:"📋" }); } catch {}
+  }, [browserNotif]);
 
   // ── 寬度偵測（ResizeObserver，在 iframe/嵌入環境也可靠）──
   useEffect(() => {
@@ -1082,7 +1111,21 @@ export default function MeetBot() {
         if (data.sent > 0) showToast(`已發送 ${data.sent} 則 Slack 會議提醒`,"#00e5c3");
       } catch {}
     }, 3600000);
-    return () => { clearInterval(poll); clearInterval(reminderCheck); clearInterval(slackCheck); };
+    // 瀏覽器通知檢查（每 30 分鐘）
+    const browserNotifCheck = setInterval(() => {
+      if (!localStorage.getItem("meetbot-browser-notif") || localStorage.getItem("meetbot-browser-notif") !== "true") return;
+      if (Notification.permission !== "granted") return;
+      const pending = tasksRef.current.filter(t => !t.done && !t.deletedAt && t.deadline);
+      pending.forEach(t => {
+        const d = daysLeft(t.deadline);
+        if (d === 0) {
+          try { new Notification(`⚠️ 今天截止：${t.title}`, { body: `負責人：${t.assignee}` }); } catch {}
+        } else if (d === 1) {
+          try { new Notification(`📅 明天截止：${t.title}`, { body: `負責人：${t.assignee}` }); } catch {}
+        }
+      });
+    }, 1800000);
+    return () => { clearInterval(poll); clearInterval(reminderCheck); clearInterval(slackCheck); clearInterval(browserNotifCheck); };
   }, [fetchAll]);
 
   // ── 任務自動存（含超時保護 + 失敗提示）──
@@ -1390,12 +1433,19 @@ export default function MeetBot() {
   const styleBlock = `
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-    html,body{background:#080b12;height:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    html,body{background:var(--bg);height:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
     :root{
       --bg:#080b12;--surf:#10141e;--card:#181d2a;--border:#232840;
       --accent:#4f8cff;--green:#00e5c3;--orange:#ff9f43;--red:#ff5b79;
       --text:#e8eaf2;--muted:#6b7494;
     }
+    .theme-light{
+      --bg:#f0f2f8;--surf:#ffffff;--card:#ffffff;--border:#dfe2ea;
+      --accent:#3b7aed;--green:#00b89c;--orange:#e08a28;--red:#e04060;
+      --text:#1a1e2e;--muted:#7a819a;
+    }
+    .theme-light select,.theme-light input{ color-scheme:light; }
+    .theme-light ::-webkit-scrollbar-thumb{ background:#ccc; }
     @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
     @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
@@ -2023,6 +2073,24 @@ export default function MeetBot() {
         </div>
       </div>
 
+      {/* 瀏覽器推播通知 */}
+      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"18px", marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:40, height:40, borderRadius:10, background:"rgba(79,140,255,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔔</div>
+            <div><div style={{ fontSize:20, fontWeight:600 }}>瀏覽器推播通知</div><div style={{ fontSize:15, color:"var(--muted)" }}>任務到期時在瀏覽器顯示通知</div></div>
+          </div>
+          <Toggle on={browserNotif} onChange={toggleBrowserNotif}/>
+        </div>
+        {browserNotif && (
+          <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid var(--border)", fontSize:14, color:"var(--muted)", lineHeight:1.7 }}>
+            ✓ 每 30 分鐘自動檢查即將到期任務<br/>
+            ✓ 今天/明天截止的任務會觸發瀏覽器通知<br/>
+            ⚠️ 需保持此頁面開啟才能收到通知
+          </div>
+        )}
+      </div>
+
       {/* 規則 4：每週報告 */}
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"18px", marginBottom:12 }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:reminders.weeklyReport.on?16:0 }}>
@@ -2088,6 +2156,105 @@ export default function MeetBot() {
         立即檢查並發送 LINE 提醒
       </button>
       {lastNotify && <div style={{ textAlign:"center", fontSize:15, color:"var(--muted)", marginTop:10 }}>上次發送：{pad2(lastNotify.getHours())}:{pad2(lastNotify.getMinutes())}</div>}
+    </div>
+  );
+
+  // ── 甘特圖 ─────────────────────────────────
+  const ganttStart = new Date();
+  ganttStart.setDate(ganttStart.getDate() - 3);
+  const ganttDays = 30;
+  const ganttDates = Array.from({length: ganttDays}, (_, i) => {
+    const d = new Date(ganttStart);
+    d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0,10);
+  });
+  const ganttTasks = activeTasks.filter(t => !t.done && t.deadline).sort((a,b) => a.deadline.localeCompare(b.deadline));
+  const ganttByMember = TEAM.map(name => ({
+    name,
+    tasks: ganttTasks.filter(t => t.assignee === name)
+  })).filter(g => g.tasks.length > 0);
+
+  const GanttContent = (
+    <div className="mb-content-pad">
+      <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>
+        甘特圖・任務時間分佈
+      </div>
+      {ganttByMember.length === 0 && (
+        <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:15 }}>沒有待辦任務可以顯示</div>
+      )}
+      <div style={{ overflowX:"auto", paddingBottom:16 }}>
+        {/* 日期標頭 */}
+        <div style={{ display:"flex", minWidth: ganttDays * 36, marginBottom:6, paddingLeft:110 }}>
+          {ganttDates.map((d, i) => {
+            const isToday = d === today();
+            const dt = new Date(d);
+            const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
+            return (
+              <div key={d} style={{
+                width:36, textAlign:"center", fontSize:11, flexShrink:0,
+                color: isToday ? "var(--accent)" : isWeekend ? "var(--red)" : "var(--muted)",
+                fontWeight: isToday ? 700 : 400, fontFamily:"'DM Mono',monospace"
+              }}>
+                <div>{d.slice(8)}</div>
+                <div style={{ fontSize:10 }}>{["日","一","二","三","四","五","六"][dt.getDay()]}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 成員區塊 */}
+        {ganttByMember.map(g => (
+          <div key={g.name} style={{ marginBottom:12 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <Avatar name={g.name} size={22}/>
+              <span style={{ fontSize:14, fontWeight:600 }}>{g.name}</span>
+              <span style={{ fontSize:12, color:"var(--muted)" }}>({g.tasks.length})</span>
+            </div>
+            {g.tasks.map(t => {
+              const deadlineIdx = ganttDates.indexOf(t.deadline);
+              const barStart = Math.max(0, deadlineIdx - 6);
+              const barEnd = deadlineIdx >= 0 ? Math.min(deadlineIdx, ganttDays - 1) : -1;
+              const prio = PRIORITY_MAP[t.priority];
+              const barColor = prio ? prio.color : memberColor(t.assignee);
+              if (barEnd < 0) return null;
+              return (
+                <div key={t.id} style={{ display:"flex", alignItems:"center", minWidth: ganttDays * 36, height:28, marginBottom:3 }}>
+                  <div style={{
+                    width:110, flexShrink:0, fontSize:12, color:"var(--muted)",
+                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", paddingRight:8
+                  }}>{t.title}</div>
+                  <div style={{ flex:1, position:"relative", height:20 }}>
+                    {/* 今日標線 */}
+                    {ganttDates.indexOf(today()) >= 0 && (
+                      <div style={{ position:"absolute", left: ganttDates.indexOf(today()) * 36 + 18, top:0, bottom:0, width:2, background:"var(--accent)", opacity:0.4, zIndex:1 }}/>
+                    )}
+                    {/* 任務條 */}
+                    <div style={{
+                      position:"absolute",
+                      left: barStart * 36 + 4,
+                      width: (barEnd - barStart + 1) * 36 - 8,
+                      height:18, borderRadius:4, top:1,
+                      background: `${barColor}40`,
+                      border: `1.5px solid ${barColor}`,
+                    }}>
+                      <div style={{ fontSize:10, color:barColor, fontWeight:600, padding:"1px 6px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {t.deadline.slice(5)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", fontSize:14, color:"var(--muted)", lineHeight:1.7 }}>
+        <strong style={{ color:"var(--text)" }}>圖例說明</strong><br/>
+        ● 每條任務顯示截止日前 7 天的工作區間<br/>
+        ● 顏色依優先等級區分（緊急紅、高橙、一般藍）<br/>
+        ● 藍色虛線為今天的位置
+      </div>
     </div>
   );
 
@@ -2322,7 +2489,7 @@ export default function MeetBot() {
     </div>
   );
 
-  const TABS = [["dashboard","📊","任務"],["calendar","📅","行事曆"],["upload","📄","上傳"],["team","👥","成員"],["reminders","⏰","提醒"]];
+  const TABS = [["dashboard","📊","任務"],["calendar","📅","行事曆"],["gantt","📈","甘特圖"],["upload","📄","上傳"],["team","👥","成員"],["reminders","⏰","提醒"]];
 
   // ══════════════════════════════════════════════
   // ── 單一佈局（CSS media query 切換桌機/手機）──
@@ -2330,7 +2497,7 @@ export default function MeetBot() {
   return (
     <>
       <style>{styleBlock}</style>
-      <div ref={rootRef} className={isWide ? "mb-root mb-wide" : "mb-root"} style={{ fontFamily:"'Noto Sans TC',sans-serif", background:"var(--bg)", color:"var(--text)" }}>
+      <div ref={rootRef} className={`${isWide ? "mb-root mb-wide" : "mb-root"}${theme==="light"?" theme-light":""}`} style={{ fontFamily:"'Noto Sans TC',sans-serif", background:"var(--bg)", color:"var(--text)" }}>
 
         {/* 頂部欄 */}
         <div className="mb-topbar-inner" style={{ background:"var(--surf)", borderBottom:"1px solid var(--border)", padding:"13px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:50 }}>
@@ -2342,6 +2509,12 @@ export default function MeetBot() {
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            <div onClick={toggleTheme} style={{
+              width:36, height:36, borderRadius:10, cursor:"pointer",
+              background:"var(--card)", border:"1px solid var(--border)",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:18, transition:"all 0.2s"
+            }}>{theme==="dark"?"☀️":"🌙"}</div>
             {currentUser && (
               <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); }}} style={{
                 display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"3px 12px",
@@ -2402,6 +2575,7 @@ export default function MeetBot() {
             {/* 頁面內容 */}
             {tab==="dashboard" && <DashboardContent/>}
             {tab==="calendar"  && CalendarContent}
+            {tab==="gantt"     && GanttContent}
             {tab==="upload"    && <UploadContent/>}
             {tab==="team"      && <TeamContent/>}
             {tab==="reminders" && <RemindersContent/>}
