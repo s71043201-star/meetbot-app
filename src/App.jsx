@@ -104,7 +104,7 @@ function NoteModal({ task, onSave, onClose }) {
         background:"var(--card)", border:"1px solid var(--border)", borderRadius:16,
         padding:"24px", width:"100%", maxWidth:520, display:"flex", flexDirection:"column", gap:16
       }}>
-        <div style={{ fontSize:18, fontWeight:700 }}>📝 工作進度備註</div>
+        <div style={{ fontSize:22, fontWeight:700 }}>📝 工作進度備註</div>
         <div style={{
           background:"var(--surf)", borderRadius:10, padding:"12px 14px",
           fontSize:15, color:"var(--muted)", lineHeight:1.6
@@ -364,7 +364,7 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }}>
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:16, padding:"24px", width:"100%", maxWidth:540, display:"flex", flexDirection:"column", gap:14, maxHeight:"90vh", overflowY:"auto" }}>
-        <div style={{ fontSize:18, fontWeight:700 }}>{meeting ? "✏️ 編輯會議" : "📅 新增會議"}</div>
+        <div style={{ fontSize:22, fontWeight:700 }}>{meeting ? "✏️ 編輯會議" : "📅 新增會議"}</div>
         <div>
           <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>會議名稱</div>
           <input value={form.title} onChange={e=>setForm({...form, title:e.target.value})} placeholder="例：Q2 預算審查會議"
@@ -687,7 +687,7 @@ export default function MeetBot() {
       `}</style>
       <div style={{ fontFamily:"'Noto Sans TC',sans-serif", background:"#080b12", color:"#e8eaf2", minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:18 }}>
         <div style={{ fontSize:24 }}>📋</div>
-        <div style={{ fontWeight:700, fontSize:18 }}>載入共用清單中...</div>
+        <div style={{ fontWeight:700, fontSize:22 }}>載入共用清單中...</div>
         <div style={{ width:180, height:4, background:"#232840", borderRadius:2, overflow:"hidden" }}>
           <div style={{ height:"100%", background:"linear-gradient(90deg,#4f8cff,#00e5c3)", animation:"slide 1.2s infinite", width:"50%" }}/>
         </div>
@@ -769,7 +769,7 @@ export default function MeetBot() {
         {/* 內容 */}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{
-            fontSize:18, fontWeight:500, lineHeight:1.5, marginBottom:8,
+            fontSize:20, fontWeight:500, lineHeight:1.5, marginBottom:8,
             textDecoration:t.done?"line-through":"none",
             color:t.done?"var(--muted)":"var(--text)"
           }}>{t.title}</div>
@@ -821,7 +821,7 @@ export default function MeetBot() {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
         {[{num:pendingCount,label:"待完成",color:"var(--accent)"},{num:doneCount,label:"已完成",color:"var(--green)"},{num:urgentCount,label:"緊急",color:"var(--red)"}].map(s=>(
           <div key={s.label} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 8px", textAlign:"center" }}>
-            <div style={{ fontSize:13, fontWeight:900, fontFamily:"'DM Mono',monospace", color:s.color, lineHeight:1 }}>{s.num}</div>
+            <div style={{ fontSize:22, fontWeight:900, fontFamily:"'DM Mono',monospace", color:s.color, lineHeight:1 }}>{s.num}</div>
             <div style={{ fontSize:15, color:"var(--muted)", marginTop:6 }}>{s.label}</div>
           </div>
         ))}
@@ -874,7 +874,7 @@ export default function MeetBot() {
   const UploadContent = () => (
     <div className="mb-content-pad">
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginBottom:16 }}>
-        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:18 }}>新增單筆任務</div>
+        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:22 }}>新增單筆任務</div>
         <input
           placeholder="任務名稱"
           value={manualForm.title}
@@ -906,14 +906,14 @@ export default function MeetBot() {
         <input ref={fileRef} type="file" accept=".docx" onChange={handleFile} style={{ display:"none" }}/>
         {parsing ? (<>
           <div style={{ fontSize:13, marginBottom:12 }}>⚙️</div>
-          <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>AI 解析中...</div>
+          <div style={{ fontWeight:700, fontSize:22, marginBottom:6 }}>AI 解析中...</div>
           <div style={{ fontSize:15, color:"var(--muted)" }}>正在從會議紀錄提取任務</div>
           <div style={{ marginTop:16, height:4, background:"var(--border)", borderRadius:2, overflow:"hidden" }}>
             <div style={{ height:"100%", background:"linear-gradient(90deg,var(--accent),var(--green))", animation:"slide 1.2s infinite", width:"40%" }}/>
           </div>
         </>) : (<>
           <div style={{ fontSize:16, marginBottom:12 }}>📄</div>
-          <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>{docName||"點擊上傳 .docx 會議紀錄"}</div>
+          <div style={{ fontWeight:700, fontSize:22, marginBottom:6 }}>{docName||"點擊上傳 .docx 會議紀錄"}</div>
           <div style={{ fontSize:15, color:"var(--muted)" }}>AI 自動解析任務、負責人、截止日期</div>
         </>)}
       </div>
@@ -934,7 +934,7 @@ export default function MeetBot() {
       )}
       {!parsing&&!parseResult && (
         <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", fontSize:15, color:"var(--muted)", lineHeight:2 }}>
-          <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:18 }}>使用說明</div>
+          <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:22 }}>使用說明</div>
           上傳包含會議決議事項的 Word 文件<br/>
           AI 會自動辨識「負責人」「任務」「截止時間」<br/>
           確認後立即同步給所有團隊成員
@@ -961,9 +961,9 @@ export default function MeetBot() {
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
               <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                 <Avatar name={m.name} size={42}/>
-                <div><div style={{ fontWeight:700, fontSize:18 }}>{m.name}</div><div style={{ fontSize:15, color:"var(--muted)" }}>{m.done}/{m.total} 項完成</div></div>
+                <div><div style={{ fontWeight:700, fontSize:22 }}>{m.name}</div><div style={{ fontSize:15, color:"var(--muted)" }}>{m.done}/{m.total} 項完成</div></div>
               </div>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:28, fontWeight:700, color:m.pct===100?"var(--green)":m.pct>=50?"var(--accent)":"var(--orange)" }}>{m.pct}%</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:34, fontWeight:700, color:m.pct===100?"var(--green)":m.pct>=50?"var(--accent)":"var(--orange)" }}>{m.pct}%</div>
             </div>
             <div style={{ height:6, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:10 }}>
               <div style={{ height:"100%", width:`${m.pct}%`, borderRadius:3, background:`linear-gradient(90deg,${memberColor(m.name)},${memberColor(m.name)}aa)`, transition:"width 0.6s" }}/>
@@ -1010,7 +1010,7 @@ export default function MeetBot() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:reminders.dayBefore.on?16:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:10, background:"rgba(79,140,255,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>📅</div>
-            <div><div style={{ fontSize:18, fontWeight:600 }}>截止日前提醒</div><div style={{ fontSize:15, color:"var(--muted)" }}>在截止日的前幾天早上提醒</div></div>
+            <div><div style={{ fontSize:20, fontWeight:600 }}>截止日前提醒</div><div style={{ fontSize:15, color:"var(--muted)" }}>在截止日的前幾天早上提醒</div></div>
           </div>
           <Toggle on={reminders.dayBefore.on} onChange={()=>updateReminder("dayBefore",{on:!reminders.dayBefore.on})}/>
         </div>
@@ -1040,7 +1040,7 @@ export default function MeetBot() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:reminders.hourBefore.on?16:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:10, background:"rgba(255,159,67,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>⏰</div>
-            <div><div style={{ fontSize:18, fontWeight:600 }}>截止前緊急提醒</div><div style={{ fontSize:15, color:"var(--muted)" }}>截止前幾小時發出最後警示</div></div>
+            <div><div style={{ fontSize:20, fontWeight:600 }}>截止前緊急提醒</div><div style={{ fontSize:15, color:"var(--muted)" }}>截止前幾小時發出最後警示</div></div>
           </div>
           <Toggle on={reminders.hourBefore.on} onChange={()=>updateReminder("hourBefore",{on:!reminders.hourBefore.on})}/>
         </div>
@@ -1059,7 +1059,7 @@ export default function MeetBot() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:10, background:"rgba(255,91,121,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🚨</div>
-            <div><div style={{ fontSize:18, fontWeight:600 }}>逾期高亮提示</div><div style={{ fontSize:15, color:"var(--muted)" }}>逾期任務在儀表板醒目標示</div></div>
+            <div><div style={{ fontSize:20, fontWeight:600 }}>逾期高亮提示</div><div style={{ fontSize:15, color:"var(--muted)" }}>逾期任務在儀表板醒目標示</div></div>
           </div>
           <Toggle on={reminders.overdueAlert.on} onChange={()=>updateReminder("overdueAlert",{on:!reminders.overdueAlert.on})}/>
         </div>
@@ -1070,7 +1070,7 @@ export default function MeetBot() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:reminders.weeklyReport.on?16:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:10, background:"rgba(0,229,195,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>📊</div>
-            <div><div style={{ fontSize:18, fontWeight:600 }}>每週完成率報告</div><div style={{ fontSize:15, color:"var(--muted)" }}>固定時間推播團隊整體進度</div></div>
+            <div><div style={{ fontSize:20, fontWeight:600 }}>每週完成率報告</div><div style={{ fontSize:15, color:"var(--muted)" }}>固定時間推播團隊整體進度</div></div>
           </div>
           <Toggle on={reminders.weeklyReport.on} onChange={()=>updateReminder("weeklyReport",{on:!reminders.weeklyReport.on})}/>
         </div>
@@ -1117,7 +1117,7 @@ export default function MeetBot() {
       )}
 
       <div style={{ background:"rgba(79,140,255,0.06)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:14, padding:"16px", marginTop:18, fontSize:15, color:"var(--muted)", lineHeight:1.9 }}>
-        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:18 }}>自動提醒說明</div>
+        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:22 }}>自動提醒說明</div>
         系統每小時整點自動檢查，符合條件時直接發 LINE 給負責人，不需要手動操作。
       </div>
 
@@ -1164,7 +1164,7 @@ export default function MeetBot() {
         {/* 月份導航 */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20, marginBottom:14 }}>
           <div onClick={prevMonth} style={{ width:36, height:36, borderRadius:10, background:"var(--card)", border:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:15 }}>‹</div>
-          <div style={{ fontSize:18, fontWeight:700, minWidth:160, textAlign:"center" }}>{calMonth.year} 年 {calMonth.month+1} 月</div>
+          <div style={{ fontSize:22, fontWeight:700, minWidth:160, textAlign:"center" }}>{calMonth.year} 年 {calMonth.month+1} 月</div>
           <div onClick={nextMonth} style={{ width:36, height:36, borderRadius:10, background:"var(--card)", border:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:15 }}>›</div>
         </div>
 
@@ -1281,7 +1281,7 @@ export default function MeetBot() {
                           <span style={{ fontSize:13, padding:"3px 10px", borderRadius:12, background:`${countdownColor}18`, color:countdownColor, fontWeight:700 }}>{countdownText}</span>
                           <span style={{ fontSize:13, color:"var(--muted)" }}>{m.date.slice(5).replace("-","/")} {m.time}</span>
                         </div>
-                        <div style={{ fontSize:18, fontWeight:600, marginBottom:4 }}>{m.title}</div>
+                        <div style={{ fontSize:20, fontWeight:600, marginBottom:4 }}>{m.title}</div>
                         <div style={{ fontSize:14, color:"var(--muted)" }}>📍 {m.location||"未指定地點"}</div>
                         {m.description && <div style={{ fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{m.description}</div>}
                       </div>
@@ -1332,7 +1332,7 @@ export default function MeetBot() {
       {/* Slack 設定 */}
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginTop:20 }}>
         <div style={{ fontSize:15, fontWeight:700, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ fontSize:18 }}>💬</span> Slack 會議提醒設定
+          <span style={{ fontSize:22 }}>💬</span> Slack 會議提醒設定
         </div>
         <div style={{ fontSize:14, color:"var(--muted)", marginBottom:10, lineHeight:1.7 }}>
           設定 Slack Incoming Webhook URL 後，系統會在會議前 <strong style={{color:"var(--text)"}}>7 天、3 天、1 天</strong> 自動發送提醒至指定頻道。
@@ -1386,7 +1386,7 @@ export default function MeetBot() {
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div className="mb-topbar-logo" style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#4f8cff,#00e5c3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>📋</div>
             <div>
-              <div className="mb-topbar-title" style={{ fontWeight:700, fontSize:18 }}>MeetBot</div>
+              <div className="mb-topbar-title" style={{ fontWeight:700, fontSize:24 }}>MeetBot</div>
               <div className="mb-topbar-sub" style={{ fontSize:14, color:"var(--muted)" }}>會議任務追蹤系統</div>
             </div>
           </div>
