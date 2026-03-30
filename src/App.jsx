@@ -1402,12 +1402,12 @@ export default function MeetBot() {
             </div>
             <div>
               {tasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,3).map(t=>(
-                <div key={t.id} style={{ fontSize:15, color:"var(--muted)", padding:"6px 0", borderTop:"1px solid var(--border)", display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start" }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
-                    {t.progressNote && <div style={{ fontSize:14, color:"var(--accent)", marginTop:3 }}>📝 {t.progressNote.length>30?t.progressNote.slice(0,30)+"…":t.progressNote}</div>}
+                <div key={t.id} style={{ fontSize:15, color:"var(--muted)", padding:"8px 0", borderTop:"1px solid var(--border)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: t.progressNote ? 4 : 0 }}>
+                    <div style={{ flex:1, minWidth:0, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
+                    <div style={{ flexShrink:0 }}><DeadlineBadge deadline={t.deadline} done={false}/></div>
                   </div>
-                  <DeadlineBadge deadline={t.deadline} done={false}/>
+                  {t.progressNote && <div style={{ fontSize:13, color:"var(--accent)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {t.progressNote.length>30?t.progressNote.slice(0,30)+"…":t.progressNote}</div>}
                 </div>
               ))}
             </div>
