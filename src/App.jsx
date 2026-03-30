@@ -413,7 +413,27 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 }
 
 // ── 會議詳情 Modal ────────────────────────────────
-function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose }) {
+function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, onSavePrep }) {
+  const [prepItems, setPrepItems] = useState(meeting.prepChecklist || []);
+  const [newPrepTitle, setNewPrepTitle] = useState("");
+  const togglePrepItem = (id) => {
+    const next = prepItems.map(p => p.id === id ? {...p, done: !p.done} : p);
+    setPrepItems(next);
+    onSavePrep(next);
+  };
+  const addPrepItem = () => {
+    if (!newPrepTitle.trim()) return;
+    const next = [...prepItems, { id: Date.now(), title: newPrepTitle.trim(), done: false }];
+    setPrepItems(next);
+    setNewPrepTitle("");
+    onSavePrep(next);
+  };
+  const removePrepItem = (id) => {
+    const next = prepItems.filter(p => p.id !== id);
+    setPrepItems(next);
+    onSavePrep(next);
+  };
+  const prepDone = prepItems.filter(p => p.done).length;
   const dl = daysLeft(meeting.date);
   let statusText, statusColor;
   if (dl < 0)       { statusText = `已過期 ${Math.abs(dl)} 天`; statusColor = "var(--muted)"; }
@@ -532,6 +552,62 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose }
             ))}
           </div>
         )}
+
+        {/* 會前準備清單 */}
+        <div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>
+              📋 會前準備清單 {prepItems.length > 0 && <span style={{ color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>({prepDone}/{prepItems.length})</span>}
+            </div>
+          </div>
+          {prepItems.length > 0 && (
+            <div style={{ height:5, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:10 }}>
+              <div style={{ height:"100%", width:`${prepItems.length ? Math.round(prepDone/prepItems.length*100) : 0}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:3, transition:"width 0.4s" }}/>
+            </div>
+          )}
+          {prepItems.map(p => (
+            <div key={p.id} style={{
+              display:"flex", alignItems:"center", gap:10, padding:"8px 12px",
+              background:"var(--surf)", borderRadius:10, marginBottom:6,
+              border:"1px solid var(--border)"
+            }}>
+              <div onClick={() => togglePrepItem(p.id)} style={{
+                width:22, height:22, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                border:`2px solid ${p.done ? "var(--green)" : "var(--border)"}`,
+                background: p.done ? "var(--green)" : "transparent",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:12, color:"#fff", transition:"all 0.2s"
+              }}>{p.done ? "✓" : ""}</div>
+              <span style={{
+                flex:1, fontSize:14, lineHeight:1.4,
+                textDecoration: p.done ? "line-through" : "none",
+                color: p.done ? "var(--muted)" : "var(--text)",
+                opacity: p.done ? 0.6 : 1
+              }}>{p.title}</span>
+              <div onClick={() => removePrepItem(p.id)} style={{
+                padding:"2px 6px", cursor:"pointer", color:"var(--red)", fontSize:12, opacity:0.5, flexShrink:0
+              }}>✕</div>
+            </div>
+          ))}
+          <div style={{ display:"flex", gap:8, marginTop:6 }}>
+            <input
+              value={newPrepTitle}
+              onChange={e => setNewPrepTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addPrepItem(); }}
+              placeholder="新增準備事項..."
+              style={{
+                flex:1, padding:"9px 12px", borderRadius:10,
+                border:"1px solid var(--border)", background:"var(--surf)",
+                color:"var(--text)", fontSize:14, fontFamily:"inherit", outline:"none"
+              }}
+            />
+            <button onClick={addPrepItem} style={{
+              padding:"9px 14px", borderRadius:10, border:"none",
+              background:"var(--accent)", color:"#fff", fontSize:13, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit"
+            }}>＋</button>
+          </div>
+        </div>
 
         {/* 按鈕列 */}
         <div style={{ display:"flex", gap:10 }}>
@@ -921,6 +997,8 @@ export default function MeetBot() {
   const [searchQuery,  setSearchQuery]  = useState("");
   const [showTrash,    setShowTrash]    = useState(false);
   const [currentUser,  setCurrentUser]  = useState(() => localStorage.getItem("meetbot-user") || "");
+  const [batchMode,    setBatchMode]    = useState(false);
+  const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
@@ -1160,6 +1238,50 @@ export default function MeetBot() {
     setTasks(prev => prev.filter(t => t.id !== id));
     showToast("已永久刪除","#ff5b79");
   };
+  // ── 批量操作 ──
+  const toggleSelectTask = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filtered.map(t => t.id)));
+  };
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+  const batchMarkDone = () => {
+    if (selectedIds.size === 0) return;
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, done: true } : t));
+    showToast(`已將 ${selectedIds.size} 項任務標記完成`, "#00e5c3");
+    clearSelection();
+    setBatchMode(false);
+  };
+  const batchDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`確定將 ${selectedIds.size} 項任務移至垃圾桶？`)) return;
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, deletedAt: Date.now() } : t));
+    showToast(`已將 ${selectedIds.size} 項任務移至垃圾桶`, "#6b7494");
+    clearSelection();
+    setBatchMode(false);
+  };
+  const batchReassign = (newAssignee) => {
+    if (selectedIds.size === 0) return;
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, assignee: newAssignee } : t));
+    showToast(`已將 ${selectedIds.size} 項任務指派給 ${newAssignee}`, "#00e5c3");
+    clearSelection();
+    setBatchMode(false);
+  };
+  const batchSetPriority = (priority) => {
+    if (selectedIds.size === 0) return;
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, priority } : t));
+    const pLabel = PRIORITY_MAP[priority]?.label || priority;
+    showToast(`已將 ${selectedIds.size} 項任務設為「${pLabel}」`, "#00e5c3");
+    clearSelection();
+    setBatchMode(false);
+  };
   const notifyTask = async () => {
     if (!editingTaskFull) return;
     try {
@@ -1313,26 +1435,40 @@ export default function MeetBot() {
   `;
 
   // ── 任務卡片 ──
-  const TaskCard = ({ t }) => (
+  const TaskCard = ({ t }) => {
+    const isSelected = selectedIds.has(t.id);
+    return (
     <div style={{
-      background: t.done ? "rgba(24,29,42,0.5)" : "var(--card)",
-      border: `1px solid ${t.urgent&&!t.done ? "rgba(255,91,121,0.35)" : "var(--border)"}`,
+      background: isSelected ? "rgba(79,140,255,0.08)" : t.done ? "rgba(24,29,42,0.5)" : "var(--card)",
+      border: `1px solid ${isSelected ? "var(--accent)" : t.urgent&&!t.done ? "rgba(255,91,121,0.35)" : "var(--border)"}`,
       borderRadius:14, padding:"15px 16px", marginBottom:10,
       display:"flex", flexDirection:"column", gap:10,
       opacity: t.done ? 0.6 : 1, transition:"all 0.2s",
     }}>
       {/* 上排：勾選 + 內容 */}
       <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
-        {/* 勾選圓圈 */}
-        <div
-          onClick={() => toggleDone(t.id)}
-          style={{
-            width:26, height:26, borderRadius:"50%", flexShrink:0, marginTop:2, cursor:"pointer",
-            border:`2.5px solid ${t.done?"var(--green)":t.urgent?"var(--red)":"var(--border)"}`,
-            background:t.done?"var(--green)":"transparent",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:15, color:"#fff", transition:"all 0.2s"
-          }}>{t.done?"✓":""}</div>
+        {/* 批量模式：選取框 / 一般模式：完成勾選 */}
+        {batchMode ? (
+          <div
+            onClick={() => toggleSelectTask(t.id)}
+            style={{
+              width:26, height:26, borderRadius:6, flexShrink:0, marginTop:2, cursor:"pointer",
+              border:`2.5px solid ${isSelected?"var(--accent)":"var(--border)"}`,
+              background:isSelected?"var(--accent)":"transparent",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:14, color:"#fff", transition:"all 0.2s"
+            }}>{isSelected?"✓":""}</div>
+        ) : (
+          <div
+            onClick={() => toggleDone(t.id)}
+            style={{
+              width:26, height:26, borderRadius:"50%", flexShrink:0, marginTop:2, cursor:"pointer",
+              border:`2.5px solid ${t.done?"var(--green)":t.urgent?"var(--red)":"var(--border)"}`,
+              background:t.done?"var(--green)":"transparent",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:15, color:"#fff", transition:"all 0.2s"
+            }}>{t.done?"✓":""}</div>
+        )}
 
         {/* 內容 */}
         <div style={{ flex:1, minWidth:0 }}>
@@ -1404,7 +1540,7 @@ export default function MeetBot() {
         >📝 {t.progressNote ? "編輯備註" : "新增備註"}</div>
       </div>
     </div>
-  );
+  );};
 
   // ── 儀表板內容 ──
   const DashboardContent = () => (
@@ -1530,20 +1666,81 @@ export default function MeetBot() {
         </div>
       )}
 
-      {/* 搜尋列 */}
-      <div style={{ marginBottom:12 }}>
+      {/* 搜尋列 + 批量模式 */}
+      <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center" }}>
         <input
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           placeholder="🔍 搜尋任務、負責人、會議..."
           style={{
-            width:"100%", padding:"11px 14px", borderRadius:12,
+            flex:1, padding:"11px 14px", borderRadius:12,
             border:"1px solid var(--border)", background:"var(--card)",
             color:"var(--text)", fontSize:15, fontFamily:"inherit", outline:"none",
             boxSizing:"border-box"
           }}
         />
+        <div onClick={() => { setBatchMode(!batchMode); if(batchMode) clearSelection(); }} style={{
+          padding:"11px 14px", borderRadius:12, cursor:"pointer", whiteSpace:"nowrap",
+          background: batchMode ? "var(--accent)" : "var(--card)",
+          color: batchMode ? "#fff" : "var(--muted)",
+          border: `1px solid ${batchMode ? "var(--accent)" : "var(--border)"}`,
+          fontSize:14, fontWeight:600, transition:"all 0.2s"
+        }}>{batchMode ? "✕ 取消" : "☐ 批量"}</div>
       </div>
+
+      {/* 批量操作列 */}
+      {batchMode && (
+        <div style={{
+          background:"rgba(79,140,255,0.08)", border:"1px solid rgba(79,140,255,0.25)",
+          borderRadius:14, padding:"12px 14px", marginBottom:12, animation:"fadeUp 0.3s ease"
+        }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <span style={{ fontSize:14, fontWeight:600, color:"var(--accent)" }}>
+              已選取 {selectedIds.size} 項
+            </span>
+            <div style={{ display:"flex", gap:6 }}>
+              <div onClick={selectAllFiltered} style={{ fontSize:13, color:"var(--accent)", cursor:"pointer", fontWeight:600 }}>全選</div>
+              <div onClick={clearSelection} style={{ fontSize:13, color:"var(--muted)", cursor:"pointer", fontWeight:600 }}>清除</div>
+            </div>
+          </div>
+          {selectedIds.size > 0 && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              <button onClick={batchMarkDone} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid var(--green)",
+                background:"rgba(0,229,195,0.08)", color:"var(--green)", fontSize:13,
+                fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+              }}>✓ 標記完成</button>
+              <button onClick={batchDelete} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid var(--red)",
+                background:"rgba(255,91,121,0.08)", color:"var(--red)", fontSize:13,
+                fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+              }}>🗑 批量刪除</button>
+              {ADMINS.includes(currentUser) && (
+                <select onChange={e => { if(e.target.value) batchSetPriority(e.target.value); e.target.value=""; }}
+                  defaultValue=""
+                  style={{
+                    padding:"8px 12px", borderRadius:10, border:"1px solid var(--border)",
+                    background:"var(--card)", color:"var(--text)", fontSize:13,
+                    fontFamily:"inherit", cursor:"pointer"
+                  }}>
+                  <option value="" disabled>設定優先等級</option>
+                  {PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+              )}
+              <select onChange={e => { if(e.target.value) batchReassign(e.target.value); e.target.value=""; }}
+                defaultValue=""
+                style={{
+                  padding:"8px 12px", borderRadius:10, border:"1px solid var(--border)",
+                  background:"var(--card)", color:"var(--text)", fontSize:13,
+                  fontFamily:"inherit", cursor:"pointer"
+                }}>
+                <option value="" disabled>重新指派</option>
+                {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 篩選列 */}
       <div style={{ display:"flex", gap:7, marginBottom:12, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
@@ -2227,6 +2424,12 @@ export default function MeetBot() {
           onEdit={() => { setViewingMeeting(null); setEditingMeeting(viewingMeeting); setShowMeetingModal(true); }}
           onDelete={() => { if(window.confirm("確定刪除此會議？")) { removeMeeting(viewingMeeting.id); setViewingMeeting(null); } }}
           onClose={() => setViewingMeeting(null)}
+          onSavePrep={async (prep) => {
+            const updated = {...viewingMeeting, prepChecklist: prep};
+            setViewingMeeting(updated);
+            setMeetings(prev => prev.map(m => m.id === viewingMeeting.id ? updated : m));
+            await saveMeetingToFB(updated);
+          }}
         />}
 
         {/* Toast */}
