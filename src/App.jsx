@@ -832,7 +832,15 @@ async function loadTasks() {
     const obj = Object.fromEntries(DEMO_TASKS.map(t => [t.id, migrateTask(t)]));
     await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
     return DEMO_TASKS.map(migrateTask);
-  } catch(e) { console.error("loadTasks failed:", e); return DEMO_TASKS.map(migrateTask); }
+  } catch(e) {
+    console.error("loadTasks failed:", e);
+    // 離線時嘗試從 localStorage 讀取快取
+    const cached = localStorage.getItem("meetbot-tasks-cache");
+    if (cached) {
+      try { return JSON.parse(cached).map(migrateTask); } catch {}
+    }
+    return DEMO_TASKS.map(migrateTask);
+  }
 }
 async function saveTasks(tasks) {
   try {
@@ -1057,6 +1065,8 @@ export default function MeetBot() {
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [theme,        setTheme]        = useState(() => localStorage.getItem("meetbot-theme") || "dark");
   const [browserNotif, setBrowserNotif] = useState(() => localStorage.getItem("meetbot-browser-notif") === "true");
+  const [isOnline,     setIsOnline]     = useState(navigator.onLine);
+  const [showAI,       setShowAI]       = useState(false);
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
@@ -1122,6 +1132,20 @@ export default function MeetBot() {
     if (!browserNotif || Notification.permission !== "granted") return;
     try { new Notification(title, { body, icon:"📋" }); } catch {}
   }, [browserNotif]);
+
+  // ── 離線偵測 + localStorage 快取 ──
+  useEffect(() => {
+    const goOnline = () => { setIsOnline(true); fetchAll(true); showToast("已恢復連線，同步中...","#00e5c3"); };
+    const goOffline = () => { setIsOnline(false); showToast("⚠️ 離線模式 — 資料將在恢復連線後同步","#ff9f43"); };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, [fetchAll]);
+  useEffect(() => {
+    if (tasks.length > 0) {
+      try { localStorage.setItem("meetbot-tasks-cache", JSON.stringify(tasks)); } catch {}
+    }
+  }, [tasks]);
 
   // ── 寬度偵測（ResizeObserver，在 iframe/嵌入環境也可靠）──
   useEffect(() => {
@@ -1404,6 +1428,60 @@ export default function MeetBot() {
   const getBlockingDeps = (t) => {
     if (!t.dependsOn || t.dependsOn.length === 0) return [];
     return t.dependsOn.map(depId => activeTasks.find(d => d.id === depId)).filter(d => d && !d.done);
+  };
+
+  // ── AI 智慧建議 ──
+  const getAISuggestions = () => {
+    const suggestions = [];
+    const pending = activeTasks.filter(t => !t.done);
+    // 逾期任務
+    const overdue = pending.filter(t => t.deadline && daysLeft(t.deadline) < 0);
+    if (overdue.length > 0) {
+      suggestions.push({ type:"warning", icon:"🚨", title:`${overdue.length} 項任務已逾期`,
+        detail: overdue.slice(0,3).map(t => `${t.title} (${t.assignee})`).join("、") });
+    }
+    // 即將到期但無備註
+    const noNote = pending.filter(t => t.deadline && daysLeft(t.deadline) >= 0 && daysLeft(t.deadline) <= 3 && !t.progressNote);
+    if (noNote.length > 0) {
+      suggestions.push({ type:"info", icon:"📝", title:`${noNote.length} 項即將到期但無進度備註`,
+        detail:"建議提醒負責人更新進度" });
+    }
+    // 工作量失衡
+    const workload = TEAM.map(n => ({ name:n, count: pending.filter(t=>t.assignee===n).length })).filter(w=>w.count>0);
+    if (workload.length > 1) {
+      const max = Math.max(...workload.map(w=>w.count));
+      const min = Math.min(...workload.map(w=>w.count));
+      if (max >= min * 3 && max >= 4) {
+        const heavy = workload.find(w=>w.count===max);
+        suggestions.push({ type:"tip", icon:"⚖️", title:"工作量分配不均",
+          detail:`${heavy.name} 有 ${heavy.count} 項待辦，建議重新分配` });
+      }
+    }
+    // 無截止日
+    const noDeadline = pending.filter(t => !t.deadline);
+    if (noDeadline.length > 0) {
+      suggestions.push({ type:"tip", icon:"📅", title:`${noDeadline.length} 項任務無截止日期`,
+        detail:"建議設定截止日以便追蹤進度" });
+    }
+    // 緊急任務
+    const critical = pending.filter(t => t.priority === "critical");
+    if (critical.length > 0) {
+      suggestions.push({ type:"warning", icon:"🔥", title:`${critical.length} 項緊急任務待處理`,
+        detail: critical.slice(0,3).map(t => t.title).join("、") });
+    }
+    // 被阻擋的任務
+    const blocked = pending.filter(t => getBlockingDeps(t).length > 0);
+    if (blocked.length > 0) {
+      suggestions.push({ type:"info", icon:"🔗", title:`${blocked.length} 項任務被前置任務阻擋`,
+        detail:"需先完成前置任務才能推進" });
+    }
+    // 完成率
+    if (pending.length === 0 && activeTasks.length > 0) {
+      suggestions.push({ type:"success", icon:"🎉", title:"所有任務已完成！", detail:"太棒了，團隊執行力滿分" });
+    } else if (pct >= 80) {
+      suggestions.push({ type:"success", icon:"💪", title:`完成率 ${pct}%，再加把勁！`, detail:`還剩 ${pending.length} 項任務` });
+    }
+    return suggestions;
   };
 
   const notifyTask = async () => {
@@ -1704,6 +1782,55 @@ export default function MeetBot() {
         <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
           <div style={{ height:"100%", width:`${pct}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:4, transition:"width 0.6s ease" }}/>
         </div>
+      </div>
+
+      {/* 離線提示 */}
+      {!isOnline && (
+        <div style={{ background:"rgba(255,159,67,0.1)", border:"1px solid rgba(255,159,67,0.3)", borderRadius:14, padding:"12px 16px", marginBottom:14, display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:20 }}>📡</span>
+          <div>
+            <div style={{ fontSize:15, fontWeight:600, color:"var(--orange)" }}>離線模式</div>
+            <div style={{ fontSize:14, color:"var(--muted)" }}>使用本地快取，恢復連線後自動同步</div>
+          </div>
+        </div>
+      )}
+
+      {/* AI 智慧建議 */}
+      <div style={{ marginBottom:14 }}>
+        <div onClick={() => setShowAI(!showAI)} style={{
+          background:"var(--card)", border:"1px solid var(--border)", borderRadius:14,
+          padding:"14px 16px", cursor:"pointer", display:"flex", alignItems:"center",
+          justifyContent:"space-between", transition:"all 0.2s"
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:20 }}>🤖</span>
+            <div>
+              <div style={{ fontSize:15, fontWeight:700 }}>AI 智慧建議</div>
+              <div style={{ fontSize:13, color:"var(--muted)" }}>自動分析任務狀況，提供改善建議</div>
+            </div>
+          </div>
+          <span style={{ fontSize:14, color:"var(--muted)" }}>{showAI ? "▲" : "▼"}</span>
+        </div>
+        {showAI && (
+          <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8, animation:"fadeUp 0.3s ease" }}>
+            {getAISuggestions().map((s, i) => (
+              <div key={i} style={{
+                background: s.type==="warning" ? "rgba(255,91,121,0.06)" : s.type==="success" ? "rgba(0,229,195,0.06)" : "rgba(79,140,255,0.06)",
+                border: `1px solid ${s.type==="warning" ? "rgba(255,91,121,0.2)" : s.type==="success" ? "rgba(0,229,195,0.2)" : "rgba(79,140,255,0.2)"}`,
+                borderRadius:12, padding:"12px 14px"
+              }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <span style={{ fontSize:16 }}>{s.icon}</span>
+                  <span style={{ fontSize:14, fontWeight:700, color: s.type==="warning" ? "var(--red)" : s.type==="success" ? "var(--green)" : "var(--accent)" }}>{s.title}</span>
+                </div>
+                <div style={{ fontSize:13, color:"var(--muted)", paddingLeft:24, lineHeight:1.6 }}>{s.detail}</div>
+              </div>
+            ))}
+            {getAISuggestions().length === 0 && (
+              <div style={{ textAlign:"center", color:"var(--muted)", fontSize:14, padding:"16px 0" }}>目前沒有特別建議，一切順利！</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 例行任務清單 */}
@@ -2615,9 +2742,9 @@ export default function MeetBot() {
               background:"var(--card)", color:"var(--text)", fontSize:14, fontWeight:600,
               cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5
             }}>📄 匯出 Word</button>
-            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:14, color: syncing?"var(--accent)":"var(--muted)" }}>
-              <div style={{ width:8, height:8, borderRadius:"50%", background: syncing?"var(--accent)":"var(--green)", animation: syncing?"pulse 1s infinite":"none" }}/>
-              {syncing ? "同步中..." : syncLabel}
+            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:14, color: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--muted)" }}>
+              <div style={{ width:8, height:8, borderRadius:"50%", background: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--green)", animation: syncing?"pulse 1s infinite":"none" }}/>
+              {!isOnline ? "離線" : syncing ? "同步中..." : syncLabel}
             </div>
           </div>
         </div>
