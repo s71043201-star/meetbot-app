@@ -515,6 +515,10 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
   };
   const [prepSections, setPrepSections] = useState(initSections);
   const [newItemText, setNewItemText] = useState({});  // keyed by section id
+  const [showRandomPicker, setShowRandomPicker] = useState(false);
+  const [randomSelected, setRandomSelected] = useState(() => new Set(
+    meeting.participants?.length > 0 ? meeting.participants : TEAM
+  ));
 
   const totalItems = prepSections.reduce((s, sec) => s + sec.items.length, 0);
   const totalDone = prepSections.reduce((s, sec) => s + sec.items.filter(i => i.done).length, 0);
@@ -557,6 +561,35 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
       items: tpl.items.map((title, ii) => ({ id: Date.now() + si * 100 + ii, title, done: false }))
     }));
     saveSections(sections);
+  };
+  // 亂數指派：勾選人員後隨機分配，人數不足時部分人做兩份
+  const toggleRandomPerson = (name) => {
+    setRandomSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+  const selectAllRandom = () => {
+    const pool = meeting.participants?.length > 0 ? meeting.participants : TEAM;
+    setRandomSelected(new Set(pool));
+  };
+  const deselectAllRandom = () => setRandomSelected(new Set());
+  const doRandomAssign = () => {
+    if (prepSections.length === 0 || randomSelected.size === 0) return;
+    const pool = [...randomSelected];
+    // Fisher-Yates 洗牌
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const sectionCount = prepSections.length;
+    const next = prepSections.map((sec, i) => ({
+      ...sec,
+      assignee: pool[i % pool.length]
+    }));
+    saveSections(next);
+    setShowRandomPicker(false);
   };
   const dl = daysLeft(meeting.date);
   let statusText, statusColor;
@@ -679,18 +712,103 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
 
         {/* 會前準備清單（分區） */}
         <div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8, flexWrap:"wrap", gap:6 }}>
             <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>
               📋 會前準備清單 {totalItems > 0 && <span style={{ color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>({totalDone}/{totalItems})</span>}
             </div>
-            {prepSections.length === 0 && (
-              <div onClick={loadTemplate} style={{
-                padding:"5px 12px", borderRadius:8, fontSize:12, fontWeight:600,
-                background:"rgba(79,140,255,0.1)", color:"var(--accent)",
-                border:"1px solid rgba(79,140,255,0.3)", cursor:"pointer"
-              }}>📄 載入中會議室模板</div>
-            )}
+            <div style={{ display:"flex", gap:6 }}>
+              {prepSections.length === 0 && (
+                <div onClick={loadTemplate} style={{
+                  padding:"5px 12px", borderRadius:8, fontSize:12, fontWeight:600,
+                  background:"rgba(79,140,255,0.1)", color:"var(--accent)",
+                  border:"1px solid rgba(79,140,255,0.3)", cursor:"pointer"
+                }}>📄 載入模板</div>
+              )}
+              {prepSections.length > 0 && (
+                <div onClick={() => setShowRandomPicker(!showRandomPicker)} style={{
+                  padding:"5px 12px", borderRadius:8, fontSize:12, fontWeight:600,
+                  background: showRandomPicker ? "var(--orange)" : "rgba(255,159,67,0.1)",
+                  color: showRandomPicker ? "#fff" : "var(--orange)",
+                  border:"1px solid rgba(255,159,67,0.3)", cursor:"pointer"
+                }}>🎲 亂數指派</div>
+              )}
+            </div>
           </div>
+          {/* 亂數指派人員選擇面板 */}
+          {showRandomPicker && (() => {
+            const pool = meeting.participants?.length > 0 ? meeting.participants : TEAM;
+            const dupPeople = randomSelected.size > 0 && randomSelected.size < prepSections.length
+              ? prepSections.length - randomSelected.size : 0;
+            return (
+              <div style={{
+                background:"var(--surf)", border:"1px solid rgba(255,159,67,0.3)", borderRadius:12,
+                padding:"14px", marginBottom:10
+              }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:"var(--orange)" }}>
+                    選擇參與人員 <span style={{ fontWeight:400, color:"var(--muted)", fontSize:12 }}>（已選 {randomSelected.size}/{pool.length}）</span>
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <div onClick={selectAllRandom} style={{
+                      padding:"3px 8px", borderRadius:6, fontSize:11, cursor:"pointer",
+                      background:"rgba(79,140,255,0.1)", color:"var(--accent)", border:"1px solid rgba(79,140,255,0.2)"
+                    }}>全選</div>
+                    <div onClick={deselectAllRandom} style={{
+                      padding:"3px 8px", borderRadius:6, fontSize:11, cursor:"pointer",
+                      background:"rgba(255,91,121,0.1)", color:"var(--red)", border:"1px solid rgba(255,91,121,0.2)"
+                    }}>清除</div>
+                  </div>
+                </div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+                  {pool.map((name, idx) => {
+                    const checked = randomSelected.has(name);
+                    return (
+                      <div key={name} onClick={() => toggleRandomPerson(name)} style={{
+                        display:"flex", alignItems:"center", gap:6, padding:"6px 12px",
+                        borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:600,
+                        background: checked ? "rgba(79,140,255,0.12)" : "var(--card)",
+                        border: `1.5px solid ${checked ? "var(--accent)" : "var(--border)"}`,
+                        color: checked ? "var(--accent)" : "var(--muted)",
+                        transition:"all 0.15s"
+                      }}>
+                        <div style={{
+                          width:18, height:18, borderRadius:5, flexShrink:0,
+                          border: `2px solid ${checked ? "var(--accent)" : "var(--border)"}`,
+                          background: checked ? "var(--accent)" : "transparent",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:11, color:"#fff", transition:"all 0.15s"
+                        }}>{checked ? "✓" : ""}</div>
+                        <div style={{
+                          width:20, height:20, borderRadius:"50%", flexShrink:0,
+                          background: AVATAR_COLORS[idx % AVATAR_COLORS.length],
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:10, color:"#fff", fontWeight:700
+                        }}>{name[0]}</div>
+                        {name}
+                      </div>
+                    );
+                  })}
+                </div>
+                {dupPeople > 0 && (
+                  <div style={{
+                    fontSize:12, color:"var(--orange)", background:"rgba(255,159,67,0.08)",
+                    padding:"6px 10px", borderRadius:8, marginBottom:8
+                  }}>
+                    ⚠️ 共 {prepSections.length} 區但只選了 {randomSelected.size} 人，將有 {dupPeople} 人負責 2 區
+                  </div>
+                )}
+                <button onClick={doRandomAssign} disabled={randomSelected.size === 0} style={{
+                  width:"100%", padding:"10px", borderRadius:10, border:"none",
+                  background: randomSelected.size > 0
+                    ? "linear-gradient(135deg, var(--orange), #e08a28)"
+                    : "var(--border)",
+                  color: randomSelected.size > 0 ? "#fff" : "var(--muted)",
+                  fontSize:14, fontWeight:700, cursor: randomSelected.size > 0 ? "pointer" : "default",
+                  fontFamily:"inherit"
+                }}>🎲 開始亂數指派（{randomSelected.size} 人 → {prepSections.length} 區）</button>
+              </div>
+            );
+          })()}
           {/* 整體進度條 */}
           {totalItems > 0 && (
             <div style={{ height:5, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:12 }}>
