@@ -1828,7 +1828,7 @@ export default function MeetBot() {
   const doneCount    = activeTasks.filter(t=>t.done).length;
   const urgentCount  = activeTasks.filter(t=>!t.done && (t.priority==="critical" || t.priority==="high")).length;
   const pct = activeTasks.length ? Math.round(doneCount/activeTasks.length*100) : 0;
-  const nonRoutineTasks = activeTasks.filter(t => t.meeting !== "例行任務");
+  const nonRoutineTasks = activeTasks.filter(t => !!t.deadline);
   const memberStats = TEAM.map(name => {
     const mine = nonRoutineTasks.filter(t=>t.assignee===name);
     const done = mine.filter(t=>t.done).length;
