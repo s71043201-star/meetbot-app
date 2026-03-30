@@ -1791,8 +1791,9 @@ export default function MeetBot() {
   const doneCount    = activeTasks.filter(t=>t.done).length;
   const urgentCount  = activeTasks.filter(t=>!t.done && (t.priority==="critical" || t.priority==="high")).length;
   const pct = activeTasks.length ? Math.round(doneCount/activeTasks.length*100) : 0;
+  const nonRoutineTasks = activeTasks.filter(t => t.meeting !== "例行任務");
   const memberStats = TEAM.map(name => {
-    const mine = activeTasks.filter(t=>t.assignee===name);
+    const mine = nonRoutineTasks.filter(t=>t.assignee===name);
     const done = mine.filter(t=>t.done).length;
     return { name, total:mine.length, done, pct: mine.length ? Math.round(done/mine.length*100):0 };
   }).filter(m=>m.total>0);
@@ -3024,12 +3025,12 @@ export default function MeetBot() {
             </div>
 
             {/* 頁面內容 */}
-            {tab==="dashboard" && <DashboardContent/>}
+            {tab==="dashboard" && DashboardContent()}
             {tab==="calendar"  && CalendarContent}
             {tab==="gantt"     && GanttContent}
-            {tab==="upload"    && <UploadContent/>}
-            {tab==="team"      && <TeamContent/>}
-            {tab==="reminders" && <RemindersContent/>}
+            {tab==="upload"    && UploadContent()}
+            {tab==="team"      && TeamContent()}
+            {tab==="reminders" && RemindersContent()}
           </div>
         </div>
 
