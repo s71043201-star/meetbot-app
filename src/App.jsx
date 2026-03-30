@@ -1373,14 +1373,6 @@ export default function MeetBot() {
     try { new Notification(title, { body, icon:"📋" }); } catch {}
   }, [browserNotif]);
 
-  // ── 離線偵測 + localStorage 快取 ──
-  useEffect(() => {
-    const goOnline = () => { setIsOnline(true); fetchAll(true); showToast("已恢復連線，同步中...","#00e5c3"); };
-    const goOffline = () => { setIsOnline(false); showToast("⚠️ 離線模式 — 資料將在恢復連線後同步","#ff9f43"); };
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
-  }, [fetchAll]);
   useEffect(() => {
     if (tasks.length > 0) {
       try { localStorage.setItem("meetbot-tasks-cache", JSON.stringify(tasks)); } catch {}
@@ -1410,6 +1402,15 @@ export default function MeetBot() {
     setLastSync(new Date());
     if (!quiet) setLoading(false); else setSyncing(false);
   }, []);
+
+  // ── 離線偵測 ──
+  useEffect(() => {
+    const goOnline = () => { setIsOnline(true); fetchAll(true); showToast("已恢復連線，同步中...","#00e5c3"); };
+    const goOffline = () => { setIsOnline(false); showToast("⚠️ 離線模式 — 資料將在恢復連線後同步","#ff9f43"); };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, [fetchAll]);
 
   useEffect(() => {
     fetchAll(false);
@@ -2429,7 +2430,7 @@ export default function MeetBot() {
               <div style={{ height:"100%", width:`${m.pct}%`, borderRadius:3, background:`linear-gradient(90deg,${memberColor(m.name)},${memberColor(m.name)}aa)`, transition:"width 0.6s" }}/>
             </div>
             <div>
-              {tasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,3).map(t=>(
+              {nonRoutineTasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,3).map(t=>(
                 <div key={t.id} style={{ fontSize:15, color:"var(--muted)", padding:"8px 0", borderTop:"1px solid var(--border)" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: t.progressNote ? 4 : 0 }}>
                     <div style={{ flex:1, minWidth:0, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
