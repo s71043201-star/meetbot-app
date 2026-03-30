@@ -4,10 +4,9 @@ import * as mammoth from "mammoth";
 // ── 固定團隊成員 ──────────────────────────────
 const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
 const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4"];
-const STORAGE_KEY   = "meetbot-tasks-v1";
-const REMINDER_KEY  = "meetbot-reminders-v1";
 const BACKEND_URL   = "https://meetbot-backend.onrender.com";
-const MEETINGS_FB   = "https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app/meetbot/meetings";
+const FB_BASE       = "https://meetbot-ede53-default-rtdb.asia-southeast1.firebasedatabase.app/meetbot";
+const MEETINGS_FB   = FB_BASE + "/meetings";
 const SLACK_WEBHOOK_KEY = "meetbot-slack-webhook";
 
 // ── 示範任務 ──────────────────────────────────
@@ -267,20 +266,35 @@ async function parseWithAI(text) {
   return data.items || [];
 }
 
-// ── Storage ───────────────────────────────────
+// ── Firebase Storage ──────────────────────────
 async function loadTasks() {
-  try { const r = await window.storage.get(STORAGE_KEY,true); return JSON.parse(r.value); }
-  catch { try { await window.storage.set(STORAGE_KEY,JSON.stringify(DEMO_TASKS),true); } catch {} return DEMO_TASKS; }
+  try {
+    const res = await fetch(`${FB_BASE}/tasks.json`);
+    const data = await res.json();
+    if (data) return Object.values(data);
+    // 初次使用：寫入示範任務
+    const obj = Object.fromEntries(DEMO_TASKS.map(t => [t.id, t]));
+    await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
+    return DEMO_TASKS;
+  } catch { return DEMO_TASKS; }
 }
 async function saveTasks(tasks) {
-  try { await window.storage.set(STORAGE_KEY,JSON.stringify(tasks),true); } catch {}
+  try {
+    const obj = Object.fromEntries(tasks.map(t => [t.id, t]));
+    await fetch(`${FB_BASE}/tasks.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(obj) });
+  } catch {}
 }
 async function loadReminders() {
-  try { const r = await window.storage.get(REMINDER_KEY,true); return { ...DEFAULT_REMINDERS, ...JSON.parse(r.value) }; }
-  catch { return DEFAULT_REMINDERS; }
+  try {
+    const res = await fetch(`${FB_BASE}/reminders.json`);
+    const data = await res.json();
+    return data ? { ...DEFAULT_REMINDERS, ...data } : DEFAULT_REMINDERS;
+  } catch { return DEFAULT_REMINDERS; }
 }
 async function saveReminders(r) {
-  try { await window.storage.set(REMINDER_KEY,JSON.stringify(r),true); } catch {}
+  try {
+    await fetch(`${FB_BASE}/reminders.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(r) });
+  } catch {}
 }
 
 // ── 呼叫後端發送 LINE 提醒 ────────────────────
