@@ -51,6 +51,7 @@ function Avatar({ name, size = 32 }) {
 // ── DeadlineBadge ─────────────────────────────
 function DeadlineBadge({ deadline, done }) {
   if (done) return <span style={bdg("#00e5c3","rgba(0,229,195,0.12)")}>完成</span>;
+  if (!deadline) return <span style={bdg("#6b7494","rgba(107,116,148,0.12)")}>例行任務</span>;
   const d = daysLeft(deadline);
   if (d < 0)   return <span style={bdg("#ff5b79","rgba(255,91,121,0.12)")}>逾期 {Math.abs(d)} 天</span>;
   if (d === 0) return <span style={bdg("#ff5b79","rgba(255,91,121,0.12)")}>今天截止</span>;
@@ -194,13 +195,14 @@ function exportToWord(tasks) {
     html += `<table>
 <tr><th>#</th><th>任務</th><th>截止日</th><th>狀態</th><th>進度備註</th><th>備註時間</th></tr>`;
     myTasks.forEach((t, i) => {
-      const d = daysLeft(t.deadline);
+      const d = t.deadline ? daysLeft(t.deadline) : null;
       let cls, txt;
-      if (t.done)       { cls="done";    txt="✓ 已完成"; }
-      else if (d < 0)   { cls="overdue"; txt=`逾期 ${Math.abs(d)} 天`; }
-      else if (d === 0) { cls="overdue"; txt="今天截止"; }
-      else if (d <= 2)  { cls="urgent";  txt=`剩 ${d} 天`; }
-      else              { cls="pending"; txt=t.deadline; }
+      if (t.done)           { cls="done";    txt="✓ 已完成"; }
+      else if (d === null)  { cls="pending"; txt="例行任務"; }
+      else if (d < 0)       { cls="overdue"; txt=`逾期 ${Math.abs(d)} 天`; }
+      else if (d === 0)     { cls="overdue"; txt="今天截止"; }
+      else if (d <= 2)      { cls="urgent";  txt=`剩 ${d} 天`; }
+      else                  { cls="pending"; txt=t.deadline; }
       html += `<tr>
 <td>${i+1}</td>
 <td>${t.title}</td>
@@ -229,7 +231,7 @@ function exportToWord(tasks) {
 
 // ── 計算下次提醒時間 ──────────────────────────
 function calcNextReminder(tasks, reminders) {
-  const pending = tasks.filter(t => !t.done);
+  const pending = tasks.filter(t => !t.done && t.deadline);
   const hits = [];
   const now = new Date();
   pending.forEach(t => {
@@ -569,14 +571,14 @@ export default function MeetBot() {
   };
 
   const addManualTask = () => {
-    if (!manualForm.title.trim() || !manualForm.deadline) {
-      showToast("請填寫任務名稱與截止日期","#ff5b79"); return;
+    if (!manualForm.title.trim()) {
+      showToast("請填寫任務名稱","#ff5b79"); return;
     }
     const newTask = {
       id: Date.now(), title: manualForm.title.trim(),
-      assignee: manualForm.assignee, deadline: manualForm.deadline,
-      meeting: manualForm.meeting.trim() || "手動新增",
-      done: false, urgent: daysLeft(manualForm.deadline) <= 1,
+      assignee: manualForm.assignee, deadline: manualForm.deadline || "",
+      meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
+      done: false, urgent: manualForm.deadline ? daysLeft(manualForm.deadline) <= 1 : false,
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
@@ -651,13 +653,13 @@ export default function MeetBot() {
   const filtered = tasks.filter(t => {
     if (memberFilter!=="all" && t.assignee!==memberFilter) return false;
     if (filter==="pending") return !t.done;
-    if (filter==="urgent")  return !t.done && daysLeft(t.deadline)<=2;
+    if (filter==="urgent")  return !t.done && t.deadline && daysLeft(t.deadline)<=2;
     if (filter==="done")    return t.done;
     return true;
   });
   const pendingCount = tasks.filter(t=>!t.done).length;
   const doneCount    = tasks.filter(t=>t.done).length;
-  const urgentCount  = tasks.filter(t=>!t.done && daysLeft(t.deadline)<=2).length;
+  const urgentCount  = tasks.filter(t=>!t.done && t.deadline && daysLeft(t.deadline)<=2).length;
   const pct = tasks.length ? Math.round(doneCount/tasks.length*100) : 0;
   const memberStats = TEAM.map(name => {
     const mine = tasks.filter(t=>t.assignee===name);
@@ -888,6 +890,7 @@ export default function MeetBot() {
         >
           {TEAM.map(name=><option key={name} value={name}>{name}</option>)}
         </select>
+        <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4 }}>截止日期（例行任務可留空）</div>
         <input
           type="date"
           value={manualForm.deadline}
