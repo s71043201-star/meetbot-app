@@ -502,6 +502,44 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
   );
 }
 
+// ── 例行任務新增表單（獨立元件避免 IME 輸入中斷）──
+function RoutineTaskForm({ onAdd, onCancel }) {
+  const [title, setTitle] = useState("");
+  const [assignee, setAssignee] = useState(TEAM[0]);
+  return (
+    <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
+      <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
+      <input
+        autoFocus
+        placeholder="例行任務名稱"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }}
+      />
+      <select
+        value={assignee}
+        onChange={e => setAssignee(e.target.value)}
+        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
+      >
+        <option value="">不指定負責人</option>
+        {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+      </select>
+      <div style={{ display:"flex", gap:10 }}>
+        <button onClick={onCancel} style={{
+          flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
+          background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
+          cursor:"pointer", fontFamily:"inherit"
+        }}>取消</button>
+        <button onClick={() => { if(title.trim()) onAdd(title.trim(), assignee); }} style={{
+          flex:2, padding:"12px", borderRadius:10, border:"none",
+          background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
+          fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
+        }}>新增</button>
+      </div>
+    </div>
+  );
+}
+
 // ── 會議詳情 Modal ────────────────────────────────
 function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, onSavePrep }) {
   // prepSections: [{ id, section, icon, assignee, items:[{id, title, done}] }]
@@ -1330,7 +1368,7 @@ export default function MeetBot() {
   const [routineTasks,   setRoutineTasks]   = useState([]);
   const [routineChecks,  setRoutineChecks]  = useState({});
   const [showAddRoutine, setShowAddRoutine] = useState(false);
-  const [routineForm,    setRoutineForm]    = useState({ title:"", assignee:TEAM[0] });
+  // routineForm state removed — RoutineTaskForm 獨立管理自己的 state
 
   const [isWide, setIsWide] = useState(false);
 
@@ -1564,13 +1602,11 @@ export default function MeetBot() {
       return next;
     });
   };
-  const addRoutineTask = () => {
-    if (!routineForm.title.trim()) { showToast("請填寫任務名稱","#ff5b79"); return; }
-    const newTask = { id: Date.now(), title: routineForm.title.trim(), assignee: routineForm.assignee };
+  const addRoutineTask = (title, assignee) => {
+    const newTask = { id: Date.now(), title, assignee };
     const next = [...routineTasks, newTask];
     setRoutineTasks(next);
     saveRoutineTasks(next);
-    setRoutineForm({ title:"", assignee:TEAM[0] });
     setShowAddRoutine(false);
     showToast("已新增例行任務");
   };
@@ -2125,35 +2161,7 @@ export default function MeetBot() {
             color:"var(--muted)", fontWeight:600, transition:"all 0.2s"
           }}>＋ 新增例行任務</div>
         ) : (
-          <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
-            <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
-            <input
-              placeholder="例行任務名稱"
-              value={routineForm.title}
-              onChange={e => setRoutineForm(f => ({...f, title:e.target.value}))}
-              style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }}
-            />
-            <select
-              value={routineForm.assignee}
-              onChange={e => setRoutineForm(f => ({...f, assignee:e.target.value}))}
-              style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
-            >
-              <option value="">不指定負責人</option>
-              {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
-            </select>
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={() => setShowAddRoutine(false)} style={{
-                flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
-                background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
-                cursor:"pointer", fontFamily:"inherit"
-              }}>取消</button>
-              <button onClick={addRoutineTask} style={{
-                flex:2, padding:"12px", borderRadius:10, border:"none",
-                background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
-                fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
-              }}>新增</button>
-            </div>
-          </div>
+          <RoutineTaskForm onAdd={addRoutineTask} onCancel={() => setShowAddRoutine(false)} />
         )}
       </div>
 
@@ -3026,12 +3034,12 @@ export default function MeetBot() {
             </div>
 
             {/* 頁面內容 */}
-            {tab==="dashboard" && DashboardContent()}
+            {tab==="dashboard" && <DashboardContent/>}
             {tab==="calendar"  && CalendarContent}
             {tab==="gantt"     && GanttContent}
-            {tab==="upload"    && UploadContent()}
-            {tab==="team"      && TeamContent()}
-            {tab==="reminders" && RemindersContent()}
+            {tab==="upload"    && <UploadContent/>}
+            {tab==="team"      && <TeamContent/>}
+            {tab==="reminders" && <RemindersContent/>}
           </div>
         </div>
 
