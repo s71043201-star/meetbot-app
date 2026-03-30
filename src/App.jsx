@@ -167,7 +167,7 @@ function NoteModal({ task, onSave, onClose }) {
 }
 
 // ── 任務編輯 Modal ───────────────────────────────
-function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser }) {
+function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser, canEdit, allTasks }) {
   const [form, setForm] = useState({
     title: task.title || "",
     assignee: task.assignee || TEAM[0],
@@ -176,6 +176,7 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
     priority: task.priority || "medium",
     subtasks: task.subtasks || [],
     comments: task.comments || [],
+    dependsOn: task.dependsOn || [],
   });
   const [newSubtask, setNewSubtask] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -199,6 +200,16 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
     setForm(f => ({...f, comments: [...f.comments, { id: Date.now(), author: currentUser || "匿名", text: commentText.trim(), time: nowTW() }]}));
     setCommentText("");
   };
+
+  // 依賴操作
+  const addDependency = (taskId) => {
+    if (form.dependsOn.includes(taskId) || taskId === task.id) return;
+    setForm(f => ({...f, dependsOn: [...f.dependsOn, taskId]}));
+  };
+  const removeDependency = (taskId) => {
+    setForm(f => ({...f, dependsOn: f.dependsOn.filter(id => id !== taskId)}));
+  };
+  const availableDeps = (allTasks || []).filter(t => t.id !== task.id && !t.deletedAt);
 
   const handleSave = () => {
     if (!form.title.trim()) return;
@@ -233,27 +244,32 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 
         {/* ── 基本資訊頁籤 ── */}
         {editTab==="info" && (<>
+          {!canEdit && (
+            <div style={{ background:"rgba(255,159,67,0.08)", border:"1px solid rgba(255,159,67,0.25)", borderRadius:10, padding:"10px 14px", fontSize:13, color:"var(--orange)", lineHeight:1.6 }}>
+              🔒 你不是此任務的負責人，僅可瀏覽和留言
+            </div>
+          )}
           <div>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>任務名稱</div>
-            <input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            <input value={form.title} onChange={e => canEdit && setForm(f=>({...f,title:e.target.value}))} readOnly={!canEdit}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}/>
           </div>
           <div>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人</div>
-            <select value={form.assignee} onChange={e => setForm(f=>({...f,assignee:e.target.value}))}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box" }}>
+            <select value={form.assignee} onChange={e => canEdit && setForm(f=>({...f,assignee:e.target.value}))} disabled={!canEdit}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}>
               {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </div>
           <div>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>截止日期（例行任務可留空）</div>
-            <input type="date" value={form.deadline} onChange={e => setForm(f=>({...f,deadline:e.target.value}))}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            <input type="date" value={form.deadline} onChange={e => canEdit && setForm(f=>({...f,deadline:e.target.value}))} readOnly={!canEdit}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}/>
           </div>
           <div>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>來源會議</div>
-            <input value={form.meeting} onChange={e => setForm(f=>({...f,meeting:e.target.value}))}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            <input value={form.meeting} onChange={e => canEdit && setForm(f=>({...f,meeting:e.target.value}))} readOnly={!canEdit}
+              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}/>
           </div>
           {canSetPriority && (
             <div>
@@ -276,6 +292,46 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
           {!canSetPriority && form.priority && form.priority !== "medium" && (
             <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, color:"var(--muted)" }}>
               優先等級：<PriorityBadge priority={form.priority}/>
+            </div>
+          )}
+          {/* 前置任務依賴 */}
+          {canEdit && (
+            <div>
+              <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>🔗 前置任務（完成後才能結案）</div>
+              {form.dependsOn.length > 0 && form.dependsOn.map(depId => {
+                const dep = availableDeps.find(d => d.id === depId);
+                if (!dep) return null;
+                return (
+                  <div key={depId} style={{
+                    display:"flex", alignItems:"center", gap:8, padding:"6px 10px",
+                    background:"var(--surf)", borderRadius:8, marginBottom:4,
+                    border:"1px solid var(--border)"
+                  }}>
+                    <span style={{
+                      width:16, height:16, borderRadius:"50%", flexShrink:0,
+                      border:`2px solid ${dep.done ? "var(--green)" : "var(--border)"}`,
+                      background: dep.done ? "var(--green)" : "transparent",
+                      display:"inline-flex", alignItems:"center", justifyContent:"center",
+                      fontSize:10, color:"#fff"
+                    }}>{dep.done ? "✓" : ""}</span>
+                    <span style={{ flex:1, fontSize:13, color: dep.done ? "var(--muted)" : "var(--text)", textDecoration: dep.done ? "line-through" : "none" }}>{dep.title}</span>
+                    <span style={{ fontSize:12, color:"var(--muted)" }}>{dep.assignee}</span>
+                    <div onClick={() => removeDependency(depId)} style={{ cursor:"pointer", color:"var(--red)", fontSize:12, opacity:0.6 }}>✕</div>
+                  </div>
+                );
+              })}
+              <select onChange={e => { if(e.target.value) { addDependency(Number(e.target.value)); e.target.value=""; }}} defaultValue=""
+                style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1px solid var(--border)", background:"var(--surf)", color:"var(--text)", fontSize:13, fontFamily:"inherit", marginTop:4 }}>
+                <option value="" disabled>選擇前置任務...</option>
+                {availableDeps.filter(d => !form.dependsOn.includes(d.id)).slice(0,20).map(d => (
+                  <option key={d.id} value={d.id}>{d.title} ({d.assignee})</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {!canEdit && form.dependsOn.length > 0 && (
+            <div style={{ fontSize:13, color:"var(--muted)" }}>
+              🔗 前置任務：{form.dependsOn.length} 項
             </div>
           )}
           <button onClick={onNotify} style={{
@@ -391,11 +447,11 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 
         {/* 底部操作按鈕 */}
         <div style={{ display:"flex", gap:10, marginTop:4, borderTop:"1px solid var(--border)", paddingTop:14 }}>
-          <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
+          {canEdit && <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
             padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
             background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit"
-          }}>🗑</button>
+          }}>🗑</button>}
           <button onClick={onClose} style={{
             flex:1, padding:"13px", borderRadius:10, border:"1px solid var(--border)",
             background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
@@ -1193,11 +1249,24 @@ export default function MeetBot() {
   };
 
   const toggleDone = (id) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    // RBAC 檢查
+    if (!isAdmin && task.assignee !== currentUser) {
+      showToast("只有負責人或管理員可以變更完成狀態","#ff5b79"); return;
+    }
+    // 依賴檢查：如果要標記完成，檢查前置任務
+    if (!task.done) {
+      const blocking = getBlockingDeps(task);
+      if (blocking.length > 0) {
+        showToast(`前置任務尚未完成：${blocking.map(b=>b.title).slice(0,2).join("、")}`, "#ff5b79");
+        return;
+      }
+    }
     setTasks(prev => {
       const updated = prev.map(t => {
         if (t.id !== id) return t;
         const nowDone = !t.done;
-        // 剛變成完成時才發通知
         if (nowDone) {
           fetch(`${BACKEND_URL}/notify-task-done`, {
             method: "POST",
@@ -1257,6 +1326,7 @@ export default function MeetBot() {
         priority: form.priority || t.priority || "medium",
         subtasks: form.subtasks || t.subtasks || [],
         comments: form.comments || t.comments || [],
+        dependsOn: form.dependsOn || t.dependsOn || [],
       } : t
     ));
     setEditingTaskFull(null);
@@ -1325,6 +1395,17 @@ export default function MeetBot() {
     clearSelection();
     setBatchMode(false);
   };
+  // ── RBAC 權限檢查 ──
+  const isAdmin = ADMINS.includes(currentUser);
+  const canEditTask = (t) => isAdmin || t.assignee === currentUser;
+  const canDeleteTask = (t) => isAdmin || t.assignee === currentUser;
+
+  // ── 任務依賴檢查 ──
+  const getBlockingDeps = (t) => {
+    if (!t.dependsOn || t.dependsOn.length === 0) return [];
+    return t.dependsOn.map(depId => activeTasks.find(d => d.id === depId)).filter(d => d && !d.done);
+  };
+
   const notifyTask = async () => {
     if (!editingTaskFull) return;
     try {
@@ -1539,6 +1620,9 @@ export default function MeetBot() {
             )}
             {t.comments?.length > 0 && (
               <span style={{ fontSize:14, color:"var(--muted)", display:"flex", alignItems:"center", gap:3 }}>💬 {t.comments.length}</span>
+            )}
+            {!t.done && getBlockingDeps(t).length > 0 && (
+              <span style={bdg("var(--orange)","rgba(255,159,67,0.12)")}>🔗 前置未完成</span>
             )}
           </div>
           {/* 子任務快速預覽 */}
@@ -2589,7 +2673,7 @@ export default function MeetBot() {
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
 
         {/* 任務編輯 Modal */}
-        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)} currentUser={currentUser}/>}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)} currentUser={currentUser} canEdit={canEditTask(editingTaskFull)} allTasks={activeTasks}/>}
 
         {/* 會議詳情 Modal */}
         {viewingMeeting && <MeetingDetailModal
