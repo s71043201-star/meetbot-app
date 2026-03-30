@@ -2679,7 +2679,9 @@ export default function MeetBot() {
               const barColor = prio ? prio.color : memberColor(t.assignee);
               if (barEnd < 0) return null;
               return (
-                <div key={t.id} style={{ display:"flex", alignItems:"center", minWidth: ganttDays * 36, height:28, marginBottom:3 }}>
+                <div key={t.id} onClick={() => setEditingTaskFull(t)} style={{ display:"flex", alignItems:"center", minWidth: ganttDays * 36, height:28, marginBottom:3, cursor:"pointer", borderRadius:6, transition:"background 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.background="rgba(79,140,255,0.06)"}
+                  onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                   <div style={{
                     width:110, flexShrink:0, fontSize:12, color:"var(--muted)",
                     overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", paddingRight:8
