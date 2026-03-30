@@ -146,6 +146,78 @@ function NoteModal({ task, onSave, onClose }) {
   );
 }
 
+// ── 任務編輯 Modal ───────────────────────────────
+function TaskEditModal({ task, onSave, onDelete, onNotify, onClose }) {
+  const [form, setForm] = useState({
+    title: task.title || "",
+    assignee: task.assignee || TEAM[0],
+    deadline: task.deadline || "",
+    meeting: task.meeting || "",
+  });
+  const handleSave = () => {
+    if (!form.title.trim()) return;
+    onSave({ ...form, title: form.title.trim() });
+  };
+  return (
+    <div style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:"20px"
+    }}>
+      <div style={{
+        background:"var(--card)", border:"1px solid var(--border)", borderRadius:16,
+        padding:"24px", width:"100%", maxWidth:520, display:"flex", flexDirection:"column", gap:14,
+        maxHeight:"90vh", overflowY:"auto"
+      }}>
+        <div style={{ fontSize:22, fontWeight:700 }}>✏️ 編輯任務</div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>任務名稱</div>
+          <input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))}
+            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+        </div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人</div>
+          <select value={form.assignee} onChange={e => setForm(f=>({...f,assignee:e.target.value}))}
+            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box" }}>
+            {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>截止日期（例行任務可留空）</div>
+          <input type="date" value={form.deadline} onChange={e => setForm(f=>({...f,deadline:e.target.value}))}
+            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+        </div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>來源會議</div>
+          <input value={form.meeting} onChange={e => setForm(f=>({...f,meeting:e.target.value}))}
+            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+        </div>
+        <button onClick={onNotify} style={{
+          width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
+          background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
+          cursor:"pointer", fontFamily:"inherit", marginTop:2
+        }}>📨 立即發送 LINE 通知給 {form.assignee}</button>
+        <div style={{ display:"flex", gap:10, marginTop:4 }}>
+          <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
+            padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
+            background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit"
+          }}>🗑 刪除</button>
+          <button onClick={onClose} style={{
+            flex:1, padding:"13px", borderRadius:10, border:"1px solid var(--border)",
+            background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
+            cursor:"pointer", fontFamily:"inherit"
+          }}>取消</button>
+          <button onClick={handleSave} style={{
+            flex:2, padding:"13px", borderRadius:10, border:"none",
+            background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
+            fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
+          }}>儲存修改</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Word 匯出 ─────────────────────────────────
 function exportToWord(tasks) {
   const nowStr = nowTW();
@@ -491,6 +563,7 @@ export default function MeetBot() {
   const [toast,        setToast]        = useState(null);
   const [savedPulse,   setSavedPulse]   = useState(false);
   const [editingTask,  setEditingTask]  = useState(null); // 備註 modal
+  const [editingTaskFull, setEditingTaskFull] = useState(null); // 編輯任務 modal
 
   // ── 行事曆狀態 ──
   const [meetings,        setMeetings]        = useState([]);
@@ -681,6 +754,42 @@ export default function MeetBot() {
     showToast("已刪除例行任務","#6b7494");
   };
 
+  // ── 任務編輯 ──
+  const saveTaskEdit = (form) => {
+    if (!editingTaskFull) return;
+    setTasks(prev => prev.map(t =>
+      t.id === editingTaskFull.id ? {
+        ...t, title: form.title, assignee: form.assignee,
+        deadline: form.deadline, meeting: form.meeting,
+        urgent: form.deadline ? daysLeft(form.deadline) <= 1 : false,
+      } : t
+    ));
+    setEditingTaskFull(null);
+    showToast("任務已更新","#00e5c3");
+  };
+  const deleteTask = () => {
+    if (!editingTaskFull) return;
+    setTasks(prev => prev.filter(t => t.id !== editingTaskFull.id));
+    setEditingTaskFull(null);
+    showToast("任務已刪除","#6b7494");
+  };
+  const notifyTask = async () => {
+    if (!editingTaskFull) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/notify-task`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ task: editingTaskFull })
+      });
+      if (res.ok) {
+        showToast(`已發送通知給 ${editingTaskFull.assignee}`,"#00e5c3");
+      } else {
+        showToast("發送失敗，請檢查後端設定","#ff5b79");
+      }
+    } catch {
+      showToast("發送失敗，無法連接後端","#ff5b79");
+    }
+  };
+
   // ── 會議管理 ──
   const addOrUpdateMeeting = async (form) => {
     const isEdit = !!editingMeeting;
@@ -859,18 +968,29 @@ export default function MeetBot() {
         </div>
       </div>
 
-      {/* 備註按鈕（全寬，底部） */}
-      <div
-        onClick={() => setEditingTask(t)}
-        style={{
-          width:"100%", padding:"12px 0", borderRadius:10, cursor:"pointer",
-          background: t.progressNote ? "rgba(79,140,255,0.13)" : "var(--surf)",
-          border:`1.5px solid ${t.progressNote ? "rgba(79,140,255,0.4)" : "var(--border)"}`,
-          display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-          fontSize:14, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
-          transition:"all 0.2s"
-        }}
-      >📝 {t.progressNote ? "編輯工作進度備註" : "新增工作進度備註"}</div>
+      {/* 底部按鈕列 */}
+      <div style={{ display:"flex", gap:8 }}>
+        <div
+          onClick={() => setEditingTaskFull(t)}
+          style={{
+            flex:1, padding:"12px 0", borderRadius:10, cursor:"pointer",
+            background:"var(--surf)", border:"1.5px solid var(--border)",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            fontSize:14, fontWeight:600, color:"var(--muted)", transition:"all 0.2s"
+          }}
+        >✏️ 編輯任務</div>
+        <div
+          onClick={() => setEditingTask(t)}
+          style={{
+            flex:1, padding:"12px 0", borderRadius:10, cursor:"pointer",
+            background: t.progressNote ? "rgba(79,140,255,0.13)" : "var(--surf)",
+            border:`1.5px solid ${t.progressNote ? "rgba(79,140,255,0.4)" : "var(--border)"}`,
+            display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            fontSize:14, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
+            transition:"all 0.2s"
+          }}
+        >📝 {t.progressNote ? "編輯備註" : "新增備註"}</div>
+      </div>
     </div>
   );
 
@@ -1603,6 +1723,9 @@ export default function MeetBot() {
 
         {/* 備註 Modal */}
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
+
+        {/* 任務編輯 Modal */}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)}/>}
 
         {/* Toast */}
         {toast && (
