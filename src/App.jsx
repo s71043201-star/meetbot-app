@@ -1037,8 +1037,8 @@ export default function MeetBot() {
   // ── CSS 變數、動畫與響應式佈局 ──
   const styleBlock = `
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
-    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    html,body{background:#080b12;height:100%}
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    html,body{background:#080b12;height:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
     :root{
       --bg:#080b12;--surf:#10141e;--card:#181d2a;--border:#232840;
       --accent:#4f8cff;--green:#00e5c3;--orange:#ff9f43;--red:#ff5b79;
@@ -1403,8 +1403,8 @@ export default function MeetBot() {
             <div>
               {tasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,3).map(t=>(
                 <div key={t.id} style={{ fontSize:15, color:"var(--muted)", padding:"6px 0", borderTop:"1px solid var(--border)", display:"flex", justifyContent:"space-between", gap:8, alignItems:"flex-start" }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
                     {t.progressNote && <div style={{ fontSize:14, color:"var(--accent)", marginTop:3 }}>📝 {t.progressNote.length>30?t.progressNote.slice(0,30)+"…":t.progressNote}</div>}
                   </div>
                   <DeadlineBadge deadline={t.deadline} done={false}/>
@@ -1704,7 +1704,7 @@ export default function MeetBot() {
                   {/* 卡片 */}
                   <div onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginLeft:6, cursor:"pointer", transition:"border-color 0.2s" }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                      <div style={{ flex:1 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                           <span style={{ fontSize:13, padding:"3px 10px", borderRadius:12, background:`${countdownColor}18`, color:countdownColor, fontWeight:700 }}>{countdownText}</span>
                           <span style={{ fontSize:13, color:"var(--muted)" }}>{m.date.slice(5).replace("-","/")} {m.time}</span>
