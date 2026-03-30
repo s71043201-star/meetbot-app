@@ -218,6 +218,150 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose }) {
   );
 }
 
+// ── 會議詳情 Modal ────────────────────────────────
+function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose }) {
+  const dl = daysLeft(meeting.date);
+  let statusText, statusColor;
+  if (dl < 0)       { statusText = `已過期 ${Math.abs(dl)} 天`; statusColor = "var(--muted)"; }
+  else if (dl === 0) { statusText = "今天"; statusColor = "var(--red)"; }
+  else if (dl === 1) { statusText = "明天"; statusColor = "var(--red)"; }
+  else if (dl <= 3)  { statusText = `${dl} 天後`; statusColor = "var(--orange)"; }
+  else if (dl <= 7)  { statusText = `${dl} 天後`; statusColor = "var(--accent)"; }
+  else               { statusText = `${dl} 天後`; statusColor = "var(--green)"; }
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:"20px"
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background:"var(--card)", border:"1px solid var(--border)", borderRadius:16,
+        padding:"24px", width:"100%", maxWidth:540, display:"flex", flexDirection:"column", gap:16,
+        maxHeight:"90vh", overflowY:"auto"
+      }}>
+        {/* 標題 + 倒數 */}
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+            <span style={{ fontSize:14, padding:"4px 12px", borderRadius:12, background:`${statusColor}18`, color:statusColor, fontWeight:700 }}>{statusText}</span>
+          </div>
+          <div style={{ fontSize:24, fontWeight:700 }}>📅 {meeting.title}</div>
+        </div>
+
+        {/* 詳細資訊 */}
+        <div style={{ display:"flex", flexDirection:"column", gap:12, background:"var(--surf)", borderRadius:12, padding:"16px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:18 }}>📆</span>
+            <div>
+              <div style={{ fontSize:13, color:"var(--muted)" }}>日期</div>
+              <div style={{ fontSize:16, fontWeight:600 }}>{meeting.date.replace(/-/g, "/")}</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:18 }}>⏰</span>
+            <div>
+              <div style={{ fontSize:13, color:"var(--muted)" }}>時間</div>
+              <div style={{ fontSize:16, fontWeight:600 }}>{meeting.time || "未指定"}</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:18 }}>📍</span>
+            <div>
+              <div style={{ fontSize:13, color:"var(--muted)" }}>地點</div>
+              <div style={{ fontSize:16, fontWeight:600 }}>{meeting.location || "未指定"}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 說明 */}
+        {meeting.description && (
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600, marginBottom:6 }}>說明</div>
+            <div style={{ fontSize:15, color:"var(--text)", lineHeight:1.8, background:"var(--surf)", borderRadius:10, padding:"14px" }}>{meeting.description}</div>
+          </div>
+        )}
+
+        {/* 參與人員 */}
+        {meeting.participants?.length > 0 && (
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600, marginBottom:8 }}>參與人員（{meeting.participants.length} 人）</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {meeting.participants.map(p => (
+                <div key={p} style={{ display:"flex", alignItems:"center", gap:6, background:"var(--surf)", borderRadius:24, padding:"6px 14px 6px 7px" }}>
+                  <Avatar name={p} size={24}/><span style={{ fontSize:14 }}>{p}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Slack 提醒狀態 */}
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600, marginBottom:8 }}>Slack 提醒狀態</div>
+          <div style={{ display:"flex", gap:10 }}>
+            {[["day7","7 天前"],["day3","3 天前"],["day1","1 天前"]].map(([k,l])=>(
+              <div key={k} style={{
+                flex:1, textAlign:"center", padding:"10px 8px", borderRadius:10,
+                background: meeting.slackSent?.[k] ? "rgba(0,229,195,0.1)" : "var(--surf)",
+                border: `1px solid ${meeting.slackSent?.[k] ? "rgba(0,229,195,0.3)" : "var(--border)"}`,
+              }}>
+                <div style={{ fontSize:18, marginBottom:4 }}>{meeting.slackSent?.[k] ? "✅" : "⏳"}</div>
+                <div style={{ fontSize:13, color: meeting.slackSent?.[k] ? "var(--green)" : "var(--muted)", fontWeight:600 }}>{l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 相關任務 */}
+        {relatedTasks.length > 0 && (
+          <div>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600, marginBottom:8 }}>相關任務（{relatedTasks.length} 項）</div>
+            {relatedTasks.map(t => (
+              <div key={t.id} style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between", gap:8,
+                padding:"10px 14px", background:"var(--surf)", borderRadius:10, marginBottom:6
+              }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0 }}>
+                  <div style={{
+                    width:20, height:20, borderRadius:"50%", flexShrink:0,
+                    border:`2px solid ${t.done ? "var(--green)" : "var(--border)"}`,
+                    background: t.done ? "var(--green)" : "transparent",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:11, color:"#fff"
+                  }}>{t.done ? "✓" : ""}</div>
+                  <div style={{ fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                    textDecoration: t.done ? "line-through" : "none",
+                    color: t.done ? "var(--muted)" : "var(--text)"
+                  }}>{t.title}</div>
+                </div>
+                <div style={{ fontSize:13, color:"var(--muted)", flexShrink:0 }}>{t.assignee}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 按鈕列 */}
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onDelete} style={{
+            padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
+            background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit"
+          }}>🗑 刪除</button>
+          <button onClick={onClose} style={{
+            flex:1, padding:"13px", borderRadius:10, border:"1px solid var(--border)",
+            background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
+            cursor:"pointer", fontFamily:"inherit"
+          }}>關閉</button>
+          <button onClick={onEdit} style={{
+            flex:2, padding:"13px", borderRadius:10, border:"none",
+            background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
+            fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
+          }}>✏️ 編輯會議</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Word 匯出 ─────────────────────────────────
 function exportToWord(tasks) {
   const nowStr = nowTW();
@@ -573,6 +717,7 @@ export default function MeetBot() {
   const [showMeetingModal,setShowMeetingModal]= useState(false);
   const [editingMeeting, setEditingMeeting]  = useState(null);
   const [slackWebhook,   setSlackWebhook]    = useState("");
+  const [viewingMeeting, setViewingMeeting]  = useState(null); // 會議詳情 modal
 
   // ── 例行任務 ──
   const [routineTasks,   setRoutineTasks]   = useState([]);
@@ -1481,17 +1626,13 @@ export default function MeetBot() {
               {selectedDate.replace(/-/g,"/")} 的行程
             </div>
             {(meetingsByDate[selectedDate]||[]).map(m => (
-              <div key={m.id} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8 }}>
+              <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, cursor:"pointer", transition:"border-color 0.2s" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                   <div>
                     <div style={{ fontSize:16, fontWeight:600, marginBottom:4 }}>📅 {m.title}</div>
                     <div style={{ fontSize:14, color:"var(--muted)" }}>⏰ {m.time} &nbsp; 📍 {m.location||"未指定"}</div>
-                    {m.description && <div style={{ fontSize:14, color:"var(--muted)", marginTop:6, lineHeight:1.6 }}>{m.description}</div>}
                   </div>
-                  <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-                    <div onClick={()=>{ setEditingMeeting(m); setShowMeetingModal(true); }} style={{ padding:"4px 10px", cursor:"pointer", color:"var(--accent)", fontSize:14, fontWeight:600 }}>✎</div>
-                    <div onClick={()=>removeMeeting(m.id)} style={{ padding:"4px 10px", cursor:"pointer", color:"var(--red)", fontSize:14, fontWeight:600 }}>✕</div>
-                  </div>
+                  <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
                 </div>
                 {m.participants?.length > 0 && (
                   <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
@@ -1544,7 +1685,7 @@ export default function MeetBot() {
                   {/* 時間軸圓點 */}
                   <div style={{ position:"absolute", left:-24, top:16, width:12, height:12, borderRadius:"50%", background:dotColor, border:"2px solid var(--bg)", boxShadow:`0 0 0 3px ${dotColor}22` }}/>
                   {/* 卡片 */}
-                  <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginLeft:6 }}>
+                  <div onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginLeft:6, cursor:"pointer", transition:"border-color 0.2s" }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div style={{ flex:1 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
@@ -1555,10 +1696,7 @@ export default function MeetBot() {
                         <div style={{ fontSize:14, color:"var(--muted)" }}>📍 {m.location||"未指定地點"}</div>
                         {m.description && <div style={{ fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{m.description}</div>}
                       </div>
-                      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-                        <div onClick={()=>{ setEditingMeeting(m); setShowMeetingModal(true); }} style={{ padding:"6px", cursor:"pointer", color:"var(--accent)", fontSize:14 }}>✎</div>
-                        <div onClick={()=>removeMeeting(m.id)} style={{ padding:"6px", cursor:"pointer", color:"var(--red)", fontSize:14 }}>✕</div>
-                      </div>
+                      <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600, flexShrink:0 }}>詳情 ›</div>
                     </div>
                     {m.participants?.length > 0 && (
                       <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
@@ -1584,13 +1722,13 @@ export default function MeetBot() {
             <div style={{ marginTop:20 }}>
               <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, marginBottom:14 }}>已過期會議</div>
               {meetings.filter(m => m.date < today()).sort((a,b) => b.date.localeCompare(a.date)).slice(0,5).map(m => (
-                <div key={m.id} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, opacity:0.5 }}>
+                <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, opacity:0.5, cursor:"pointer" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:15, fontWeight:500 }}>{m.title}</div>
                       <div style={{ fontSize:13, color:"var(--muted)" }}>{m.date} {m.time} · {m.location||""}</div>
                     </div>
-                    <div onClick={()=>removeMeeting(m.id)} style={{ padding:"6px", cursor:"pointer", color:"var(--red)", fontSize:13 }}>✕</div>
+                    <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
                   </div>
                 </div>
               ))}
@@ -1726,6 +1864,15 @@ export default function MeetBot() {
 
         {/* 任務編輯 Modal */}
         {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)}/>}
+
+        {/* 會議詳情 Modal */}
+        {viewingMeeting && <MeetingDetailModal
+          meeting={viewingMeeting}
+          relatedTasks={tasks.filter(t => t.meeting === viewingMeeting.title)}
+          onEdit={() => { setViewingMeeting(null); setEditingMeeting(viewingMeeting); setShowMeetingModal(true); }}
+          onDelete={() => { if(window.confirm("確定刪除此會議？")) { removeMeeting(viewingMeeting.id); setViewingMeeting(null); } }}
+          onClose={() => setViewingMeeting(null)}
+        />}
 
         {/* Toast */}
         {toast && (
