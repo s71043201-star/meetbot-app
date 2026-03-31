@@ -1734,7 +1734,7 @@ export default function MeetBot() {
   const canCompleteTask = (t) => isAdmin || hasAssignee(t, currentUser);
   const canSendReminders = isAdmin;
   const canUpload = isAdmin || isSpecialist;
-  const canCreateMeeting = isAdmin;
+  const canCreateMeeting = isAdmin || isSpecialist;
   const canManageRoutine = isAdmin;
   const canBatchOp = isAdmin;
   const canManageTrash = isAdmin;
