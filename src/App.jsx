@@ -1234,14 +1234,14 @@ async function saveRoutineTasks(list) {
 }
 async function loadRoutineChecks() {
   try {
-    const res = await fetch(`${FB_BASE}/routineChecks/${getWeekKey()}.json`);
+    const res = await fetch(`${FB_BASE}/routineChecksGlobal.json`);
     const data = await res.json();
     return data || {};
   } catch { return {}; }
 }
 async function saveRoutineChecks(checks) {
   try {
-    await fetch(`${FB_BASE}/routineChecks/${getWeekKey()}.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(checks) });
+    await fetch(`${FB_BASE}/routineChecksGlobal.json`, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(checks) });
   } catch {}
 }
 
@@ -1420,6 +1420,7 @@ export default function MeetBot() {
   const [filter,       setFilter]       = useState("all");
   const [memberFilter, setMemberFilter] = useState("all");
   const [searchQuery,  setSearchQuery]  = useState("");
+  const [searchDate,   setSearchDate]   = useState("");
   const [showTrash,    setShowTrash]    = useState(false);
   const [currentUser,  setCurrentUser]  = useState(() => {
     const saved = localStorage.getItem("meetbot-user") || "";
@@ -1459,6 +1460,7 @@ export default function MeetBot() {
   const [routineChecks,  setRoutineChecks]  = useState({});
   const [showAddRoutine, setShowAddRoutine] = useState(false);
   const [expandRoutine, setExpandRoutine] = useState(false);
+  const [expandedComments, setExpandedComments] = useState(null); // task id or null
   // routineForm state removed — RoutineTaskForm 獨立管理自己的 state
 
   const [isWide, setIsWide] = useState(false);
@@ -1847,6 +1849,7 @@ export default function MeetBot() {
   const sq = searchQuery.toLowerCase().trim();
   const filtered = activeTasks.filter(t => {
     if (sq && !t.title.toLowerCase().includes(sq) && !(t.assignee||"").toLowerCase().includes(sq) && !(t.meeting||"").toLowerCase().includes(sq)) return false;
+    if (searchDate) { const td = t.createdAt || (t.id ? new Date(t.id).toISOString().slice(0,10) : ""); if (td !== searchDate) return false; }
     if (memberFilter!=="all" && !hasAssignee(t, memberFilter)) return false;
     if (filter==="hidden") return isAutoHidden(t);
     if (isAutoHidden(t)) return false; // 非隱藏模式時排除已隱藏任務
@@ -2015,7 +2018,8 @@ export default function MeetBot() {
               <span style={bdg("var(--accent)","rgba(79,140,255,0.12)")}>✓ {t.subtasks.filter(s=>s.done).length}/{t.subtasks.length}</span>
             )}
             {t.comments?.length > 0 && (
-              <span style={{ fontSize:14, color:"var(--muted)", display:"flex", alignItems:"center", gap:3 }}>💬 {t.comments.length}</span>
+              <span onClick={(e) => { e.stopPropagation(); setExpandedComments(prev => prev === t.id ? null : t.id); }}
+                style={{ fontSize:14, color: expandedComments===t.id ? "var(--accent)" : "var(--muted)", display:"flex", alignItems:"center", gap:3, cursor:"pointer", padding:"2px 8px", borderRadius:12, background: expandedComments===t.id ? "rgba(79,140,255,0.12)" : "transparent", transition:"all 0.2s" }}>💬 {t.comments.length}</span>
             )}
             {!t.done && getBlockingDeps(t).length > 0 && (
               <span style={bdg("var(--orange)","rgba(255,159,67,0.12)")}>🔗 前置未完成</span>
@@ -2043,6 +2047,22 @@ export default function MeetBot() {
             </div>
           )}
           <div style={{ fontSize:15, color:"var(--muted)", marginTop:8 }}>來自：{t.meeting}</div>
+          {/* 展開留言 */}
+          {expandedComments === t.id && t.comments?.length > 0 && (
+            <div style={{ marginTop:8, background:"rgba(79,140,255,0.05)", border:"1px solid rgba(79,140,255,0.15)", borderRadius:10, padding:"10px 12px" }}>
+              <div style={{ fontSize:14, fontWeight:700, color:"var(--accent)", marginBottom:8 }}>💬 留言（{t.comments.length}）</div>
+              {t.comments.map(c => (
+                <div key={c.id} style={{ marginBottom:8, paddingBottom:8, borderBottom:"1px solid var(--border)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                    <Avatar name={c.author} size={18}/>
+                    <span style={{ fontSize:13, fontWeight:600, color:"var(--text)" }}>{c.author}</span>
+                    <span style={{ fontSize:12, color:"var(--muted)", marginLeft:"auto" }}>{c.time}</span>
+                  </div>
+                  <div style={{ fontSize:14, color:"var(--text)", lineHeight:1.6, paddingLeft:24 }}>{c.text}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2158,7 +2178,7 @@ export default function MeetBot() {
       {routineTasks.length > 0 && (
         <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={{ fontSize:18, fontWeight:700 }}>🔄 例行任務 <span style={{ fontSize:14, color:"var(--muted)", fontWeight:400 }}>（每週重置）</span></div>
+            <div style={{ fontSize:18, fontWeight:700 }}>🔄 例行任務</div>
             <div style={{ fontSize:14, color:"var(--green)", fontWeight:700, fontFamily:"'DM Mono',monospace" }}>
               {routineTasks.filter(t => routineChecks[t.id]).length}/{routineTasks.length}
             </div>
@@ -2269,19 +2289,42 @@ export default function MeetBot() {
         </div>
       )}
 
-      {/* 搜尋列 + 批量模式 */}
-      <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center" }}>
+      {/* 搜尋列 + 日期篩選 + 批量模式 */}
+      <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center", flexWrap:"wrap" }}>
         <input
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           placeholder="🔍 搜尋任務、負責人、會議..."
           style={{
-            flex:1, padding:"11px 14px", borderRadius:12,
+            flex:1, minWidth:140, padding:"11px 14px", borderRadius:12,
             border:"1px solid var(--border)", background:"var(--card)",
             color:"var(--text)", fontSize:15, fontFamily:"inherit", outline:"none",
             boxSizing:"border-box"
           }}
         />
+        <div style={{ position:"relative", display:"flex", alignItems:"center" }}>
+          <input
+            type="date"
+            value={searchDate}
+            onChange={e => setSearchDate(e.target.value)}
+            style={{
+              padding:"11px 12px", borderRadius:12, width: searchDate ? 155 : 44,
+              border: `1px solid ${searchDate ? "var(--accent)" : "var(--border)"}`,
+              background: searchDate ? "rgba(79,140,255,0.1)" : "var(--card)",
+              color:"var(--text)", fontSize:14, fontFamily:"inherit", outline:"none",
+              boxSizing:"border-box", transition:"all 0.2s", cursor:"pointer"
+            }}
+            title="依建立日期篩選"
+          />
+          {searchDate && (
+            <div onClick={() => setSearchDate("")} style={{
+              position:"absolute", right:6, top:"50%", transform:"translateY(-50%)",
+              width:20, height:20, borderRadius:"50%", background:"var(--accent)",
+              color:"#fff", display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:12, cursor:"pointer", fontWeight:700
+            }}>✕</div>
+          )}
+        </div>
         {canBatchOp && <div onClick={() => { setBatchMode(!batchMode); if(batchMode) clearSelection(); }} style={{
           padding:"11px 14px", borderRadius:12, cursor:"pointer", whiteSpace:"nowrap",
           background: batchMode ? "var(--accent)" : "var(--card)",
@@ -2290,6 +2333,11 @@ export default function MeetBot() {
           fontSize:14, fontWeight:600, transition:"all 0.2s"
         }}>{batchMode ? "✕ 取消" : "☐ 批量"}</div>}
       </div>
+      {searchDate && (
+        <div style={{ fontSize:13, color:"var(--accent)", marginBottom:8, fontWeight:600 }}>
+          📅 篩選建立日期：{searchDate}（{filtered.length} 筆結果）
+        </div>
+      )}
 
       {/* 批量操作列 */}
       {batchMode && (
