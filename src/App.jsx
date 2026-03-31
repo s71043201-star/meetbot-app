@@ -223,6 +223,8 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
   });
   const [newSubtask, setNewSubtask] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [depSearch, setDepSearch] = useState("");
+  const [depDropOpen, setDepDropOpen] = useState(false);
   const [editTab, setEditTab] = useState("info"); // "info" | "subtasks" | "comments"
 
   // 子任務操作
@@ -373,13 +375,51 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
                   </div>
                 );
               })}
-              <select onChange={e => { if(e.target.value) { addDependency(Number(e.target.value)); e.target.value=""; }}} defaultValue=""
-                style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1px solid var(--border)", background:"var(--surf)", color:"var(--text)", fontSize:13, fontFamily:"inherit", marginTop:4 }}>
-                <option value="" disabled>選擇前置任務...</option>
-                {availableDeps.filter(d => !form.dependsOn.includes(d.id)).slice(0,20).map(d => (
-                  <option key={d.id} value={d.id}>{d.title} ({d.assignee})</option>
-                ))}
-              </select>
+              <div style={{ position:"relative", marginTop:4 }}>
+                <input
+                  value={depSearch}
+                  onChange={e => { setDepSearch(e.target.value); setDepDropOpen(true); }}
+                  onFocus={() => setDepDropOpen(true)}
+                  placeholder="🔍 搜尋前置任務名稱或負責人..."
+                  style={{ width:"100%", padding:"9px 12px", borderRadius:10, border:"1px solid var(--border)", background:"var(--surf)", color:"var(--text)", fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }}
+                />
+                {depDropOpen && (() => {
+                  const dq = depSearch.toLowerCase().trim();
+                  const results = availableDeps
+                    .filter(d => !form.dependsOn.includes(d.id))
+                    .filter(d => !dq || d.title.toLowerCase().includes(dq) || (d.assignee||"").toLowerCase().includes(dq) || (d.meeting||"").toLowerCase().includes(dq))
+                    .slice(0, 30);
+                  if (results.length === 0) return null;
+                  return (
+                    <div style={{
+                      position:"absolute", top:"100%", left:0, right:0, zIndex:10, marginTop:4,
+                      background:"var(--card)", border:"1px solid var(--border)", borderRadius:10,
+                      maxHeight:200, overflowY:"auto", boxShadow:"0 8px 24px rgba(0,0,0,0.3)"
+                    }}>
+                      {results.map(d => (
+                        <div key={d.id} onClick={() => { addDependency(d.id); setDepSearch(""); setDepDropOpen(false); }}
+                          style={{
+                            padding:"8px 12px", cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:8,
+                            borderBottom:"1px solid var(--border)", transition:"background 0.15s"
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background="rgba(79,140,255,0.1)"}
+                          onMouseLeave={e => e.currentTarget.style.background="transparent"}
+                        >
+                          <span style={{
+                            width:14, height:14, borderRadius:"50%", flexShrink:0,
+                            border:`2px solid ${d.done ? "var(--green)" : "var(--border)"}`,
+                            background: d.done ? "var(--green)" : "transparent",
+                            display:"inline-flex", alignItems:"center", justifyContent:"center",
+                            fontSize:8, color:"#fff"
+                          }}>{d.done ? "✓" : ""}</span>
+                          <span style={{ flex:1, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.title}</span>
+                          <span style={{ fontSize:12, color:"var(--muted)", flexShrink:0 }}>{d.assignee}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
           {!canEdit && form.dependsOn.length > 0 && (
