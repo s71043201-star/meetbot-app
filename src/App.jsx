@@ -1651,9 +1651,11 @@ export default function MeetBot() {
   // ── 任務編輯 ──
   const saveTaskEdit = (form) => {
     if (!editingTaskFull) return;
+    // 有真實成員時自動移除「待指派」
+    const cleanAssignee = (a) => { const parts = (a||"").split(",").map(s=>s.trim()).filter(s=>s&&s!=="待指派"); return parts.length > 0 ? parts.join(",") : a; };
     setTasks(prev => prev.map(t =>
       t.id === editingTaskFull.id ? {
-        ...t, title: form.title, assignee: form.assignee,
+        ...t, title: form.title, assignee: cleanAssignee(form.assignee),
         deadline: form.deadline, meeting: form.meeting,
         priority: form.priority || t.priority || "medium",
         subtasks: form.subtasks || t.subtasks || [],
@@ -1714,7 +1716,8 @@ export default function MeetBot() {
   };
   const batchReassign = (newAssignee) => {
     if (selectedIds.size === 0) return;
-    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, assignee: newAssignee } : t));
+    const cleanAssignee = (a) => { const parts = (a||"").split(",").map(s=>s.trim()).filter(s=>s&&s!=="待指派"); return parts.length > 0 ? parts.join(",") : a; };
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, assignee: cleanAssignee(newAssignee) } : t));
     showToast(`已將 ${selectedIds.size} 項任務指派給 ${newAssignee}`, "#00e5c3");
     clearSelection();
     setBatchMode(false);
