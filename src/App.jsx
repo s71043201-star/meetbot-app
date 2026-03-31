@@ -1380,6 +1380,8 @@ export default function MeetBot() {
   const [syncing,      setSyncing]      = useState(false);
   const [lastSync,     setLastSync]     = useState(null);
   const [lastNotify,   setLastNotify]   = useState(null);
+  const [batchNotifyDate, setBatchNotifyDate] = useState(today());
+  const [batchSending, setBatchSending] = useState(false);
   const [tab,          setTab]          = useState("dashboard");
   const [filter,       setFilter]       = useState("all");
   const [memberFilter, setMemberFilter] = useState("all");
@@ -1551,7 +1553,7 @@ export default function MeetBot() {
       id: Date.now()+i, title:t.title, assignee:t.assignee,
       deadline:t.deadline, meeting, done:false,
       priority: daysLeft(t.deadline)<=1 ? "critical" : "medium",
-      deletedAt: null,
+      deletedAt: null, createdAt: new Date().toISOString().slice(0,10),
       progressNote: "", progressNoteTime: "",
     }));
     setTasks(prev => [...newTasks,...prev]);
@@ -1572,7 +1574,7 @@ export default function MeetBot() {
       assignee: assignees.join(","), deadline: manualForm.deadline || "",
       meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
       done: false, priority: manualForm.priority || "medium",
-      deletedAt: null,
+      deletedAt: null, createdAt: new Date().toISOString().slice(0,10),
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
@@ -2622,9 +2624,64 @@ export default function MeetBot() {
         </div>
       )}
 
+      {/* 依建立日期批次通知 */}
+      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"18px", marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+          <div style={{ width:40, height:40, borderRadius:10, background:"rgba(167,139,250,0.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>📨</div>
+          <div><div style={{ fontSize:20, fontWeight:600 }}>依建立日期批次通知</div><div style={{ fontSize:15, color:"var(--muted)" }}>選擇日期，一次發送該日建立的所有任務通知</div></div>
+        </div>
+        <div style={{ display:"flex", gap:10, marginBottom:12, alignItems:"center" }}>
+          <input type="date" value={batchNotifyDate} onChange={e=>setBatchNotifyDate(e.target.value)}
+            style={{ flex:1, padding:"11px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--surf)", color:"var(--text)", fontSize:15, fontFamily:"inherit", outline:"none" }}/>
+        </div>
+        {(() => {
+          const matched = activeTasks.filter(t => !t.done && !t.deletedAt && (t.createdAt === batchNotifyDate || (!t.createdAt && new Date(t.id).toISOString().slice(0,10) === batchNotifyDate)));
+          return (<>
+            {matched.length > 0 ? (
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:14, color:"var(--muted)", marginBottom:8 }}>找到 <span style={{ color:"var(--accent)", fontWeight:700 }}>{matched.length}</span> 項未完成任務：</div>
+                <div style={{ maxHeight:200, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
+                  {matched.map(t => (
+                    <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", background:"var(--surf)", borderRadius:10, fontSize:14 }}>
+                      <span style={{ flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.title}</span>
+                      <span style={{ color:"var(--muted)", fontSize:13, flexShrink:0 }}>{getAssignees(t).join("、")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign:"center", color:"var(--muted)", fontSize:14, padding:"12px 0", marginBottom:12 }}>該日期沒有未完成的任務</div>
+            )}
+            <button disabled={matched.length===0 || batchSending} onClick={async () => {
+              setBatchSending(true);
+              showToast(`正在發送 ${matched.length} 則通知...`,"#6b7494");
+              let sent = 0;
+              for (const t of matched) {
+                try {
+                  const res = await fetch(`${BACKEND_URL}/notify-task`, {
+                    method:"POST", headers:{"Content-Type":"application/json"},
+                    body: JSON.stringify({ task: t })
+                  });
+                  if (res.ok) sent++;
+                } catch {}
+              }
+              setBatchSending(false);
+              if (sent > 0) showToast(`已發送 ${sent} 則任務通知`,"#00e5c3");
+              else showToast("發送失敗，請檢查後端設定","#ff5b79");
+            }} style={{
+              width:"100%", padding:"14px", borderRadius:12, border:"none",
+              background: matched.length>0 && !batchSending ? "linear-gradient(135deg,#a78bfa,var(--accent))" : "var(--border)",
+              color: matched.length>0 && !batchSending ? "#fff" : "var(--muted)",
+              fontSize:16, fontWeight:700, cursor: matched.length>0 && !batchSending ? "pointer" : "default",
+              fontFamily:"inherit", transition:"all 0.2s"
+            }}>{batchSending ? "發送中..." : `📨 批次發送 ${matched.length} 則通知`}</button>
+          </>);
+        })()}
+      </div>
+
       <div style={{ background:"rgba(79,140,255,0.06)", border:"1px solid rgba(79,140,255,0.2)", borderRadius:14, padding:"16px", marginTop:18, fontSize:15, color:"var(--muted)", lineHeight:1.9 }}>
-        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:22 }}>自動提醒說明</div>
-        系統每小時整點自動檢查，符合條件時直接發 LINE 給負責人，不需要手動操作。
+        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:8, fontSize:22 }}>提醒說明</div>
+        LINE / Slack 提醒僅透過手動按鈕發送，不會自動觸發。
       </div>
 
       <button onClick={async () => {
