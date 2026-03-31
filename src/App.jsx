@@ -524,7 +524,10 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 // ── 例行任務新增表單（獨立元件避免 IME 輸入中斷）──
 function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
   const [title, setTitle] = useState("");
-  const [assignee, setAssignee] = useState(isAdmin ? TEAM[0] : currentUser);
+  const [selectedAssignees, setSelectedAssignees] = useState(isAdmin ? [] : [currentUser]);
+  const toggleAssignee = (name) => setSelectedAssignees(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
+  const allSelected = selectedAssignees.length === TEAM.length;
+  const toggleAll = () => setSelectedAssignees(allSelected ? [] : [...TEAM]);
   return (
     <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
       <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
@@ -536,14 +539,33 @@ function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
         style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }}
       />
       {isAdmin ? (
-        <select
-          value={assignee}
-          onChange={e => setAssignee(e.target.value)}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
-        >
-          <option value="">不指定負責人</option>
-          {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
-        </select>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>負責人（可多選，每人各一條）</div>
+            <div onClick={toggleAll} style={{ fontSize:13, color:"var(--accent)", cursor:"pointer", fontWeight:600 }}>{allSelected ? "取消全選" : "全選"}</div>
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+            {TEAM.map(name => {
+              const sel = selectedAssignees.includes(name);
+              return (
+                <div key={name} onClick={() => toggleAssignee(name)} style={{
+                  padding:"8px 14px", borderRadius:20, cursor:"pointer", fontSize:14, fontWeight:600,
+                  border: sel ? "2px solid var(--accent)" : "2px solid var(--border)",
+                  background: sel ? "rgba(79,140,255,0.15)" : "var(--bg)",
+                  color: sel ? "var(--accent)" : "var(--text)",
+                  transition:"all 0.15s", userSelect:"none"
+                }}>
+                  {sel ? "✓ " : ""}{name}
+                </div>
+              );
+            })}
+          </div>
+          {selectedAssignees.length > 0 && (
+            <div style={{ fontSize:13, color:"var(--green)", marginTop:8 }}>
+              已選 {selectedAssignees.length} 人：{selectedAssignees.join("、")}
+            </div>
+          )}
+        </div>
       ) : (
         <div style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}>
           {currentUser}（自己）
@@ -555,11 +577,12 @@ function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
           background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
           cursor:"pointer", fontFamily:"inherit"
         }}>取消</button>
-        <button onClick={() => { if(title.trim()) onAdd(title.trim(), assignee); }} style={{
+        <button onClick={() => { if(title.trim() && selectedAssignees.length > 0) onAdd(title.trim(), selectedAssignees); }} style={{
           flex:2, padding:"12px", borderRadius:10, border:"none",
-          background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
+          background: (title.trim() && selectedAssignees.length > 0) ? "linear-gradient(135deg,var(--accent),#00b89c)" : "var(--border)",
+          color: (title.trim() && selectedAssignees.length > 0) ? "#fff" : "var(--muted)",
           fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
-        }}>新增</button>
+        }}>新增{selectedAssignees.length > 1 ? `（${selectedAssignees.length} 條）` : ""}</button>
       </div>
     </div>
   );
@@ -1633,13 +1656,15 @@ export default function MeetBot() {
       return next;
     });
   };
-  const addRoutineTask = (title, assignee) => {
-    const newTask = { id: Date.now(), title, assignee };
-    const next = [...routineTasks, newTask];
+  const addRoutineTask = (title, assignees) => {
+    // assignees 為陣列，每人各建一條
+    const list = Array.isArray(assignees) ? assignees : [assignees];
+    const newTasks = list.map((a, i) => ({ id: Date.now() + i, title, assignee: a }));
+    const next = [...routineTasks, ...newTasks];
     setRoutineTasks(next);
     saveRoutineTasks(next);
     setShowAddRoutine(false);
-    showToast("已新增例行任務");
+    showToast(`已新增 ${newTasks.length} 條例行任務`);
   };
   const removeRoutineTask = (id) => {
     const next = routineTasks.filter(t => t.id !== id);
@@ -2130,32 +2155,81 @@ export default function MeetBot() {
           <div style={{ height:6, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:12 }}>
             <div style={{ height:"100%", width:`${routineTasks.length ? Math.round(routineTasks.filter(t=>routineChecks[t.id]).length/routineTasks.length*100) : 0}%`, borderRadius:3, background:"linear-gradient(90deg,#00e5c3,#4f8cff)", transition:"width 0.6s" }}/>
           </div>
-          {routineTasks.map(t => (
-            <div key={t.id} style={{
-              display:"flex", alignItems:"center", gap:12, padding:"10px 0",
-              borderTop:"1px solid var(--border)"
-            }}>
-              <div onClick={() => toggleRoutineCheck(t.id)} style={{
-                width:28, height:28, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                border:`2.5px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
-                background: routineChecks[t.id] ? "var(--green)" : "transparent",
-                display:"flex", alignItems:"center", justifyContent:"center",
-                fontSize:15, color:"#fff", transition:"all 0.2s"
-              }}>{routineChecks[t.id] ? "✓" : ""}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{
-                  fontSize:16, fontWeight:500, lineHeight:1.4,
-                  textDecoration: routineChecks[t.id] ? "line-through" : "none",
-                  color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
-                  opacity: routineChecks[t.id] ? 0.6 : 1
-                }}>{t.title}</div>
-                {t.assignee && <div style={{ fontSize:14, color:"var(--muted)", marginTop:2 }}>{t.assignee}</div>}
-              </div>
-              {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
-                padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:14, fontWeight:600, opacity:0.6
-              }}>✕</div>}
-            </div>
-          ))}
+          {(() => {
+            // 依負責人分組顯示
+            const grouped = {};
+            const noAssignee = [];
+            routineTasks.forEach(t => {
+              if (t.assignee) {
+                if (!grouped[t.assignee]) grouped[t.assignee] = [];
+                grouped[t.assignee].push(t);
+              } else {
+                noAssignee.push(t);
+              }
+            });
+            const assigneeNames = TEAM.filter(n => grouped[n]);
+            return (
+              <>
+                {assigneeNames.map(name => {
+                  const tasks = grouped[name];
+                  const done = tasks.filter(t => routineChecks[t.id]).length;
+                  return (
+                    <div key={name} style={{ borderTop:"1px solid var(--border)", paddingTop:10, marginBottom:6 }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                        <span style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>{name}</span>
+                        <span style={{ fontSize:13, color: done===tasks.length ? "var(--green)" : "var(--muted)", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{done}/{tasks.length}</span>
+                      </div>
+                      {tasks.map(t => (
+                        <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                          <div onClick={() => toggleRoutineCheck(t.id)} style={{
+                            width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                            border:`2px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
+                            background: routineChecks[t.id] ? "var(--green)" : "transparent",
+                            display:"flex", alignItems:"center", justifyContent:"center",
+                            fontSize:13, color:"#fff", transition:"all 0.2s"
+                          }}>{routineChecks[t.id] ? "✓" : ""}</div>
+                          <div style={{
+                            flex:1, fontSize:15, lineHeight:1.4,
+                            textDecoration: routineChecks[t.id] ? "line-through" : "none",
+                            color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
+                            opacity: routineChecks[t.id] ? 0.6 : 1
+                          }}>{t.title}</div>
+                          {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                            padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                          }}>✕</div>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+                {noAssignee.length > 0 && (
+                  <div style={{ borderTop:"1px solid var(--border)", paddingTop:10, marginBottom:6 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:"var(--muted)", marginBottom:6 }}>未指派</div>
+                    {noAssignee.map(t => (
+                      <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                        <div onClick={() => toggleRoutineCheck(t.id)} style={{
+                          width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                          border:`2px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
+                          background: routineChecks[t.id] ? "var(--green)" : "transparent",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:13, color:"#fff", transition:"all 0.2s"
+                        }}>{routineChecks[t.id] ? "✓" : ""}</div>
+                        <div style={{
+                          flex:1, fontSize:15, lineHeight:1.4,
+                          textDecoration: routineChecks[t.id] ? "line-through" : "none",
+                          color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
+                          opacity: routineChecks[t.id] ? 0.6 : 1
+                        }}>{t.title}</div>
+                        {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                          padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                        }}>✕</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
