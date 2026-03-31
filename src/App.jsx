@@ -210,7 +210,7 @@ function NoteModal({ task, onSave, onClose }) {
 }
 
 // ── 任務編輯 Modal ───────────────────────────────
-function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser, canEdit, allTasks }) {
+function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser, canEdit, allTasks, onConvertToRoutine }) {
   const [form, setForm] = useState({
     title: task.title || "",
     assignees: (task.assignee || "").split(",").map(s=>s.trim()).filter(Boolean),
@@ -392,6 +392,17 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
             background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit", marginTop:2
           }}>📨 立即發送 LINE 通知給 {form.assignees.join("、")}</button>}
+          {onConvertToRoutine && canEdit && (
+            <button onClick={() => {
+              if (window.confirm(`確定將「${form.title}」轉為例行任務？\n將為 ${form.assignees.length > 0 ? form.assignees.join("、") : "未指派"} 各建立一條例行任務。`)) {
+                onConvertToRoutine(form.title.trim(), form.assignees.length > 0 ? form.assignees : [task.assignee || ""]);
+              }
+            }} style={{
+              width:"100%", padding:"13px", borderRadius:10, border:"1px solid #a78bfa",
+              background:"rgba(167,139,250,0.1)", color:"#a78bfa", fontSize:15, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit", marginTop:2
+            }}>🔄 轉為例行任務</button>
+          )}
         </>)}
 
         {/* ── 子任務頁籤 ── */}
@@ -3108,7 +3119,18 @@ export default function MeetBot() {
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
 
         {/* 任務編輯 Modal */}
-        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={isAdmin ? deleteTask : null} onNotify={canSendReminders ? notifyTask : null} onClose={()=>setEditingTaskFull(null)} canSetPriority={isAdmin} currentUser={currentUser} canEdit={canEditTask(editingTaskFull)} allTasks={activeTasks}/>}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={isAdmin ? deleteTask : null} onNotify={canSendReminders ? notifyTask : null} onClose={()=>setEditingTaskFull(null)} canSetPriority={isAdmin} currentUser={currentUser} canEdit={canEditTask(editingTaskFull)} allTasks={activeTasks}
+          onConvertToRoutine={canManageRoutine ? (title, assignees) => {
+            const list = Array.isArray(assignees) ? assignees.filter(Boolean) : [assignees].filter(Boolean);
+            if (list.length === 0) list.push("");
+            const newTasks = list.map((a, i) => ({ id: Date.now() + i, title, assignee: a }));
+            const next = [...routineTasks, ...newTasks];
+            setRoutineTasks(next);
+            saveRoutineTasks(next);
+            setEditingTaskFull(null);
+            showToast(`已轉為例行任務（${newTasks.length} 條）`, "#a78bfa");
+          } : null}
+        />}
 
         {/* 會議詳情 Modal */}
         {viewingMeeting && <MeetingDetailModal
