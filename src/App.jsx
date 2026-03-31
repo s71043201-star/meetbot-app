@@ -304,6 +304,9 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
             <div style={{ display:"flex", gap:5, flexWrap:"wrap", opacity: canEdit?1:0.6 }}>
               {TEAM.map(name => {
                 const sel = form.assignees.includes(name);
+                const myTasks = (allTasks||[]).filter(tt => !tt.done && (tt.assignee||"").split(",").map(s=>s.trim()).includes(name));
+                const todayStr = new Date().toISOString().slice(0,10);
+                const overdue = myTasks.filter(tt => tt.deadline && tt.deadline < todayStr).length;
                 return (
                   <div key={name} onClick={()=> canEdit && setForm(f=>({...f,assignees: sel ? f.assignees.filter(n=>n!==name) : [...f.assignees, name]}))}
                     style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 10px 5px 5px", borderRadius:18, cursor: canEdit?"pointer":"default",
@@ -311,6 +314,8 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
                       border: `1.5px solid ${sel ? "var(--accent)" : "var(--border)"}`, transition:"all 0.2s" }}>
                     <Avatar name={name} size={20}/>
                     <span style={{ fontSize:13, fontWeight: sel?600:400, color: sel?"var(--accent)":"var(--muted)" }}>{name}</span>
+                    <span style={{ fontSize:11, color:"var(--muted)", marginLeft:2 }}>{myTasks.length}項</span>
+                    {overdue > 0 && <span style={{ fontSize:11, color:"var(--red)", fontWeight:700 }}>逾{overdue}</span>}
                   </div>
                 );
               })}
@@ -1501,6 +1506,7 @@ export default function MeetBot() {
   const [showAddRoutine, setShowAddRoutine] = useState(false);
   const [expandRoutine, setExpandRoutine] = useState(false);
   const [expandedComments, setExpandedComments] = useState(null); // task id or null
+  const [expandedDeps, setExpandedDeps] = useState(null); // task id or null
   // routineForm state removed — RoutineTaskForm 獨立管理自己的 state
 
   const [isWide, setIsWide] = useState(false);
@@ -2071,7 +2077,8 @@ export default function MeetBot() {
                 style={{ fontSize:14, color: expandedComments===t.id ? "var(--accent)" : "var(--muted)", display:"flex", alignItems:"center", gap:3, cursor:"pointer", padding:"2px 8px", borderRadius:12, background: expandedComments===t.id ? "rgba(79,140,255,0.12)" : "transparent", transition:"all 0.2s" }}>💬 {t.comments.length}</span>
             )}
             {!t.done && getBlockingDeps(t).length > 0 && (
-              <span style={bdg("var(--orange)","rgba(255,159,67,0.12)")}>🔗 前置未完成</span>
+              <span onClick={(e) => { e.stopPropagation(); setExpandedDeps(prev => prev === t.id ? null : t.id); }}
+                style={{ ...bdg("var(--orange)","rgba(255,159,67,0.12)"), cursor:"pointer", border: expandedDeps===t.id ? "1px solid var(--orange)" : "1px solid transparent", transition:"all 0.2s" }}>🔗 前置未完成 {getBlockingDeps(t).length}</span>
             )}
           </div>
           {/* 子任務快速預覽 */}
@@ -2096,6 +2103,23 @@ export default function MeetBot() {
             </div>
           )}
           <div style={{ fontSize:15, color:"var(--muted)", marginTop:8 }}>來自：{t.meeting}</div>
+          {/* 展開前置任務 */}
+          {expandedDeps === t.id && getBlockingDeps(t).length > 0 && (
+            <div style={{ marginTop:8, background:"rgba(255,159,67,0.05)", border:"1px solid rgba(255,159,67,0.2)", borderRadius:10, padding:"10px 12px" }}>
+              <div style={{ fontSize:14, fontWeight:700, color:"var(--orange)", marginBottom:8 }}>🔗 前置未完成任務（{getBlockingDeps(t).length}）</div>
+              {getBlockingDeps(t).map(dep => (
+                <div key={dep.id} style={{
+                  display:"flex", alignItems:"center", gap:8, padding:"7px 10px", marginBottom:4,
+                  background:"var(--surf)", borderRadius:8, border:"1px solid var(--border)"
+                }}>
+                  <span style={{ width:16, height:16, borderRadius:"50%", flexShrink:0, border:"2px solid var(--border)", display:"inline-flex", alignItems:"center", justifyContent:"center" }}/>
+                  <span style={{ flex:1, fontSize:14, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{dep.title}</span>
+                  <span style={{ fontSize:12, color:"var(--muted)", flexShrink:0 }}>{dep.assignee}</span>
+                  {dep.deadline && <span style={{ fontSize:12, color:"var(--orange)", flexShrink:0 }}>{dep.deadline}</span>}
+                </div>
+              ))}
+            </div>
+          )}
           {/* 展開留言 */}
           {expandedComments === t.id && t.comments?.length > 0 && (
             <div style={{ marginTop:8, background:"rgba(79,140,255,0.05)", border:"1px solid rgba(79,140,255,0.15)", borderRadius:10, padding:"10px 12px" }}>
