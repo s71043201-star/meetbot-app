@@ -4,7 +4,13 @@ import * as mammoth from "mammoth";
 // ── 固定團隊成員 ──────────────────────────────
 const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
 const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4"];
-const ADMINS = ["蔡蕙芳", "戴豐逸"]; // 有權設定優先等級
+const ADMINS = ["蔡蕙芳", "戴豐逸"];
+const SPECIALISTS = ["許雅淇"];
+const TEAM_LEADS = ["黃琴茹", "吳承儒"];
+const OFFICERS = ["張鈺微", "陳佩研"];
+const ADMIN_PASSWORDS = { "戴豐逸": "041222", "蔡蕙芳": "000000" };
+const getUserRole = (name) => ADMINS.includes(name) ? "admin" : SPECIALISTS.includes(name) ? "specialist" : "member";
+const getRoleLabel = (name) => ADMINS.includes(name) ? "管理者" : SPECIALISTS.includes(name) ? "工作派發者" : TEAM_LEADS.includes(name) ? "組長" : OFFICERS.includes(name) ? "專員" : "組員";
 
 // ── 中會議室會前準備模板（分區） ─────────────────
 const PREP_TEMPLATE = [
@@ -68,6 +74,9 @@ const daysLeft = (d) => Math.ceil((new Date(d) - new Date(today())) / 86400000);
 const memberColor = (n) => AVATAR_COLORS[TEAM.indexOf(n) % AVATAR_COLORS.length] || "#888";
 const pad2 = (n) => String(n).padStart(2,"0");
 const nowTW = () => new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }).replace(/\//g,"-");
+// 多人指派工具
+const getAssignees = (t) => (t.assignee || "").split(",").map(s=>s.trim()).filter(Boolean);
+const hasAssignee = (t, name) => getAssignees(t).includes(name);
 
 
 // ── Avatar ────────────────────────────────────
@@ -204,7 +213,7 @@ function NoteModal({ task, onSave, onClose }) {
 function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriority, currentUser, canEdit, allTasks }) {
   const [form, setForm] = useState({
     title: task.title || "",
-    assignee: task.assignee || TEAM[0],
+    assignees: (task.assignee || "").split(",").map(s=>s.trim()).filter(Boolean),
     deadline: task.deadline || "",
     meeting: task.meeting || "",
     priority: task.priority || "medium",
@@ -247,7 +256,7 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 
   const handleSave = () => {
     if (!form.title.trim()) return;
-    onSave({ ...form, title: form.title.trim() });
+    onSave({ ...form, title: form.title.trim(), assignee: form.assignees.join(",") });
   };
   const subtaskDone = form.subtasks.filter(s => s.done).length;
   const subtaskTotal = form.subtasks.length;
@@ -289,11 +298,21 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
               style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}/>
           </div>
           <div>
-            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人</div>
-            <select value={form.assignee} onChange={e => canEdit && setForm(f=>({...f,assignee:e.target.value}))} disabled={!canEdit}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", fontFamily:"inherit", boxSizing:"border-box", opacity: canEdit?1:0.6 }}>
-              {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
-            </select>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>負責人（可多選）</div>
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap", opacity: canEdit?1:0.6 }}>
+              {TEAM.map(name => {
+                const sel = form.assignees.includes(name);
+                return (
+                  <div key={name} onClick={()=> canEdit && setForm(f=>({...f,assignees: sel ? f.assignees.filter(n=>n!==name) : [...f.assignees, name]}))}
+                    style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 10px 5px 5px", borderRadius:18, cursor: canEdit?"pointer":"default",
+                      background: sel ? "rgba(79,140,255,0.15)" : "var(--surf)",
+                      border: `1.5px solid ${sel ? "var(--accent)" : "var(--border)"}`, transition:"all 0.2s" }}>
+                    <Avatar name={name} size={20}/>
+                    <span style={{ fontSize:13, fontWeight: sel?600:400, color: sel?"var(--accent)":"var(--muted)" }}>{name}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <div>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>截止日期（例行任務可留空）</div>
@@ -368,11 +387,11 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
               🔗 前置任務：{form.dependsOn.length} 項
             </div>
           )}
-          <button onClick={onNotify} style={{
+          {onNotify && <button onClick={onNotify} style={{
             width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
             background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit", marginTop:2
-          }}>📨 立即發送 LINE 通知給 {form.assignee}</button>
+          }}>📨 立即發送 LINE 通知給 {form.assignees.join("、")}</button>}
         </>)}
 
         {/* ── 子任務頁籤 ── */}
@@ -481,7 +500,7 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 
         {/* 底部操作按鈕 */}
         <div style={{ display:"flex", gap:10, marginTop:4, borderTop:"1px solid var(--border)", paddingTop:14 }}>
-          {canEdit && <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
+          {onDelete && <button onClick={() => { if(window.confirm("確定刪除此任務？")) onDelete(); }} style={{
             padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
             background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit"
@@ -491,11 +510,11 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
             background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
             cursor:"pointer", fontFamily:"inherit"
           }}>取消</button>
-          <button onClick={handleSave} style={{
+          {canEdit && <button onClick={handleSave} style={{
             flex:2, padding:"13px", borderRadius:10, border:"none",
             background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
             fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
-          }}>儲存修改</button>
+          }}>儲存修改</button>}
         </div>
       </div>
     </div>
@@ -503,9 +522,9 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 }
 
 // ── 例行任務新增表單（獨立元件避免 IME 輸入中斷）──
-function RoutineTaskForm({ onAdd, onCancel }) {
+function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
   const [title, setTitle] = useState("");
-  const [assignee, setAssignee] = useState(TEAM[0]);
+  const [assignee, setAssignee] = useState(isAdmin ? TEAM[0] : currentUser);
   return (
     <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
       <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
@@ -516,14 +535,20 @@ function RoutineTaskForm({ onAdd, onCancel }) {
         onChange={e => setTitle(e.target.value)}
         style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }}
       />
-      <select
-        value={assignee}
-        onChange={e => setAssignee(e.target.value)}
-        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
-      >
-        <option value="">不指定負責人</option>
-        {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
-      </select>
+      {isAdmin ? (
+        <select
+          value={assignee}
+          onChange={e => setAssignee(e.target.value)}
+          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}
+        >
+          <option value="">不指定負責人</option>
+          {TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+      ) : (
+        <div style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:12, boxSizing:"border-box" }}>
+          {currentUser}（自己）
+        </div>
+      )}
       <div style={{ display:"flex", gap:10 }}>
         <button onClick={onCancel} style={{
           flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
@@ -653,7 +678,7 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
             <span style={{ fontSize:14, padding:"4px 12px", borderRadius:12, background:`${statusColor}18`, color:statusColor, fontWeight:700 }}>{statusText}</span>
           </div>
-          <div style={{ fontSize:24, fontWeight:700 }}>📅 {meeting.title}</div>
+          <div style={{ fontSize:24, fontWeight:700 }}>{meeting.eventType==="event"?"🎯":"📋"} {meeting.title}</div>
         </div>
 
         {/* 詳細資訊 */}
@@ -945,21 +970,21 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
 
         {/* 按鈕列 */}
         <div style={{ display:"flex", gap:10 }}>
-          <button onClick={onDelete} style={{
+          {onDelete && <button onClick={onDelete} style={{
             padding:"13px 16px", borderRadius:10, border:"1px solid var(--red)",
             background:"rgba(255,91,121,0.1)", color:"var(--red)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit"
-          }}>🗑 刪除</button>
+          }}>🗑 刪除</button>}
           <button onClick={onClose} style={{
             flex:1, padding:"13px", borderRadius:10, border:"1px solid var(--border)",
             background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
             cursor:"pointer", fontFamily:"inherit"
           }}>關閉</button>
-          <button onClick={onEdit} style={{
+          {onEdit && <button onClick={onEdit} style={{
             flex:2, padding:"13px", borderRadius:10, border:"none",
             background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
             fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
-          }}>✏️ 編輯會議</button>
+          }}>✏️ 編輯會議</button>}
         </div>
       </div>
     </div>
@@ -977,7 +1002,8 @@ function exportToWord(tasks) {
   let html = `<!DOCTYPE html><html><head>
 <meta charset="utf-8">
 <style>
-  body { font-family: "Microsoft JhengHei","微軟正黑體",sans-serif; font-size: 12pt; margin:40px; }
+  @page { margin: 2.54cm 1.91cm 2.54cm 1.91cm; }
+  body { font-family: "Microsoft JhengHei","微軟正黑體",sans-serif; font-size: 12pt; margin:0; }
   h1   { font-size:20pt; color:#1a1a2e; border-bottom:3px solid #4f8cff; padding-bottom:8px; margin-bottom:16px; }
   h2   { font-size:15pt; color:#4f8cff; margin-top:28px; margin-bottom:10px; }
   .summary { background:#f0f4ff; padding:14px 18px; border-radius:6px; margin-bottom:24px; font-size:13pt; line-height:2; }
@@ -1002,7 +1028,7 @@ function exportToWord(tasks) {
 </div>`;
 
   TEAM.forEach(name => {
-    const myTasks = tasks.filter(t => t.assignee === name);
+    const myTasks = tasks.filter(t => hasAssignee(t, name));
     const myDone  = myTasks.filter(t => t.done).length;
     const myPct   = myTasks.length ? Math.round(myDone / myTasks.length * 100) : 0;
     html += `<h2>👤 ${name}　${myDone}/${myTasks.length} 完成・${myPct}%</h2>`;
@@ -1077,11 +1103,12 @@ async function parseWithAI(text) {
   const res = await fetch(`${BACKEND_URL}/parse-meeting`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ text: `你是會議記錄分析助理。從以下會議紀錄中，找出所有「任務/行動項目」。
-每個任務需包含：負責人、任務描述、截止日期。今天是 ${today_str}。
+每個任務需包含：負責人（可多人）、任務描述、截止日期。今天是 ${today_str}。
 若日期只說「本週五」請換算成實際日期。若無法確定截止日期，設定為 7 天後。
 負責人請從以下名單選最接近的：${TEAM.join("、")}。若無法對應，填「待指派」。
+若任務有多位負責人，用逗號分隔（例："蔡蕙芳,戴豐逸"）。
 請只回傳 JSON 陣列，格式如下，不要有任何說明文字：
-[{"title":"任務描述","assignee":"負責人","deadline":"YYYY-MM-DD"}]
+[{"title":"任務描述","assignee":"負責人1,負責人2","deadline":"YYYY-MM-DD"}]
 會議紀錄：\n${text}` })
   });
   const data = await res.json();
@@ -1239,6 +1266,7 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
     location: meeting?.location || "",
     participants: meeting?.participants || [],
     description: meeting?.description || "",
+    eventType: meeting?.eventType || "meeting",
   });
   const toggleParticipant = (name) => {
     setForm(prev => ({
@@ -1251,9 +1279,22 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }}>
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:16, padding:"24px", width:"100%", maxWidth:540, display:"flex", flexDirection:"column", gap:14, maxHeight:"90vh", overflowY:"auto" }}>
-        <div style={{ fontSize:22, fontWeight:700 }}>{meeting ? "✏️ 編輯會議" : "📅 新增會議"}</div>
+        <div style={{ fontSize:22, fontWeight:700 }}>{meeting ? "✏️ 編輯" : "📅 新增"}{form.eventType==="meeting"?"會議":"活動"}</div>
         <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>會議名稱</div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>類型</div>
+          <div style={{ display:"flex", gap:8, marginBottom:4 }}>
+            {[["meeting","📋 會議"],["event","🎯 活動"]].map(([k,l])=>(
+              <div key={k} onClick={()=>setForm(f=>({...f,eventType:k}))}
+                style={{ flex:1, padding:"10px", borderRadius:10, textAlign:"center", cursor:"pointer", fontSize:15, fontWeight:600,
+                  background: form.eventType===k ? (k==="meeting"?"rgba(79,140,255,0.15)":"rgba(0,229,195,0.15)") : "var(--surf)",
+                  color: form.eventType===k ? (k==="meeting"?"var(--accent)":"var(--green)") : "var(--muted)",
+                  border: `1.5px solid ${form.eventType===k ? (k==="meeting"?"var(--accent)":"var(--green)") : "var(--border)"}`,
+                  transition:"all 0.2s" }}>{l}</div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>{form.eventType==="meeting"?"會議":"活動"}名稱</div>
           <input value={form.title} onChange={e=>setForm({...form, title:e.target.value})} placeholder="例：Q2 預算審查會議"
             style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
         </div>
@@ -1275,7 +1316,13 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
             style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
         </div>
         <div>
-          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>參與人員</div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>參與人員</div>
+            <div onClick={()=>setForm(f=>({...f, participants: f.participants.length===TEAM.length ? [] : [...TEAM]}))}
+              style={{ fontSize:13, color:"var(--accent)", cursor:"pointer", fontWeight:600 }}>
+              {form.participants.length===TEAM.length ? "取消全選" : "全選"}
+            </div>
+          </div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
             {TEAM.map(name => {
               const sel = form.participants.includes(name);
@@ -1304,7 +1351,7 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
             if (!form.title || !form.date || !form.time) return;
             onSave(form);
           }} style={{ flex:2, padding:"13px", borderRadius:10, border:"none", background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff", fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-            {meeting ? "儲存修改" : "建立會議"}
+            {meeting ? "儲存修改" : form.eventType==="meeting" ? "建立會議" : "建立活動"}
           </button>
         </div>
       </div>
@@ -1338,17 +1385,24 @@ export default function MeetBot() {
   const [memberFilter, setMemberFilter] = useState("all");
   const [searchQuery,  setSearchQuery]  = useState("");
   const [showTrash,    setShowTrash]    = useState(false);
-  const [currentUser,  setCurrentUser]  = useState(() => localStorage.getItem("meetbot-user") || "");
+  const [currentUser,  setCurrentUser]  = useState(() => {
+    const saved = localStorage.getItem("meetbot-user") || "";
+    // 管理者需驗證密碼才能恢復身份
+    if (ADMINS.includes(saved) && localStorage.getItem("meetbot-admin-auth") !== saved) return "";
+    return saved;
+  });
+  const [adminAuthPending, setAdminAuthPending] = useState(null); // 等待密碼輸入的管理者名稱
+  const [adminPwInput, setAdminPwInput] = useState("");
+  const [adminPwError, setAdminPwError] = useState("");
   const [batchMode,    setBatchMode]    = useState(false);
   const [selectedIds,  setSelectedIds]  = useState(new Set());
   const [theme,        setTheme]        = useState(() => localStorage.getItem("meetbot-theme") || "dark");
   const [browserNotif, setBrowserNotif] = useState(() => localStorage.getItem("meetbot-browser-notif") === "true");
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
-  const [showAI,       setShowAI]       = useState(false);
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
-  const [manualForm,   setManualForm]   = useState({ title:"", assignee:TEAM[0], deadline:"", meeting:"", priority:"medium" });
+  const [manualForm,   setManualForm]   = useState({ title:"", assignees:[], deadline:"", meeting:"", priority:"medium" });
   const [toast,        setToast]        = useState(null);
   const [savedPulse,   setSavedPulse]   = useState(false);
   const [editingTask,  setEditingTask]  = useState(null); // 備註 modal
@@ -1368,6 +1422,7 @@ export default function MeetBot() {
   const [routineTasks,   setRoutineTasks]   = useState([]);
   const [routineChecks,  setRoutineChecks]  = useState({});
   const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [expandRoutine, setExpandRoutine] = useState(false);
   // routineForm state removed — RoutineTaskForm 獨立管理自己的 state
 
   const [isWide, setIsWide] = useState(false);
@@ -1453,38 +1508,8 @@ export default function MeetBot() {
   useEffect(() => {
     fetchAll(false);
     const poll = setInterval(() => { if (!isSaving.current) fetchAll(true); }, 15000);
-    const reminderCheck = setInterval(async () => {
-      const sent = await checkAndNotify(tasksRef.current, remindersRef.current);
-      if (sent > 0) { setLastNotify(new Date()); showToast(`已發送 ${sent} 則 LINE 提醒`,"#00e5c3"); }
-    }, 3600000);
-    // Slack 會議提醒（每小時檢查一次）
-    const slackCheck = setInterval(async () => {
-      const wh = await loadSlackWebhook();
-      if (!wh) return;
-      try {
-        const res = await fetch(`${BACKEND_URL}/check-meeting-reminders`, {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ webhookUrl: wh })
-        });
-        const data = await res.json();
-        if (data.sent > 0) showToast(`已發送 ${data.sent} 則 Slack 會議提醒`,"#00e5c3");
-      } catch {}
-    }, 3600000);
-    // 瀏覽器通知檢查（每 30 分鐘）
-    const browserNotifCheck = setInterval(() => {
-      if (!localStorage.getItem("meetbot-browser-notif") || localStorage.getItem("meetbot-browser-notif") !== "true") return;
-      if (Notification.permission !== "granted") return;
-      const pending = tasksRef.current.filter(t => !t.done && !t.deletedAt && t.deadline);
-      pending.forEach(t => {
-        const d = daysLeft(t.deadline);
-        if (d === 0) {
-          try { new Notification(`⚠️ 今天截止：${t.title}`, { body: `負責人：${t.assignee}` }); } catch {}
-        } else if (d === 1) {
-          try { new Notification(`📅 明天截止：${t.title}`, { body: `負責人：${t.assignee}` }); } catch {}
-        }
-      });
-    }, 1800000);
-    return () => { clearInterval(poll); clearInterval(reminderCheck); clearInterval(slackCheck); clearInterval(browserNotifCheck); };
+    // 自動提醒已移除 — LINE / Slack 提醒僅透過手動按鈕發送，避免重複通知
+    return () => { clearInterval(poll); };
   }, [fetchAll]);
 
   // ── 任務自動存（含超時保護 + 失敗提示）──
@@ -1538,16 +1563,20 @@ export default function MeetBot() {
     if (!manualForm.title.trim()) {
       showToast("請填寫任務名稱","#ff5b79"); return;
     }
+    const assignees = isAdmin ? manualForm.assignees : [currentUser];
+    if (assignees.length === 0) {
+      showToast("請選擇至少一位負責人","#ff5b79"); return;
+    }
     const newTask = {
       id: Date.now(), title: manualForm.title.trim(),
-      assignee: manualForm.assignee, deadline: manualForm.deadline || "",
+      assignee: assignees.join(","), deadline: manualForm.deadline || "",
       meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
       done: false, priority: manualForm.priority || "medium",
       deletedAt: null,
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
-    setManualForm({ title:"", assignee:TEAM[0], deadline:"", meeting:"", priority:"medium" });
+    setManualForm({ title:"", assignees:[], deadline:"", meeting:"", priority:"medium" });
     showToast("已新增 1 項任務");
   };
 
@@ -1555,7 +1584,7 @@ export default function MeetBot() {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
     // RBAC 檢查
-    if (!isAdmin && task.assignee !== currentUser) {
+    if (!isAdmin && !hasAssignee(task, currentUser)) {
       showToast("只有負責人或管理員可以變更完成狀態","#ff5b79"); return;
     }
     // 依賴檢查：如果要標記完成，檢查前置任務
@@ -1577,7 +1606,7 @@ export default function MeetBot() {
             body: JSON.stringify({ task: { ...t, done: true } })
           }).catch(() => {});
         }
-        return { ...t, done: nowDone };
+        return { ...t, done: nowDone, doneTime: nowDone ? new Date().toISOString() : null };
       });
       return updated;
     });
@@ -1697,9 +1726,19 @@ export default function MeetBot() {
     setBatchMode(false);
   };
   // ── RBAC 權限檢查 ──
-  const isAdmin = ADMINS.includes(currentUser);
-  const canEditTask = (t) => isAdmin || t.assignee === currentUser;
-  const canDeleteTask = (t) => isAdmin || t.assignee === currentUser;
+  const userRole = getUserRole(currentUser);
+  const isAdmin = userRole === "admin";
+  const isSpecialist = userRole === "specialist";
+  const canEditTask = (t) => isAdmin || isSpecialist;
+  const canDeleteTask = (t) => isAdmin;
+  const canCompleteTask = (t) => isAdmin || hasAssignee(t, currentUser);
+  const canSendReminders = isAdmin;
+  const canUpload = isAdmin || isSpecialist;
+  const canCreateMeeting = isAdmin;
+  const canManageRoutine = isAdmin;
+  const canBatchOp = isAdmin;
+  const canManageTrash = isAdmin;
+  const canModifyReminders = isAdmin;
 
   // ── 任務依賴檢查 ──
   const getBlockingDeps = (t) => {
@@ -1707,59 +1746,6 @@ export default function MeetBot() {
     return t.dependsOn.map(depId => activeTasks.find(d => d.id === depId)).filter(d => d && !d.done);
   };
 
-  // ── AI 智慧建議 ──
-  const getAISuggestions = () => {
-    const suggestions = [];
-    const pending = activeTasks.filter(t => !t.done);
-    // 逾期任務
-    const overdue = pending.filter(t => t.deadline && daysLeft(t.deadline) < 0);
-    if (overdue.length > 0) {
-      suggestions.push({ type:"warning", icon:"🚨", title:`${overdue.length} 項任務已逾期`,
-        detail: overdue.slice(0,3).map(t => `${t.title} (${t.assignee})`).join("、") });
-    }
-    // 即將到期但無備註
-    const noNote = pending.filter(t => t.deadline && daysLeft(t.deadline) >= 0 && daysLeft(t.deadline) <= 3 && !t.progressNote);
-    if (noNote.length > 0) {
-      suggestions.push({ type:"info", icon:"📝", title:`${noNote.length} 項即將到期但無進度備註`,
-        detail:"建議提醒負責人更新進度" });
-    }
-    // 工作量失衡
-    const workload = TEAM.map(n => ({ name:n, count: pending.filter(t=>t.assignee===n).length })).filter(w=>w.count>0);
-    if (workload.length > 1) {
-      const max = Math.max(...workload.map(w=>w.count));
-      const min = Math.min(...workload.map(w=>w.count));
-      if (max >= min * 3 && max >= 4) {
-        const heavy = workload.find(w=>w.count===max);
-        suggestions.push({ type:"tip", icon:"⚖️", title:"工作量分配不均",
-          detail:`${heavy.name} 有 ${heavy.count} 項待辦，建議重新分配` });
-      }
-    }
-    // 無截止日
-    const noDeadline = pending.filter(t => !t.deadline);
-    if (noDeadline.length > 0) {
-      suggestions.push({ type:"tip", icon:"📅", title:`${noDeadline.length} 項任務無截止日期`,
-        detail:"建議設定截止日以便追蹤進度" });
-    }
-    // 緊急任務
-    const critical = pending.filter(t => t.priority === "critical");
-    if (critical.length > 0) {
-      suggestions.push({ type:"warning", icon:"🔥", title:`${critical.length} 項緊急任務待處理`,
-        detail: critical.slice(0,3).map(t => t.title).join("、") });
-    }
-    // 被阻擋的任務
-    const blocked = pending.filter(t => getBlockingDeps(t).length > 0);
-    if (blocked.length > 0) {
-      suggestions.push({ type:"info", icon:"🔗", title:`${blocked.length} 項任務被前置任務阻擋`,
-        detail:"需先完成前置任務才能推進" });
-    }
-    // 完成率
-    if (pending.length === 0 && activeTasks.length > 0) {
-      suggestions.push({ type:"success", icon:"🎉", title:"所有任務已完成！", detail:"太棒了，團隊執行力滿分" });
-    } else if (pct >= 80) {
-      suggestions.push({ type:"success", icon:"💪", title:`完成率 ${pct}%，再加把勁！`, detail:`還剩 ${pending.length} 項任務` });
-    }
-    return suggestions;
-  };
 
   const notifyTask = async () => {
     if (!editingTaskFull) return;
@@ -1814,23 +1800,35 @@ export default function MeetBot() {
   // ── 衍生統計（排除垃圾桶）──
   const activeTasks = tasks.filter(t => !t.deletedAt);
   const trashedTasks = tasks.filter(t => t.deletedAt);
+  // 完成超過 7 天自動隱藏
+  const isAutoHidden = (t) => t.done && t.doneTime && (Date.now() - new Date(t.doneTime).getTime()) > 7 * 86400000;
+  const hiddenCount = activeTasks.filter(isAutoHidden).length;
   const sq = searchQuery.toLowerCase().trim();
   const filtered = activeTasks.filter(t => {
-    if (sq && !t.title.toLowerCase().includes(sq) && !t.assignee.toLowerCase().includes(sq) && !(t.meeting||"").toLowerCase().includes(sq)) return false;
-    if (memberFilter!=="all" && t.assignee!==memberFilter) return false;
+    if (sq && !t.title.toLowerCase().includes(sq) && !(t.assignee||"").toLowerCase().includes(sq) && !(t.meeting||"").toLowerCase().includes(sq)) return false;
+    if (memberFilter!=="all" && !hasAssignee(t, memberFilter)) return false;
+    if (filter==="hidden") return isAutoHidden(t);
+    if (isAutoHidden(t)) return false; // 非隱藏模式時排除已隱藏任務
     if (filter==="pending") return !t.done;
     if (filter==="critical") return !t.done && t.priority==="critical";
     if (filter==="urgent")  return !t.done && (t.priority==="critical" || t.priority==="high");
     if (filter==="done")    return t.done;
     return true;
   });
-  const pendingCount = activeTasks.filter(t=>!t.done).length;
-  const doneCount    = activeTasks.filter(t=>t.done).length;
-  const urgentCount  = activeTasks.filter(t=>!t.done && (t.priority==="critical" || t.priority==="high")).length;
-  const pct = activeTasks.length ? Math.round(doneCount/activeTasks.length*100) : 0;
+  const visibleTasks = activeTasks.filter(t => !isAutoHidden(t));
+  const pendingCount = visibleTasks.filter(t=>!t.done).length;
+  const doneCount    = visibleTasks.filter(t=>t.done).length;
+  const urgentCount  = visibleTasks.filter(t=>!t.done && (t.priority==="critical" || t.priority==="high")).length;
+  const pct = visibleTasks.length ? Math.round(doneCount/visibleTasks.length*100) : 0;
+  const deadlineTasks = visibleTasks.filter(t => !!t.deadline);
+  const routineOnlyTasks = visibleTasks.filter(t => !t.deadline);
+  const deadlineDone = deadlineTasks.filter(t=>t.done).length;
+  const routineDone = routineOnlyTasks.filter(t=>t.done).length;
+  const deadlinePct = deadlineTasks.length ? Math.round(deadlineDone/deadlineTasks.length*100) : 0;
+  const routinePct = routineOnlyTasks.length ? Math.round(routineDone/routineOnlyTasks.length*100) : 0;
   const nonRoutineTasks = activeTasks.filter(t => !!t.deadline);
   const memberStats = TEAM.map(name => {
-    const mine = nonRoutineTasks.filter(t=>t.assignee===name);
+    const mine = nonRoutineTasks.filter(t=>hasAssignee(t, name));
     const done = mine.filter(t=>t.done).length;
     return { name, total:mine.length, done, pct: mine.length ? Math.round(done/mine.length*100):0 };
   }).filter(m=>m.total>0);
@@ -1874,12 +1872,12 @@ export default function MeetBot() {
     :root{
       --bg:#080b12;--surf:#10141e;--card:#181d2a;--border:#232840;
       --accent:#4f8cff;--green:#00e5c3;--orange:#ff9f43;--red:#ff5b79;
-      --text:#e8eaf2;--muted:#6b7494;
+      --text:#e8eaf2;--muted:#6b7494;--done-bg:rgba(24,29,42,0.5);--done-text:#6b7494;
     }
     .theme-light{
       --bg:#f0f2f8;--surf:#ffffff;--card:#ffffff;--border:#dfe2ea;
       --accent:#3b7aed;--green:#00b89c;--orange:#e08a28;--red:#e04060;
-      --text:#1a1e2e;--muted:#7a819a;
+      --text:#1a1e2e;--muted:#7a819a;--done-bg:rgba(230,232,240,0.7);--done-text:#5a6078;
     }
     .theme-light select,.theme-light input{ color-scheme:light; }
     .theme-light ::-webkit-scrollbar-thumb{ background:#ccc; }
@@ -1926,7 +1924,7 @@ export default function MeetBot() {
     const isSelected = selectedIds.has(t.id);
     return (
     <div style={{
-      background: isSelected ? "rgba(79,140,255,0.08)" : t.done ? "rgba(24,29,42,0.5)" : "var(--card)",
+      background: isSelected ? "rgba(79,140,255,0.08)" : t.done ? "var(--done-bg)" : "var(--card)",
       border: `1px solid ${isSelected ? "var(--accent)" : t.urgent&&!t.done ? "rgba(255,91,121,0.35)" : "var(--border)"}`,
       borderRadius:14, padding:"15px 16px", marginBottom:10,
       display:"flex", flexDirection:"column", gap:10,
@@ -1962,12 +1960,12 @@ export default function MeetBot() {
           <div style={{
             fontSize:20, fontWeight:500, lineHeight:1.5, marginBottom:8,
             textDecoration:t.done?"line-through":"none",
-            color:t.done?"var(--muted)":"var(--text)"
+            color:t.done?"var(--done-text)":"var(--text)"
           }}>{t.title}</div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom: t.progressNote ? 8 : 0 }}>
             <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-              <Avatar name={t.assignee} size={22}/>
-              <span style={{ fontSize:15, color:"var(--muted)" }}>{t.assignee}</span>
+              {getAssignees(t).map((name,i) => <Avatar key={i} name={name} size={22}/>)}
+              <span style={{ fontSize:15, color:"var(--muted)" }}>{getAssignees(t).join("、")}</span>
             </div>
             <DeadlineBadge deadline={t.deadline} done={t.done}/>
             {t.priority && t.priority!=="medium" && t.priority!=="low" && !t.done && <PriorityBadge priority={t.priority}/>}
@@ -2017,7 +2015,7 @@ export default function MeetBot() {
             fontSize:14, fontWeight:600, color:"var(--muted)", transition:"all 0.2s"
           }}
         >✏️ 編輯任務</div>
-        <div
+        {(isAdmin || hasAssignee(t, currentUser)) && <div
           onClick={() => setEditingTask(t)}
           style={{
             flex:1, padding:"12px 0", borderRadius:10, cursor:"pointer",
@@ -2027,13 +2025,13 @@ export default function MeetBot() {
             fontSize:14, fontWeight:600, color: t.progressNote ? "var(--accent)" : "var(--muted)",
             transition:"all 0.2s"
           }}
-        >📝 {t.progressNote ? "編輯備註" : "新增備註"}</div>
+        >📝 {t.progressNote ? "編輯備註" : "新增備註"}</div>}
       </div>
     </div>
   );};
 
   // ── 儀表板內容 ──
-  const DashboardContent = () => (
+  const DashboardContent = (
     <div className="mb-content-pad">
       <div style={{ background:"rgba(79,140,255,0.08)", border:"1px solid rgba(79,140,255,0.25)", borderRadius:14, padding:"12px 16px", marginBottom:14, display:"flex", alignItems:"center", gap:12 }}>
         <div style={{ fontSize:24 }}>🔗</div>
@@ -2053,13 +2051,54 @@ export default function MeetBot() {
       </div>
 
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", fontSize:15, marginBottom:8 }}>
-          <span style={{ color:"var(--muted)" }}>整體完成進度</span>
-          <span style={{ fontWeight:700, color:"var(--green)", fontFamily:"'DM Mono',monospace" }}>{doneCount}/{tasks.length}</span>
-        </div>
-        <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
-          <div style={{ height:"100%", width:`${pct}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:4, transition:"width 0.6s ease" }}/>
-        </div>
+        {deadlineTasks.length > 0 && (<>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:15, marginBottom:6 }}>
+            <span style={{ color:"var(--muted)" }}>📅 有期限任務</span>
+            <span style={{ fontWeight:700, color:"var(--green)", fontFamily:"'DM Mono',monospace" }}>{deadlineDone}/{deadlineTasks.length}（{deadlinePct}%）</span>
+          </div>
+          <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden", marginBottom: routineOnlyTasks.length > 0 ? 12 : 0 }}>
+            <div style={{ height:"100%", width:`${deadlinePct}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:4, transition:"width 0.6s ease" }}/>
+          </div>
+        </>)}
+        {routineOnlyTasks.length > 0 && (<>
+          <div onClick={()=>setExpandRoutine(!expandRoutine)} style={{ display:"flex", justifyContent:"space-between", fontSize:15, marginBottom:6, cursor:"pointer" }}>
+            <span style={{ color:"var(--muted)" }}>🔄 例行任務 <span style={{ fontSize:13 }}>{expandRoutine?"▲":"▼"}</span></span>
+            <span style={{ fontWeight:700, color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>{routineDone}/{routineOnlyTasks.length}（{routinePct}%）</span>
+          </div>
+          <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${routinePct}%`, background:"linear-gradient(90deg,#a78bfa,var(--accent))", borderRadius:4, transition:"width 0.6s ease" }}/>
+          </div>
+          {expandRoutine && (
+            <div style={{ marginTop:12 }}>
+              {TEAM.map(name => {
+                const myRoutine = routineOnlyTasks.filter(t => hasAssignee(t, name));
+                if (myRoutine.length === 0) return null;
+                const myDone = myRoutine.filter(t => t.done).length;
+                return (
+                  <div key={name} style={{ marginBottom:10 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                      <Avatar name={name} size={24}/>
+                      <span style={{ fontSize:14, fontWeight:600 }}>{name}</span>
+                      <span style={{ fontSize:13, color:"var(--muted)", marginLeft:"auto", fontFamily:"'DM Mono',monospace" }}>{myDone}/{myRoutine.length}</span>
+                    </div>
+                    {myRoutine.map(t => (
+                      <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0 6px 32px" }}>
+                        <div onClick={()=>toggleDone(t.id)} style={{
+                          width:20, height:20, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                          border:`2px solid ${t.done?"var(--green)":"var(--border)"}`,
+                          background: t.done?"var(--green)":"transparent",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:12, color:"#fff", transition:"all 0.2s"
+                        }}>{t.done?"✓":""}</div>
+                        <span style={{ fontSize:14, color: t.done?"var(--muted)":"var(--text)", textDecoration: t.done?"line-through":"none", flex:1 }}>{t.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>)}
       </div>
 
       {/* 離線提示 */}
@@ -2072,44 +2111,6 @@ export default function MeetBot() {
           </div>
         </div>
       )}
-
-      {/* AI 智慧建議 */}
-      <div style={{ marginBottom:14 }}>
-        <div onClick={() => setShowAI(!showAI)} style={{
-          background:"var(--card)", border:"1px solid var(--border)", borderRadius:14,
-          padding:"14px 16px", cursor:"pointer", display:"flex", alignItems:"center",
-          justifyContent:"space-between", transition:"all 0.2s"
-        }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:20 }}>🤖</span>
-            <div>
-              <div style={{ fontSize:15, fontWeight:700 }}>AI 智慧建議</div>
-              <div style={{ fontSize:13, color:"var(--muted)" }}>自動分析任務狀況，提供改善建議</div>
-            </div>
-          </div>
-          <span style={{ fontSize:14, color:"var(--muted)" }}>{showAI ? "▲" : "▼"}</span>
-        </div>
-        {showAI && (
-          <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8, animation:"fadeUp 0.3s ease" }}>
-            {getAISuggestions().map((s, i) => (
-              <div key={i} style={{
-                background: s.type==="warning" ? "rgba(255,91,121,0.06)" : s.type==="success" ? "rgba(0,229,195,0.06)" : "rgba(79,140,255,0.06)",
-                border: `1px solid ${s.type==="warning" ? "rgba(255,91,121,0.2)" : s.type==="success" ? "rgba(0,229,195,0.2)" : "rgba(79,140,255,0.2)"}`,
-                borderRadius:12, padding:"12px 14px"
-              }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                  <span style={{ fontSize:16 }}>{s.icon}</span>
-                  <span style={{ fontSize:14, fontWeight:700, color: s.type==="warning" ? "var(--red)" : s.type==="success" ? "var(--green)" : "var(--accent)" }}>{s.title}</span>
-                </div>
-                <div style={{ fontSize:13, color:"var(--muted)", paddingLeft:24, lineHeight:1.6 }}>{s.detail}</div>
-              </div>
-            ))}
-            {getAISuggestions().length === 0 && (
-              <div style={{ textAlign:"center", color:"var(--muted)", fontSize:14, padding:"16px 0" }}>目前沒有特別建議，一切順利！</div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* 例行任務清單 */}
       {routineTasks.length > 0 && (
@@ -2144,9 +2145,9 @@ export default function MeetBot() {
                 }}>{t.title}</div>
                 {t.assignee && <div style={{ fontSize:14, color:"var(--muted)", marginTop:2 }}>{t.assignee}</div>}
               </div>
-              <div onClick={() => removeRoutineTask(t.id)} style={{
+              {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
                 padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:14, fontWeight:600, opacity:0.6
-              }}>✕</div>
+              }}>✕</div>}
             </div>
           ))}
         </div>
@@ -2161,7 +2162,7 @@ export default function MeetBot() {
             color:"var(--muted)", fontWeight:600, transition:"all 0.2s"
           }}>＋ 新增例行任務</div>
         ) : (
-          <RoutineTaskForm onAdd={addRoutineTask} onCancel={() => setShowAddRoutine(false)} />
+          <RoutineTaskForm onAdd={addRoutineTask} onCancel={() => setShowAddRoutine(false)} currentUser={currentUser} isAdmin={isAdmin} />
         )}
       </div>
 
@@ -2190,13 +2191,13 @@ export default function MeetBot() {
             boxSizing:"border-box"
           }}
         />
-        <div onClick={() => { setBatchMode(!batchMode); if(batchMode) clearSelection(); }} style={{
+        {canBatchOp && <div onClick={() => { setBatchMode(!batchMode); if(batchMode) clearSelection(); }} style={{
           padding:"11px 14px", borderRadius:12, cursor:"pointer", whiteSpace:"nowrap",
           background: batchMode ? "var(--accent)" : "var(--card)",
           color: batchMode ? "#fff" : "var(--muted)",
           border: `1px solid ${batchMode ? "var(--accent)" : "var(--border)"}`,
           fontSize:14, fontWeight:600, transition:"all 0.2s"
-        }}>{batchMode ? "✕ 取消" : "☐ 批量"}</div>
+        }}>{batchMode ? "✕ 取消" : "☐ 批量"}</div>}
       </div>
 
       {/* 批量操作列 */}
@@ -2255,8 +2256,8 @@ export default function MeetBot() {
 
       {/* 篩選列 */}
       <div style={{ display:"flex", gap:7, marginBottom:12, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
-        {[["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"]].map(([k,l])=>(
-          <div key={k} onClick={()=>setFilter(k)} style={{ padding:"7px 14px", borderRadius:20, fontSize:15, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", background:filter===k?"var(--accent)":"var(--card)", color:filter===k?"#fff":"var(--muted)", border:`1px solid ${filter===k?"var(--accent)":"var(--border)"}`, transition:"all 0.2s" }}>{l}</div>
+        {[["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"],["hidden",`隱藏${hiddenCount>0?" "+hiddenCount:""}`]].map(([k,l])=>(
+          <div key={k} onClick={()=>setFilter(k)} style={{ padding:"7px 14px", borderRadius:20, fontSize:15, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", background:filter===k?(k==="hidden"?"var(--muted)":"var(--accent)"):"var(--card)", color:filter===k?"#fff":"var(--muted)", border:`1px solid ${filter===k?(k==="hidden"?"var(--muted)":"var(--accent)"):"var(--border)"}`, transition:"all 0.2s" }}>{l}</div>
         ))}
         <div style={{ width:1, background:"var(--border)", margin:"0 3px", flexShrink:0 }}/>
         {["all",...TEAM].map(m=>(
@@ -2270,8 +2271,8 @@ export default function MeetBot() {
         {filtered.map(t => <TaskCard key={t.id} t={t}/>)}
       </div>
 
-      {/* 垃圾桶 */}
-      {trashedTasks.length > 0 && (
+      {/* 垃圾桶（管理者限定） */}
+      {canManageTrash && trashedTasks.length > 0 && (
         <div style={{ marginTop:8 }}>
           <div onClick={() => setShowTrash(!showTrash)} style={{
             display:"flex", alignItems:"center", justifyContent:"center", gap:8,
@@ -2289,8 +2290,8 @@ export default function MeetBot() {
               <div style={{ fontSize:16, fontWeight:500, marginBottom:6, textDecoration:"line-through", color:"var(--muted)" }}>{t.title}</div>
               <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:10, flexWrap:"wrap" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                  <Avatar name={t.assignee} size={20}/>
-                  <span style={{ fontSize:14, color:"var(--muted)" }}>{t.assignee}</span>
+                  {getAssignees(t).map((n,i)=><Avatar key={i} name={n} size={20}/>)}
+                  <span style={{ fontSize:14, color:"var(--muted)" }}>{getAssignees(t).join("、")}</span>
                 </div>
                 <span style={{ fontSize:13, color:"var(--muted)" }}>
                   刪除於 {new Date(t.deletedAt).toLocaleDateString("zh-TW")}
@@ -2331,13 +2332,29 @@ export default function MeetBot() {
           onChange={e=>setManualForm(f=>({...f,title:e.target.value}))}
           style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
         />
-        <select
-          value={manualForm.assignee}
-          onChange={e=>setManualForm(f=>({...f,assignee:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10 }}
-        >
-          {TEAM.map(name=><option key={name} value={name}>{name}</option>)}
-        </select>
+        {isAdmin ? (
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>負責人（可多選）</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {TEAM.map(name => {
+                const sel = manualForm.assignees.includes(name);
+                return (
+                  <div key={name} onClick={()=>setManualForm(f=>({...f,assignees: sel ? f.assignees.filter(n=>n!==name) : [...f.assignees, name]}))}
+                    style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 12px 6px 6px", borderRadius:20, cursor:"pointer",
+                      background: sel ? "rgba(79,140,255,0.15)" : "var(--surf)",
+                      border: `1.5px solid ${sel ? "var(--accent)" : "var(--border)"}`, transition:"all 0.2s" }}>
+                    <Avatar name={name} size={22}/>
+                    <span style={{ fontSize:14, fontWeight: sel?600:400, color: sel?"var(--accent)":"var(--muted)" }}>{name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+            <Avatar name={currentUser} size={22}/> {currentUser}（自己）
+          </div>
+        )}
         <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4 }}>截止日期（例行任務可留空）</div>
         <input
           type="date"
@@ -2371,6 +2388,7 @@ export default function MeetBot() {
         )}
         <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:18, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
       </div>
+      {canUpload && <>
       <div onClick={()=>!parsing&&fileRef.current.click()} style={{ border:`2px dashed ${parsing?"var(--accent)":"var(--border)"}`, borderRadius:16, padding:"36px 20px", textAlign:"center", cursor:"pointer", background:"var(--card)", marginBottom:16, transition:"border-color 0.2s" }}>
         <input ref={fileRef} type="file" accept=".docx" onChange={handleFile} style={{ display:"none" }}/>
         {parsing ? (<>
@@ -2393,7 +2411,7 @@ export default function MeetBot() {
             <div key={i} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:10 }}>
               <div style={{ fontSize:18, fontWeight:500, marginBottom:8 }}>{t.title}</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:5 }}><Avatar name={t.assignee} size={22}/><span style={{ fontSize:15, color:"var(--muted)" }}>{t.assignee}</span></div>
+                <div style={{ display:"flex", alignItems:"center", gap:5 }}>{getAssignees(t).map((n,i)=><Avatar key={i} name={n} size={22}/>)}<span style={{ fontSize:15, color:"var(--muted)" }}>{getAssignees(t).join("、")}</span></div>
                 <span style={bdg("var(--orange)","rgba(255,159,67,0.1)")}>📅 {t.deadline}</span>
               </div>
             </div>
@@ -2409,6 +2427,7 @@ export default function MeetBot() {
           確認後立即同步給所有團隊成員
         </div>
       )}
+      </>}
     </div>
   );
 
@@ -2438,7 +2457,7 @@ export default function MeetBot() {
               <div style={{ height:"100%", width:`${m.pct}%`, borderRadius:3, background:`linear-gradient(90deg,${memberColor(m.name)},${memberColor(m.name)}aa)`, transition:"width 0.6s" }}/>
             </div>
             <div>
-              {nonRoutineTasks.filter(t=>t.assignee===m.name&&!t.done).slice(0,3).map(t=>(
+              {nonRoutineTasks.filter(t=>hasAssignee(t, m.name)&&!t.done).slice(0,3).map(t=>(
                 <div key={t.id} style={{ fontSize:15, color:"var(--muted)", padding:"8px 0", borderTop:"1px solid var(--border)" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: t.progressNote ? 4 : 0 }}>
                     <div style={{ flex:1, minWidth:0, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>• {t.title}</div>
@@ -2620,107 +2639,6 @@ export default function MeetBot() {
     </div>
   );
 
-  // ── 甘特圖 ─────────────────────────────────
-  const ganttStart = new Date();
-  ganttStart.setDate(ganttStart.getDate() - 3);
-  const ganttDays = 30;
-  const ganttDates = Array.from({length: ganttDays}, (_, i) => {
-    const d = new Date(ganttStart);
-    d.setDate(d.getDate() + i);
-    return d.toISOString().slice(0,10);
-  });
-  const ganttTasks = activeTasks.filter(t => !t.done && t.deadline).sort((a,b) => a.deadline.localeCompare(b.deadline));
-  const ganttByMember = TEAM.map(name => ({
-    name,
-    tasks: ganttTasks.filter(t => t.assignee === name)
-  })).filter(g => g.tasks.length > 0);
-
-  const GanttContent = (
-    <div className="mb-content-pad">
-      <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>
-        甘特圖・任務時間分佈
-      </div>
-      {ganttByMember.length === 0 && (
-        <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:15 }}>沒有待辦任務可以顯示</div>
-      )}
-      <div style={{ overflowX:"auto", paddingBottom:16 }}>
-        {/* 日期標頭 */}
-        <div style={{ display:"flex", minWidth: ganttDays * 36, marginBottom:6, paddingLeft:110 }}>
-          {ganttDates.map((d, i) => {
-            const isToday = d === today();
-            const dt = new Date(d);
-            const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
-            return (
-              <div key={d} style={{
-                width:36, textAlign:"center", fontSize:11, flexShrink:0,
-                color: isToday ? "var(--accent)" : isWeekend ? "var(--red)" : "var(--muted)",
-                fontWeight: isToday ? 700 : 400, fontFamily:"'DM Mono',monospace"
-              }}>
-                <div>{d.slice(8)}</div>
-                <div style={{ fontSize:10 }}>{["日","一","二","三","四","五","六"][dt.getDay()]}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* 成員區塊 */}
-        {ganttByMember.map(g => (
-          <div key={g.name} style={{ marginBottom:12 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-              <Avatar name={g.name} size={22}/>
-              <span style={{ fontSize:14, fontWeight:600 }}>{g.name}</span>
-              <span style={{ fontSize:12, color:"var(--muted)" }}>({g.tasks.length})</span>
-            </div>
-            {g.tasks.map(t => {
-              const deadlineIdx = ganttDates.indexOf(t.deadline);
-              const barStart = Math.max(0, deadlineIdx - 6);
-              const barEnd = deadlineIdx >= 0 ? Math.min(deadlineIdx, ganttDays - 1) : -1;
-              const prio = PRIORITY_MAP[t.priority];
-              const barColor = prio ? prio.color : memberColor(t.assignee);
-              if (barEnd < 0) return null;
-              return (
-                <div key={t.id} onClick={() => setEditingTaskFull(t)} style={{ display:"flex", alignItems:"center", minWidth: ganttDays * 36, height:28, marginBottom:3, cursor:"pointer", borderRadius:6, transition:"background 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.background="rgba(79,140,255,0.06)"}
-                  onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                  <div style={{
-                    width:110, flexShrink:0, fontSize:12, color:"var(--muted)",
-                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", paddingRight:8
-                  }}>{t.title}</div>
-                  <div style={{ flex:1, position:"relative", height:20 }}>
-                    {/* 今日標線 */}
-                    {ganttDates.indexOf(today()) >= 0 && (
-                      <div style={{ position:"absolute", left: ganttDates.indexOf(today()) * 36 + 18, top:0, bottom:0, width:2, background:"var(--accent)", opacity:0.4, zIndex:1 }}/>
-                    )}
-                    {/* 任務條 */}
-                    <div style={{
-                      position:"absolute",
-                      left: barStart * 36 + 4,
-                      width: (barEnd - barStart + 1) * 36 - 8,
-                      height:18, borderRadius:4, top:1,
-                      background: `${barColor}40`,
-                      border: `1.5px solid ${barColor}`,
-                    }}>
-                      <div style={{ fontSize:10, color:barColor, fontWeight:600, padding:"1px 6px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                        {t.deadline.slice(5)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", fontSize:14, color:"var(--muted)", lineHeight:1.7 }}>
-        <strong style={{ color:"var(--text)" }}>圖例說明</strong><br/>
-        ● 每條任務顯示截止日前 7 天的工作區間<br/>
-        ● 顏色依優先等級區分（緊急紅、高橙、一般藍）<br/>
-        ● 藍色虛線為今天的位置
-      </div>
-    </div>
-  );
-
   // ── 行事曆內容 ──────────────────────────────
   const prevMonth = () => setCalMonth(p => p.month === 0 ? { year: p.year-1, month: 11 } : { year: p.year, month: p.month-1 });
   const nextMonth = () => setCalMonth(p => p.month === 11 ? { year: p.year+1, month: 0 } : { year: p.year, month: p.month+1 });
@@ -2740,11 +2658,11 @@ export default function MeetBot() {
             }}>{l}</button>
           ))}
         </div>
-        <button onClick={()=>{ setEditingMeeting(null); setShowMeetingModal(true); }} style={{
+        {canCreateMeeting && <button onClick={()=>{ setEditingMeeting(null); setShowMeetingModal(true); }} style={{
           padding:"7px 18px", borderRadius:20, fontSize:14, fontWeight:700,
           background:"linear-gradient(135deg,var(--accent),#00b89c)", color:"#fff",
           border:"none", cursor:"pointer", fontFamily:"inherit"
-        }}>＋ 新增會議</button>
+        }}>＋ 新增會議 / 活動</button>}
       </div>
 
       {/* 月曆視圖 */}
@@ -2802,7 +2720,7 @@ export default function MeetBot() {
               <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, cursor:"pointer", transition:"border-color 0.2s" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                   <div>
-                    <div style={{ fontSize:16, fontWeight:600, marginBottom:4 }}>📅 {m.title}</div>
+                    <div style={{ fontSize:16, fontWeight:600, marginBottom:4 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
                     <div style={{ fontSize:14, color:"var(--muted)" }}>⏰ {m.time} &nbsp; 📍 {m.location||"未指定"}</div>
                   </div>
                   <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
@@ -2823,7 +2741,7 @@ export default function MeetBot() {
               <div key={t.id} style={{ background:"var(--card)", border:"1px solid rgba(255,159,67,0.3)", borderRadius:14, padding:"12px 16px", marginBottom:8 }}>
                 <div style={{ fontSize:14, color:"var(--orange)", fontWeight:600, marginBottom:2 }}>📋 任務截止</div>
                 <div style={{ fontSize:15, fontWeight:500 }}>{t.title}</div>
-                <div style={{ fontSize:13, color:"var(--muted)", marginTop:4 }}>{t.assignee}</div>
+                <div style={{ fontSize:13, color:"var(--muted)", marginTop:4 }}>{getAssignees(t).join("、")}</div>
               </div>
             ))}
             {!(meetingsByDate[selectedDate]||[]).length && !tasks.filter(t=>t.deadline===selectedDate&&!t.done).length && (
@@ -2836,9 +2754,9 @@ export default function MeetBot() {
       {/* 時間軸視圖 */}
       {calView==="timeline" && (
         <div>
-          <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, marginBottom:14 }}>近期會議</div>
+          <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, marginBottom:14 }}>近期會議與活動</div>
           {meetings.filter(m => m.date >= today()).sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||"")).length === 0 && (
-            <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:15 }}>尚無近期會議</div>
+            <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:15 }}>尚無近期會議與活動</div>
           )}
           <div style={{ position:"relative", paddingLeft:28 }}>
             {meetings.filter(m => m.date >= today()).sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||"")).length > 0 && (
@@ -2865,7 +2783,7 @@ export default function MeetBot() {
                           <span style={{ fontSize:13, padding:"3px 10px", borderRadius:12, background:`${countdownColor}18`, color:countdownColor, fontWeight:700 }}>{countdownText}</span>
                           <span style={{ fontSize:13, color:"var(--muted)" }}>{m.date.slice(5).replace("-","/")} {m.time}</span>
                         </div>
-                        <div style={{ fontSize:20, fontWeight:600, marginBottom:4 }}>{m.title}</div>
+                        <div style={{ fontSize:20, fontWeight:600, marginBottom:4 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
                         <div style={{ fontSize:14, color:"var(--muted)" }}>📍 {m.location||"未指定地點"}</div>
                         {m.description && <div style={{ fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{m.description}</div>}
                       </div>
@@ -2898,7 +2816,7 @@ export default function MeetBot() {
                 <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, opacity:0.5, cursor:"pointer" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
-                      <div style={{ fontSize:15, fontWeight:500 }}>{m.title}</div>
+                      <div style={{ fontSize:15, fontWeight:500 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
                       <div style={{ fontSize:13, color:"var(--muted)" }}>{m.date} {m.time} · {m.location||""}</div>
                     </div>
                     <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
@@ -2952,7 +2870,11 @@ export default function MeetBot() {
     </div>
   );
 
-  const TABS = [["dashboard","📊","任務"],["calendar","📅","行事曆"],["gantt","📈","甘特圖"],["upload","📄","上傳"],["team","👥","成員"],["reminders","⏰","提醒"]];
+  const baseTabs = [["dashboard","📊","任務"],["calendar","📅","行事曆"]];
+  baseTabs.push(["upload","📄","上傳"]);
+  baseTabs.push(["team","👥","成員"]);
+  if (isAdmin) baseTabs.push(["reminders","⏰","提醒"]);
+  const TABS = baseTabs;
 
   // ══════════════════════════════════════════════
   // ── 單一佈局（CSS media query 切換桌機/手機）──
@@ -2979,7 +2901,7 @@ export default function MeetBot() {
               fontSize:18, transition:"all 0.2s"
             }}>{theme==="dark"?"☀️":"🌙"}</div>
             {currentUser && (
-              <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); }}} style={{
+              <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); localStorage.removeItem("meetbot-admin-auth"); }}} style={{
                 display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"3px 12px",
                 borderRadius:20, background:"rgba(79,140,255,0.1)", border:"1px solid rgba(79,140,255,0.3)"
               }}>
@@ -3036,9 +2958,8 @@ export default function MeetBot() {
             </div>
 
             {/* 頁面內容 */}
-            {tab==="dashboard" && <DashboardContent/>}
+            {tab==="dashboard" && DashboardContent}
             {tab==="calendar"  && CalendarContent}
-            {tab==="gantt"     && GanttContent}
             {tab==="upload"    && <UploadContent/>}
             {tab==="team"      && <TeamContent/>}
             {tab==="reminders" && <RemindersContent/>}
@@ -3052,14 +2973,14 @@ export default function MeetBot() {
         {editingTask && <NoteModal task={editingTask} onSave={saveNote} onClose={()=>setEditingTask(null)}/>}
 
         {/* 任務編輯 Modal */}
-        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={deleteTask} onNotify={notifyTask} onClose={()=>setEditingTaskFull(null)} canSetPriority={ADMINS.includes(currentUser)} currentUser={currentUser} canEdit={canEditTask(editingTaskFull)} allTasks={activeTasks}/>}
+        {editingTaskFull && <TaskEditModal task={editingTaskFull} onSave={saveTaskEdit} onDelete={isAdmin ? deleteTask : null} onNotify={canSendReminders ? notifyTask : null} onClose={()=>setEditingTaskFull(null)} canSetPriority={isAdmin} currentUser={currentUser} canEdit={canEditTask(editingTaskFull)} allTasks={activeTasks}/>}
 
         {/* 會議詳情 Modal */}
         {viewingMeeting && <MeetingDetailModal
           meeting={viewingMeeting}
           relatedTasks={tasks.filter(t => t.meeting === viewingMeeting.title)}
-          onEdit={() => { setViewingMeeting(null); setEditingMeeting(viewingMeeting); setShowMeetingModal(true); }}
-          onDelete={() => { if(window.confirm("確定刪除此會議？")) { removeMeeting(viewingMeeting.id); setViewingMeeting(null); } }}
+          onEdit={canCreateMeeting ? () => { setViewingMeeting(null); setEditingMeeting(viewingMeeting); setShowMeetingModal(true); } : null}
+          onDelete={canCreateMeeting ? () => { if(window.confirm("確定刪除此會議？")) { removeMeeting(viewingMeeting.id); setViewingMeeting(null); } } : null}
           onClose={() => setViewingMeeting(null)}
           onSavePrep={async (prep) => {
             const updated = {...viewingMeeting, prepChecklist: prep};
@@ -3087,20 +3008,94 @@ export default function MeetBot() {
             }}>
               <div style={{ fontSize:24, fontWeight:700, textAlign:"center" }}>👋 歡迎使用 MeetBot</div>
               <div style={{ fontSize:15, color:"var(--muted)", textAlign:"center", lineHeight:1.6 }}>請選擇你的身份<br/>（用於權限識別與操作記錄）</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {TEAM.map(name => (
-                  <div key={name} onClick={() => { setCurrentUser(name); localStorage.setItem("meetbot-user", name); }} style={{
-                    display:"flex", alignItems:"center", gap:12, padding:"13px 16px",
-                    borderRadius:12, cursor:"pointer", background:"var(--surf)",
-                    border:"1px solid var(--border)", transition:"all 0.2s",
-                    fontSize:16, fontWeight:500
-                  }}>
-                    <Avatar name={name} size={34}/>
-                    <span>{name}</span>
-                    {ADMINS.includes(name) && <span style={{ marginLeft:"auto", fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(255,159,67,0.12)", color:"var(--orange)", fontWeight:600 }}>管理員</span>}
+
+              {/* 密碼輸入面板 */}
+              {adminAuthPending ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <Avatar name={adminAuthPending} size={34}/>
+                    <div>
+                      <div style={{ fontSize:16, fontWeight:700 }}>{adminAuthPending}</div>
+                      <div style={{ fontSize:12, color:"var(--orange)" }}>管理者驗證</div>
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <input
+                    type="password" maxLength={6} autoFocus
+                    placeholder="請輸入 6 位數密碼"
+                    value={adminPwInput}
+                    onChange={e => { setAdminPwInput(e.target.value.replace(/\D/g,"")); setAdminPwError(""); }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && adminPwInput.length === 6) {
+                        if (adminPwInput === ADMIN_PASSWORDS[adminAuthPending]) {
+                          setCurrentUser(adminAuthPending);
+                          localStorage.setItem("meetbot-user", adminAuthPending);
+                          localStorage.setItem("meetbot-admin-auth", adminAuthPending);
+                          setAdminAuthPending(null); setAdminPwInput(""); setAdminPwError("");
+                        } else {
+                          setAdminPwError("密碼錯誤");
+                        }
+                      }
+                    }}
+                    style={{
+                      width:"100%", padding:"14px", borderRadius:12, fontSize:24, fontWeight:700,
+                      textAlign:"center", letterSpacing:12, fontFamily:"'DM Mono',monospace",
+                      border: `2px solid ${adminPwError ? "var(--red)" : "var(--accent)"}`,
+                      background:"var(--bg)", color:"var(--text)", outline:"none", boxSizing:"border-box"
+                    }}
+                  />
+                  {adminPwError && <div style={{ color:"var(--red)", fontSize:14, fontWeight:600, textAlign:"center" }}>{adminPwError}</div>}
+                  <div style={{ display:"flex", gap:10 }}>
+                    <button onClick={() => { setAdminAuthPending(null); setAdminPwInput(""); setAdminPwError(""); }} style={{
+                      flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
+                      background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
+                      cursor:"pointer", fontFamily:"inherit"
+                    }}>返回</button>
+                    <button onClick={() => {
+                      if (adminPwInput === ADMIN_PASSWORDS[adminAuthPending]) {
+                        setCurrentUser(adminAuthPending);
+                        localStorage.setItem("meetbot-user", adminAuthPending);
+                        localStorage.setItem("meetbot-admin-auth", adminAuthPending);
+                        setAdminAuthPending(null); setAdminPwInput(""); setAdminPwError("");
+                      } else {
+                        setAdminPwError("密碼錯誤");
+                      }
+                    }} disabled={adminPwInput.length !== 6} style={{
+                      flex:2, padding:"12px", borderRadius:10, border:"none",
+                      background: adminPwInput.length === 6 ? "linear-gradient(135deg,var(--accent),#00b89c)" : "var(--border)",
+                      color: adminPwInput.length === 6 ? "#fff" : "var(--muted)",
+                      fontSize:15, fontWeight:700, cursor: adminPwInput.length === 6 ? "pointer" : "default",
+                      fontFamily:"inherit"
+                    }}>確認登入</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {["蔡蕙芳","黃琴茹","吳承儒","張鈺微","陳佩研","吳亞璇","戴豐逸","許雅淇"].map(name => {
+                    const roleLabel = getRoleLabel(name);
+                    const roleColor = ADMINS.includes(name) ? "#ff9f43" : SPECIALISTS.includes(name) ? "#4f8cff" : TEAM_LEADS.includes(name) ? "#00e5c3" : OFFICERS.includes(name) ? "#a78bfa" : "#6b7494";
+                    const roleBg = ADMINS.includes(name) ? "rgba(255,159,67,0.12)" : SPECIALISTS.includes(name) ? "rgba(79,140,255,0.12)" : TEAM_LEADS.includes(name) ? "rgba(0,229,195,0.12)" : OFFICERS.includes(name) ? "rgba(167,139,250,0.12)" : "rgba(107,116,148,0.10)";
+                    const borderColor = ADMINS.includes(name) ? "rgba(255,159,67,0.35)" : SPECIALISTS.includes(name) ? "rgba(79,140,255,0.35)" : TEAM_LEADS.includes(name) ? "rgba(0,229,195,0.35)" : OFFICERS.includes(name) ? "rgba(167,139,250,0.35)" : "var(--border)";
+                    return (
+                      <div key={name} onClick={() => {
+                        if (ADMINS.includes(name)) {
+                          setAdminAuthPending(name); setAdminPwInput(""); setAdminPwError("");
+                        } else {
+                          setCurrentUser(name); localStorage.setItem("meetbot-user", name);
+                        }
+                      }} style={{
+                        display:"flex", alignItems:"center", gap:12, padding:"13px 16px",
+                        borderRadius:12, cursor:"pointer", background:"var(--surf)",
+                        border:`1.5px solid ${borderColor}`, transition:"all 0.2s",
+                        fontSize:16, fontWeight:500
+                      }}>
+                        <Avatar name={name} size={34}/>
+                        <span>{name}</span>
+                        <span style={{ marginLeft:"auto", fontSize:12, padding:"2px 8px", borderRadius:10, background:roleBg, color:roleColor, fontWeight:600 }}>{roleLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
