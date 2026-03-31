@@ -1812,6 +1812,7 @@ export default function MeetBot() {
     if (filter==="hidden") return isAutoHidden(t);
     if (isAutoHidden(t)) return false; // 非隱藏模式時排除已隱藏任務
     if (filter==="pending") return !t.done;
+    if (filter==="unassigned") return !t.done && (!t.assignee || t.assignee==="待指派");
     if (filter==="critical") return !t.done && t.priority==="critical";
     if (filter==="urgent")  return !t.done && (t.priority==="critical" || t.priority==="high");
     if (filter==="done")    return t.done;
@@ -2258,8 +2259,8 @@ export default function MeetBot() {
 
       {/* 篩選列 */}
       <div style={{ display:"flex", gap:7, marginBottom:12, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
-        {[["all","全部"],["pending","待辦"],["urgent","緊急"],["done","完成"],["hidden",`隱藏${hiddenCount>0?" "+hiddenCount:""}`]].map(([k,l])=>(
-          <div key={k} onClick={()=>setFilter(k)} style={{ padding:"7px 14px", borderRadius:20, fontSize:15, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", background:filter===k?(k==="hidden"?"var(--muted)":"var(--accent)"):"var(--card)", color:filter===k?"#fff":"var(--muted)", border:`1px solid ${filter===k?(k==="hidden"?"var(--muted)":"var(--accent)"):"var(--border)"}`, transition:"all 0.2s" }}>{l}</div>
+        {[["all","全部"],["pending","待辦"],["unassigned","待指派"],["urgent","緊急"],["done","完成"],["hidden",`隱藏${hiddenCount>0?" "+hiddenCount:""}`]].map(([k,l])=>(
+          <div key={k} onClick={()=>setFilter(k)} style={{ padding:"7px 14px", borderRadius:20, fontSize:15, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", background:filter===k?(k==="hidden"?"var(--muted)":k==="unassigned"?"var(--orange)":"var(--accent)"):"var(--card)", color:filter===k?"#fff":"var(--muted)", border:`1px solid ${filter===k?(k==="hidden"?"var(--muted)":k==="unassigned"?"var(--orange)":"var(--accent)"):"var(--border)"}`, transition:"all 0.2s" }}>{l}</div>
         ))}
         <div style={{ width:1, background:"var(--border)", margin:"0 3px", flexShrink:0 }}/>
         {["all",...TEAM].map(m=>(
