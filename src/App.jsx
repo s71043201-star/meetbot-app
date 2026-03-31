@@ -1752,6 +1752,15 @@ export default function MeetBot() {
     clearSelection();
     setBatchMode(false);
   };
+  const batchHide = () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`確定隱藏 ${selectedIds.size} 項任務？（將標記完成並立即隱藏）`)) return;
+    const oldTime = new Date(Date.now() - 8 * 86400000).toISOString(); // 設為 8 天前，立即觸發自動隱藏
+    setTasks(prev => prev.map(t => selectedIds.has(t.id) ? { ...t, done: true, doneTime: oldTime } : t));
+    showToast(`已隱藏 ${selectedIds.size} 項任務`, "#6b7494");
+    clearSelection();
+    setBatchMode(false);
+  };
   const batchReassign = (newAssignee) => {
     if (selectedIds.size === 0) return;
     const cleanAssignee = (a) => { const parts = (a||"").split(",").map(s=>s.trim()).filter(s=>s&&s!=="待指派"); return parts.length > 0 ? parts.join(",") : a; };
@@ -2361,6 +2370,11 @@ export default function MeetBot() {
                 background:"rgba(0,229,195,0.08)", color:"var(--green)", fontSize:13,
                 fontWeight:600, cursor:"pointer", fontFamily:"inherit"
               }}>✓ 標記完成</button>
+              <button onClick={batchHide} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid var(--muted)",
+                background:"rgba(107,116,148,0.08)", color:"var(--muted)", fontSize:13,
+                fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+              }}>🙈 隱藏</button>
               <button onClick={batchDelete} style={{
                 padding:"8px 14px", borderRadius:10, border:"1px solid var(--red)",
                 background:"rgba(255,91,121,0.08)", color:"var(--red)", fontSize:13,
