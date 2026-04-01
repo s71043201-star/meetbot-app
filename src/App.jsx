@@ -3357,37 +3357,43 @@ export default function MeetBot() {
       <div ref={rootRef} className={`${isWide ? "mb-root mb-wide" : "mb-root"}${theme==="light"?" theme-light":""}`} style={{ fontFamily:"'Noto Sans TC',sans-serif", background:"var(--bg)", color:"var(--text)" }}>
 
         {/* 頂部欄 */}
-        <div className="mb-topbar-inner" style={{ background:"var(--surf)", borderBottom:"1px solid var(--border)", padding:"13px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:50 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div className="mb-topbar-logo" style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#4f8cff,#00e5c3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>📋</div>
-            <div>
-              <div className="mb-topbar-title" style={{ fontWeight:700, fontSize:24 }}>MeetBot</div>
-              <div className="mb-topbar-sub" style={{ fontSize:14, color:"var(--muted)" }}>會議任務追蹤系統</div>
+        <div className="mb-topbar-inner" style={{ background:"var(--surf)", borderBottom:"1px solid var(--border)", padding:"10px 14px", position:"sticky", top:0, zIndex:50 }}>
+          {/* 第一列：Logo + 使用者 + 主題 */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div className="mb-topbar-logo" style={{ width:32, height:32, borderRadius:8, background:"linear-gradient(135deg,#4f8cff,#00e5c3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>📋</div>
+              <div>
+                <div className="mb-topbar-title" style={{ fontWeight:700, fontSize:20, lineHeight:1.2 }}>MeetBot</div>
+                <div className="mb-topbar-sub" style={{ fontSize:12, color:"var(--muted)" }}>會議任務追蹤系統</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div onClick={toggleTheme} style={{
+                width:32, height:32, borderRadius:8, cursor:"pointer",
+                background:"var(--card)", border:"1px solid var(--border)",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:16, transition:"all 0.2s"
+              }}>{theme==="dark"?"☀️":"🌙"}</div>
+              {currentUser && (
+                <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); localStorage.removeItem("meetbot-admin-auth"); }}} style={{
+                  display:"flex", alignItems:"center", gap:5, cursor:"pointer", padding:"2px 10px",
+                  borderRadius:16, background:"rgba(79,140,255,0.1)", border:"1px solid rgba(79,140,255,0.3)"
+                }}>
+                  <Avatar name={currentUser} size={18}/>
+                  <span style={{ fontSize:13, fontWeight:600, color:"var(--accent)" }}>{currentUser}</span>
+                </div>
+              )}
             </div>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", justifyContent:"flex-end" }}>
-            <div onClick={toggleTheme} style={{
-              width:36, height:36, borderRadius:10, cursor:"pointer",
-              background:"var(--card)", border:"1px solid var(--border)",
-              display:"flex", alignItems:"center", justifyContent:"center",
-              fontSize:18, transition:"all 0.2s"
-            }}>{theme==="dark"?"☀️":"🌙"}</div>
-            {currentUser && (
-              <div onClick={() => { if(window.confirm("要切換使用者嗎？")) { setCurrentUser(""); localStorage.removeItem("meetbot-user"); localStorage.removeItem("meetbot-admin-auth"); }}} style={{
-                display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"3px 12px",
-                borderRadius:20, background:"rgba(79,140,255,0.1)", border:"1px solid rgba(79,140,255,0.3)"
-              }}>
-                <Avatar name={currentUser} size={20}/>
-                <span style={{ fontSize:14, fontWeight:600, color:"var(--accent)" }}>{currentUser}</span>
-              </div>
-            )}
-            {urgentCount>0 && <div style={{ background:"rgba(255,91,121,0.15)", border:"1px solid var(--red)", color:"var(--red)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>緊急 {urgentCount} 項</div>}
-            <div style={{ background:"rgba(0,229,195,0.1)", border:"1px solid rgba(0,229,195,0.3)", color:"var(--green)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>{pct}% 完成</div>
+          {/* 第二列：徽章 + 匯出 + 同步 */}
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8, flexWrap:"wrap" }}>
+            {urgentCount>0 && <div style={{ background:"rgba(255,91,121,0.15)", border:"1px solid var(--red)", color:"var(--red)", fontSize:12, fontWeight:700, padding:"2px 10px", borderRadius:16 }}>緊急 {urgentCount} 項</div>}
+            <div style={{ background:"rgba(0,229,195,0.1)", border:"1px solid rgba(0,229,195,0.3)", color:"var(--green)", fontSize:12, fontWeight:700, padding:"2px 10px", borderRadius:16 }}>{pct}% 完成</div>
             <div style={{ position:"relative" }}>
               <button onClick={()=>setShowExportMenu(v=>!v)} style={{
-                padding:"5px 14px", borderRadius:10, border:"1px solid var(--border)",
-                background:"var(--card)", color:"var(--text)", fontSize:14, fontWeight:600,
-                cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5
+                padding:"3px 10px", borderRadius:8, border:"1px solid var(--border)",
+                background:"var(--card)", color:"var(--text)", fontSize:12, fontWeight:600,
+                cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:4
               }}>📄 匯出 PDF ▾</button>
               {showExportMenu && (<>
                 <div onClick={()=>setShowExportMenu(false)} style={{ position:"fixed", inset:0, zIndex:99 }}/>
@@ -3410,8 +3416,8 @@ export default function MeetBot() {
                 </div>
               </>)}
             </div>
-            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:14, color: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--muted)" }}>
-              <div style={{ width:8, height:8, borderRadius:"50%", background: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--green)", animation: syncing?"pulse 1s infinite":"none" }}/>
+            <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--muted)", marginLeft:"auto" }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--green)", animation: syncing?"pulse 1s infinite":"none" }}/>
               {!isOnline ? "離線" : syncing ? "同步中..." : syncLabel}
             </div>
           </div>
