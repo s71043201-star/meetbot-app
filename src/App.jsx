@@ -773,7 +773,7 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
             <span style={{ fontSize:18 }}>⏰</span>
             <div>
               <div style={{ fontSize:13, color:"var(--muted)" }}>時間</div>
-              <div style={{ fontSize:16, fontWeight:600 }}>{meeting.time || "未指定"}</div>
+              <div style={{ fontSize:16, fontWeight:600 }}>{meeting.time === "TBD" ? "待定" : (meeting.time || "未指定")}</div>
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -783,6 +783,31 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
               <div style={{ fontSize:16, fontWeight:600 }}>{meeting.location || "未指定"}</div>
             </div>
           </div>
+          {meeting.meetingUrl && (
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:18 }}>🔗</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, color:"var(--muted)" }}>線上會議連結</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  <a href={meeting.meetingUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize:15, fontWeight:600, color:"var(--accent)", textDecoration:"none", wordBreak:"break-all" }}
+                    onMouseOver={e=>e.target.style.textDecoration="underline"} onMouseOut={e=>e.target.style.textDecoration="none"}>
+                    {meeting.meetingUrl.length > 45 ? meeting.meetingUrl.slice(0,45) + "..." : meeting.meetingUrl}
+                  </a>
+                  <span onClick={()=>{navigator.clipboard.writeText(meeting.meetingUrl);}} title="複製連結"
+                    style={{ cursor:"pointer", fontSize:14, color:"var(--muted)", padding:"2px 8px", borderRadius:6, background:"var(--card)", border:"1px solid var(--border)" }}>📋 複製</span>
+                </div>
+                {meeting.meetingPassword && (
+                  <div style={{ marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:13, color:"var(--muted)" }}>密碼：</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:"var(--text)", background:"var(--card)", padding:"2px 10px", borderRadius:6, border:"1px solid var(--border)", letterSpacing:1 }}>{meeting.meetingPassword}</span>
+                    <span onClick={()=>{navigator.clipboard.writeText(meeting.meetingPassword);}} title="複製密碼"
+                      style={{ cursor:"pointer", fontSize:13, color:"var(--muted)" }}>📋</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 說明 */}
@@ -1343,6 +1368,8 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
     date: meeting?.date || "",
     time: meeting?.time || "",
     location: meeting?.location || "",
+    meetingUrl: meeting?.meetingUrl || "",
+    meetingPassword: meeting?.meetingPassword || "",
     participants: meeting?.participants || [],
     description: meeting?.description || "",
     eventType: meeting?.eventType || "meeting",
@@ -1385,14 +1412,52 @@ function MeetingFormModal({ meeting, onSave, onClose }) {
           </div>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>時間</div>
-            <input type="time" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}
-              style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              {form.time === "TBD" ? (
+                <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", background:"var(--surf)", border:"1px solid var(--accent)", borderRadius:10, padding:"12px 14px", fontSize:15, fontWeight:600, color:"var(--accent)" }}>待定</div>
+              ) : (
+                <input type="time" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}
+                  style={{ flex:1, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+              )}
+              <div onClick={()=>setForm(f=>({...f, time: f.time==="TBD" ? "" : "TBD"}))}
+                style={{ padding:"10px 12px", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:600, whiteSpace:"nowrap",
+                  background: form.time==="TBD" ? "rgba(79,140,255,0.15)" : "var(--surf)",
+                  color: form.time==="TBD" ? "var(--accent)" : "var(--muted)",
+                  border: `1px solid ${form.time==="TBD" ? "var(--accent)" : "var(--border)"}` }}>
+                待定
+              </div>
+            </div>
           </div>
         </div>
         <div>
           <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>地點</div>
-          <input value={form.location} onChange={e=>setForm({...form, location:e.target.value})} placeholder="例：3F 會議室"
-            style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+            {form.location === "線上會議" ? (
+              <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", background:"var(--surf)", border:"1px solid var(--accent)", borderRadius:10, padding:"12px 14px", fontSize:15, fontWeight:600, color:"var(--accent)" }}>🔗 線上會議</div>
+            ) : (
+              <input value={form.location} onChange={e=>setForm({...form, location:e.target.value})} placeholder="例：3F 會議室"
+                style={{ flex:1, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            )}
+            <div onClick={()=>setForm(f=>({...f, location: f.location==="線上會議" ? "" : "線上會議"}))}
+              style={{ padding:"10px 12px", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:600, whiteSpace:"nowrap",
+                background: form.location==="線上會議" ? "rgba(79,140,255,0.15)" : "var(--surf)",
+                color: form.location==="線上會議" ? "var(--accent)" : "var(--muted)",
+                border: `1px solid ${form.location==="線上會議" ? "var(--accent)" : "var(--border)"}` }}>
+              線上
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>🔗 線上會議連結{form.location==="線上會議" ? "" : "（選填）"}</div>
+          <input value={form.meetingUrl} onChange={e=>setForm({...form, meetingUrl:e.target.value})} placeholder="例：https://meet.google.com/xxx-xxx-xxx"
+            style={{ width:"100%", background:"var(--surf)", border:`1px solid ${form.location==="線上會議" && !form.meetingUrl ? "var(--orange)" : "var(--border)"}`, borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+          {form.meetingUrl && (
+            <div style={{ marginTop:8 }}>
+              <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4, fontWeight:600 }}>🔑 會議密碼（選填）</div>
+              <input value={form.meetingPassword} onChange={e=>setForm({...form, meetingPassword:e.target.value})} placeholder="若有密碼請填入"
+                style={{ width:"100%", background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, color:"var(--text)", fontSize:15, padding:"12px 14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box" }}/>
+            </div>
+          )}
         </div>
         <div>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
@@ -2993,7 +3058,18 @@ export default function MeetBot() {
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                   <div>
                     <div style={{ fontSize:16, fontWeight:600, marginBottom:4 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
-                    <div style={{ fontSize:14, color:"var(--muted)" }}>⏰ {m.time} &nbsp; 📍 {m.location||"未指定"}</div>
+                    <div style={{ fontSize:14, color:"var(--muted)" }}>⏰ {m.time==="TBD"?"待定":m.time} &nbsp; 📍 {m.location||"未指定"}</div>
+                    {m.meetingUrl && !(m.location||"").includes("線上") && (
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:13, padding:"2px 10px", borderRadius:10, background:"rgba(79,140,255,0.12)", color:"var(--accent)", fontWeight:600 }}>🔗 線上同步會議</span>
+                        {m.meetingPassword && <span style={{ fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)" }}>🔑 有密碼</span>}
+                      </div>
+                    )}
+                    {m.meetingUrl && (m.location||"").includes("線上") && m.meetingPassword && (
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
+                        <span style={{ fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)" }}>🔑 有密碼</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
                 </div>
@@ -3053,10 +3129,21 @@ export default function MeetBot() {
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                           <span style={{ fontSize:13, padding:"3px 10px", borderRadius:12, background:`${countdownColor}18`, color:countdownColor, fontWeight:700 }}>{countdownText}</span>
-                          <span style={{ fontSize:13, color:"var(--muted)" }}>{m.date.slice(5).replace("-","/")} {m.time}</span>
+                          <span style={{ fontSize:13, color:"var(--muted)" }}>{m.date.slice(5).replace("-","/")} {m.time==="TBD"?"待定":m.time}</span>
                         </div>
                         <div style={{ fontSize:20, fontWeight:600, marginBottom:4 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
                         <div style={{ fontSize:14, color:"var(--muted)" }}>📍 {m.location||"未指定地點"}</div>
+                        {m.meetingUrl && !(m.location||"").includes("線上") && (
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, flexWrap:"wrap" }}>
+                            <span style={{ fontSize:13, padding:"2px 10px", borderRadius:10, background:"rgba(79,140,255,0.12)", color:"var(--accent)", fontWeight:600 }}>🔗 線上同步會議</span>
+                            {m.meetingPassword && <span style={{ fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)" }}>🔑 有密碼</span>}
+                          </div>
+                        )}
+                        {m.meetingUrl && (m.location||"").includes("線上") && m.meetingPassword && (
+                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
+                            <span style={{ fontSize:12, padding:"2px 8px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)" }}>🔑 有密碼</span>
+                          </div>
+                        )}
                         {m.description && <div style={{ fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{m.description}</div>}
                       </div>
                       <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600, flexShrink:0 }}>詳情 ›</div>
@@ -3089,7 +3176,7 @@ export default function MeetBot() {
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:15, fontWeight:500 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
-                      <div style={{ fontSize:13, color:"var(--muted)" }}>{m.date} {m.time} · {m.location||""}</div>
+                      <div style={{ fontSize:13, color:"var(--muted)" }}>{m.date} {m.time==="TBD"?"待定":m.time} · {m.location||""}{m.meetingUrl && !(m.location||"").includes("線上") ? " · 🔗 線上同步會議" : ""}</div>
                     </div>
                     <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
                   </div>
