@@ -658,6 +658,7 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
   const [prepSections, setPrepSections] = useState(initSections);
   const [newItemText, setNewItemText] = useState({});  // keyed by section id
   const [showRandomPicker, setShowRandomPicker] = useState(false);
+  const [prepCollapsed, setPrepCollapsed] = useState(true);
   const [randomSelected, setRandomSelected] = useState(() => new Set(
     meeting.participants?.length > 0 ? meeting.participants : TEAM
   ));
@@ -879,10 +880,19 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
 
         {/* 會前準備清單（分區） */}
         <div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8, flexWrap:"wrap", gap:6 }}>
-            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600 }}>
+          <div onClick={() => setPrepCollapsed(!prepCollapsed)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: prepCollapsed ? 0 : 8, flexWrap:"wrap", gap:6, cursor:"pointer", padding:"8px 0", userSelect:"none" }}>
+            <div style={{ fontSize:14, color:"var(--muted)", fontWeight:600, display:"flex", alignItems:"center", gap:6 }}>
               📋 會前準備清單 {totalItems > 0 && <span style={{ color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>({totalDone}/{totalItems})</span>}
+              <span style={{ fontSize:12, color:"var(--muted)", transition:"transform 0.2s", display:"inline-block", transform: prepCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}>▼</span>
             </div>
+            {prepCollapsed && totalItems > 0 && (
+              <div style={{ height:5, flex:"0 0 120px", background:"var(--border)", borderRadius:3, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${Math.round(totalDone/totalItems*100)}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:3 }}/>
+              </div>
+            )}
+          </div>
+          {!prepCollapsed && (<div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", marginBottom:8, flexWrap:"wrap", gap:6 }}>
             <div style={{ display:"flex", gap:6 }}>
               {prepSections.length === 0 && (
                 <div onClick={loadTemplate} style={{
@@ -1070,6 +1080,7 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
               點擊「載入中會議室模板」快速建立準備清單
             </div>
           )}
+          </div>)}
         </div>
 
         {/* 按鈕列 */}
@@ -1946,6 +1957,31 @@ export default function MeetBot() {
     await deleteMeetingFromFB(id);
     setMeetings(prev => prev.filter(m => m.id !== id));
     showToast("會議已刪除", "#6b7494");
+  };
+  const sendMeetingNotify = async (m) => {
+    if (!slackWebhook) return showToast("請先設定 Slack Webhook URL", "#ff5b79");
+    const timeStr = m.time === "TBD" ? "待定" : m.time;
+    const locStr = m.location || "未指定";
+    const parts = m.participants?.length > 0 ? m.participants.join("、") : "全員";
+    let msg = `📢 *會議通知*\n\n`;
+    msg += `📋 *${m.title}*\n`;
+    msg += `📆 ${m.date.replace(/-/g,"/")}　⏰ ${timeStr}\n`;
+    msg += `📍 ${locStr}\n`;
+    if (m.meetingUrl) {
+      msg += `🔗 線上會議：${m.meetingUrl}\n`;
+      if (m.meetingPassword) msg += `🔑 密碼：${m.meetingPassword}\n`;
+    }
+    msg += `👥 ${parts}\n`;
+    if (m.description) msg += `\n💬 ${m.description}`;
+    try {
+      const res = await fetch(`${BACKEND_URL}/send-slack`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ webhookUrl: slackWebhook, message: msg })
+      });
+      const data = await res.json();
+      if (data.ok) showToast("會議通知已發送至 Slack","#00e5c3");
+      else showToast("發送失敗：" + (data.error||""), "#ff5b79");
+    } catch { showToast("發送失敗，請檢查網路連線", "#ff5b79"); }
   };
   const testSlack = async () => {
     if (!slackWebhook) return showToast("請先設定 Slack Webhook URL", "#ff5b79");
@@ -3071,7 +3107,13 @@ export default function MeetBot() {
                       </div>
                     )}
                   </div>
-                  <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                    <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
+                    <div onClick={(e)=>{e.stopPropagation(); sendMeetingNotify(m);}}
+                      style={{ padding:"4px 10px", borderRadius:8, fontSize:12, fontWeight:600, background:"rgba(79,140,255,0.1)", color:"var(--accent)", border:"1px solid rgba(79,140,255,0.25)", cursor:"pointer", whiteSpace:"nowrap" }}>
+                      📢 通知
+                    </div>
+                  </div>
                 </div>
                 {m.participants?.length > 0 && (
                   <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
@@ -3146,7 +3188,13 @@ export default function MeetBot() {
                         )}
                         {m.description && <div style={{ fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.6, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{m.description}</div>}
                       </div>
-                      <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600, flexShrink:0 }}>詳情 ›</div>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6, flexShrink:0 }}>
+                        <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600 }}>詳情 ›</div>
+                        <div onClick={(e)=>{e.stopPropagation(); sendMeetingNotify(m);}}
+                          style={{ padding:"5px 12px", borderRadius:8, fontSize:12, fontWeight:600, background:"rgba(79,140,255,0.1)", color:"var(--accent)", border:"1px solid rgba(79,140,255,0.25)", cursor:"pointer", whiteSpace:"nowrap" }}>
+                          📢 發送通知
+                        </div>
+                      </div>
                     </div>
                     {m.participants?.length > 0 && (
                       <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
