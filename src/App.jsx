@@ -1106,65 +1106,96 @@ function MeetingDetailModal({ meeting, relatedTasks, onEdit, onDelete, onClose, 
   );
 }
 
-// ── Word 匯出 ─────────────────────────────────
-function exportToWord(tasks) {
+// ── PDF 匯出 ─────────────────────────────────
+function exportToPDF(tasks, label, routineTasksList, routineChecksMap) {
   const nowStr = nowTW();
-  const dateStr = new Date().toISOString().slice(0,10);
-  const total = tasks.length;
-  const done  = tasks.filter(t => t.done).length;
+  const dlTasks = tasks.filter(t => !!t.deadline);
+  const rtTasks = tasks.filter(t => !t.deadline);
+  // 合併例行任務系統的項目
+  const rtSys = (routineTasksList || []).map(t => ({
+    ...t, done: !!(routineChecksMap || {})[t.id], deadline: "", _routine: true
+  }));
+  const allRoutine = [...rtTasks, ...rtSys];
+  const total = dlTasks.length;
+  const done  = dlTasks.filter(t => t.done).length;
   const pct   = total ? Math.round(done / total * 100) : 0;
+  const rtTotal = allRoutine.length;
+  const rtDone  = allRoutine.filter(t => t.done).length;
 
   let html = `<!DOCTYPE html><html><head>
 <meta charset="utf-8">
+<title>MeetBot 工作進度彙整報告</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @page { margin: 2.54cm 1.91cm 2.54cm 1.91cm; }
-  body { font-family: "Microsoft JhengHei","微軟正黑體",sans-serif; font-size: 12pt; margin:0; }
-  h1   { font-size:20pt; color:#1a1a2e; border-bottom:3px solid #4f8cff; padding-bottom:8px; margin-bottom:16px; }
-  h2   { font-size:15pt; color:#4f8cff; margin-top:28px; margin-bottom:10px; }
-  .summary { background:#f0f4ff; padding:14px 18px; border-radius:6px; margin-bottom:24px; font-size:13pt; line-height:2; }
-  table { width:100%; border-collapse:collapse; margin-bottom:24px; font-size:11pt; }
-  th    { background:#4f8cff; color:white; padding:9px 12px; text-align:left; font-size:12pt; }
-  td    { padding:8px 12px; border-bottom:1px solid #ddd; vertical-align:top; line-height:1.6; }
-  tr:nth-child(even) { background:#f9f9f9; }
-  .done    { color:#00b89c; font-weight:600; }
-  .overdue { color:#ff5b79; font-weight:600; }
-  .urgent  { color:#ff9f43; font-weight:600; }
-  .pending { color:#6b7494; }
-  .note    { color:#444; }
-  .ntime   { color:#999; font-size:10pt; }
-  .footer  { margin-top:32px; font-size:10pt; color:#999; border-top:1px solid #ddd; padding-top:10px; }
-  .no-task { color:#aaa; font-style:italic; }
+  @page { margin: 2cm 1.8cm; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans TC', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10.5pt; margin:0; padding:28px 32px; color:#1e293b; line-height:1.6; }
+  h1   { font-size:22pt; font-weight:700; color:#0f172a; border-bottom:3px solid #4f8cff; padding-bottom:10px; margin:0 0 20px 0; letter-spacing:-0.5px; }
+  h2   { font-size:13pt; font-weight:700; color:#1e40af; margin:28px 0 10px 0; padding:8px 14px; background:linear-gradient(135deg, #eff6ff, #e0f2fe); border-left:4px solid #3b82f6; border-radius:0 8px 8px 0; }
+  .summary { background:linear-gradient(135deg, #f0f9ff, #eff6ff); padding:16px 20px; border-radius:10px; margin-bottom:28px; font-size:11pt; line-height:2; border:1px solid #bfdbfe; }
+  .summary strong { color:#1e40af; }
+  .pct-bar { height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; margin:6px 0 0 0; }
+  .pct-fill { height:100%; border-radius:4px; background:linear-gradient(90deg, #3b82f6, #06b6d4); }
+  table { width:100%; border-collapse:separate; border-spacing:0; margin-bottom:22px; font-size:9.5pt; border-radius:10px; overflow:hidden; border:1px solid #e2e8f0; }
+  th    { background:linear-gradient(135deg, #3b82f6, #2563eb); color:white; padding:9px 12px; text-align:center; font-size:9.5pt; font-weight:600; letter-spacing:0.3px; white-space:nowrap; }
+  td    { padding:8px 12px; border-bottom:1px solid #f1f5f9; vertical-align:middle; text-align:center; line-height:1.5; white-space:nowrap; }
+  td:nth-child(2) { white-space:normal; text-align:left; }
+  td:nth-child(5) { white-space:normal; text-align:left; }
+  tr:nth-child(even) { background:#f8fafc; }
+  tr:hover { background:#f1f5f9; }
+  .done    { color:#059669; font-weight:600; }
+  .overdue { color:#dc2626; font-weight:600; }
+  .urgent  { color:#d97706; font-weight:600; }
+  .pending { color:#64748b; }
+  .note    { color:#475569; font-size:9pt; }
+  .ntime   { color:#94a3b8; font-size:8.5pt; }
+  .footer  { margin-top:36px; font-size:8.5pt; color:#94a3b8; border-top:1px solid #e2e8f0; padding-top:12px; text-align:center; }
+  .no-task { color:#94a3b8; font-style:italic; padding:8px 0; }
 </style>
 </head><body>
-<h1>MeetBot 工作進度彙整報告</h1>
+<h1>📊 MeetBot 工作進度彙整報告</h1>
 <div class="summary">
   <strong>匯出時間：</strong>${nowStr}<br>
-  <strong>整體完成率：</strong>${pct}%（已完成 ${done} / 共 ${total} 項）
+  <strong>資料範圍：</strong>${label}<br>
+  <strong>有期限任務完成率：</strong>${pct}%（已完成 ${done} / 共 ${total} 項）
+  <div class="pct-bar"><div class="pct-fill" style="width:${pct}%"></div></div>
+  ${rtTotal > 0 ? `<strong>例行任務：</strong>${rtDone}/${rtTotal} 項完成` : ""}
 </div>`;
 
   TEAM.forEach(name => {
     const myTasks = tasks.filter(t => hasAssignee(t, name));
     const myDone  = myTasks.filter(t => t.done).length;
     const myPct   = myTasks.length ? Math.round(myDone / myTasks.length * 100) : 0;
-    html += `<h2>👤 ${name}　${myDone}/${myTasks.length} 完成・${myPct}%</h2>`;
+    const myDeadline = myTasks.filter(t => !!t.deadline);
+    const myRoutineFromTasks = myTasks.filter(t => !t.deadline);
+    const myRoutineFromSys  = rtSys.filter(t => hasAssignee(t, name));
+    const myRoutine = [...myRoutineFromTasks, ...myRoutineFromSys];
+    const myDlDone = myDeadline.filter(t => t.done).length;
+    const myRtDone = myRoutine.filter(t => t.done).length;
+    const myDlPct = myDeadline.length ? Math.round(myDlDone / myDeadline.length * 100) : 0;
+    const pctColor = myDeadline.length === 0 ? "#64748b" : myDlPct === 100 ? "#059669" : myDlPct >= 50 ? "#2563eb" : "#d97706";
+    const headerStat = myDeadline.length > 0 ? `${myDlDone}/${myDeadline.length} 完成・${myDlPct}%` : `例行 ${myRtDone}/${myRoutine.length}`;
+    html += `<h2>👤 ${name}　<span style="float:right;font-size:11pt;color:${pctColor}">${headerStat}</span></h2>`;
 
     if (myTasks.length === 0) {
       html += `<p class="no-task">（尚無指派任務）</p>`;
       return;
     }
 
-    html += `<table>
-<tr><th>#</th><th>任務</th><th>截止日</th><th>狀態</th><th>進度備註</th><th>備註時間</th></tr>`;
-    myTasks.forEach((t, i) => {
-      const d = t.deadline ? daysLeft(t.deadline) : null;
-      let cls, txt;
-      if (t.done)           { cls="done";    txt="✓ 已完成"; }
-      else if (d === null)  { cls="pending"; txt="例行任務"; }
-      else if (d < 0)       { cls="overdue"; txt=`逾期 ${Math.abs(d)} 天`; }
-      else if (d === 0)     { cls="overdue"; txt="今天截止"; }
-      else if (d <= 2)      { cls="urgent";  txt=`剩 ${d} 天`; }
-      else                  { cls="pending"; txt=t.deadline; }
-      html += `<tr>
+    if (myDeadline.length > 0) {
+      html += `<div style="font-size:10pt;font-weight:600;color:#2563eb;margin:8px 0 6px 0;">📅 有期限任務（${myDlDone}/${myDeadline.length}）</div>`;
+      html += `<table>
+<tr><th style="width:30px">#</th><th>任務</th><th style="width:85px">截止日</th><th style="width:80px">狀態</th><th>進度備註</th><th style="width:100px">備註時間</th></tr>`;
+      myDeadline.forEach((t, i) => {
+        const d = daysLeft(t.deadline);
+        let cls, txt;
+        if (t.done)           { cls="done";    txt="✓ 已完成"; }
+        else if (d < 0)       { cls="overdue"; txt=`逾期 ${Math.abs(d)} 天`; }
+        else if (d === 0)     { cls="overdue"; txt="今天截止"; }
+        else if (d <= 2)      { cls="urgent";  txt=`剩 ${d} 天`; }
+        else                  { cls="pending"; txt=t.deadline; }
+        html += `<tr>
 <td>${i+1}</td>
 <td>${t.title}</td>
 <td>${t.deadline}</td>
@@ -1172,22 +1203,37 @@ function exportToWord(tasks) {
 <td class="note">${t.progressNote || ""}</td>
 <td class="ntime">${t.progressNoteTime || ""}</td>
 </tr>`;
-    });
-    html += `</table>`;
+      });
+      html += `</table>`;
+    }
+
+    if (myRoutine.length > 0) {
+      html += `<div style="font-size:10pt;font-weight:600;color:#7c3aed;margin:8px 0 6px 0;">🔄 例行任務（${myRtDone}/${myRoutine.length}）</div>`;
+      html += `<table>
+<tr><th style="width:30px">#</th><th>任務</th><th style="width:80px">狀態</th><th>進度備註</th><th style="width:100px">備註時間</th></tr>`;
+      myRoutine.forEach((t, i) => {
+        const cls = t.done ? "done" : "pending";
+        const txt = t.done ? "✓ 已完成" : "進行中";
+        html += `<tr>
+<td>${i+1}</td>
+<td>${t.title}</td>
+<td class="${cls}">${txt}</td>
+<td class="note">${t.progressNote || ""}</td>
+<td class="ntime">${t.progressNoteTime || ""}</td>
+</tr>`;
+      });
+      html += `</table>`;
+    }
+
   });
 
-  html += `<div class="footer">此報告由 MeetBot 系統自動生成 &nbsp;|&nbsp; 匯出時間：${nowStr}</div>
+  html += `<div class="footer">此報告由 MeetBot 系統自動生成 &nbsp;·&nbsp; 匯出時間：${nowStr} &nbsp;·&nbsp; 資料範圍：${label}</div>
 </body></html>`;
 
-  const blob = new Blob(["\uFEFF" + html], { type: "application/msword;charset=utf-8" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `工作進度彙整_${dateStr}.doc`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const w = window.open("", "_blank");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 300);
 }
 
 // ── 計算下次提醒時間 ──────────────────────────
@@ -1580,6 +1626,7 @@ export default function MeetBot() {
   const [routineTasks,   setRoutineTasks]   = useState([]);
   const [routineChecks,  setRoutineChecks]  = useState({});
   const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [expandRoutine, setExpandRoutine] = useState(false);
   const [expandedComments, setExpandedComments] = useState(null); // task id or null
   const [expandedDeps, setExpandedDeps] = useState(null); // task id or null
@@ -2024,9 +2071,10 @@ export default function MeetBot() {
   const deadlineTasks = visibleTasks.filter(t => !!t.deadline);
   const routineOnlyTasks = visibleTasks.filter(t => !t.deadline);
   const deadlineDone = deadlineTasks.filter(t=>t.done).length;
-  const routineDone = routineOnlyTasks.filter(t=>t.done).length;
+  const allRoutineCount = routineOnlyTasks.length + routineTasks.length;
+  const allRoutineDone = routineOnlyTasks.filter(t=>t.done).length + routineTasks.filter(t=>routineChecks[t.id]).length;
   const deadlinePct = deadlineTasks.length ? Math.round(deadlineDone/deadlineTasks.length*100) : 0;
-  const routinePct = routineOnlyTasks.length ? Math.round(routineDone/routineOnlyTasks.length*100) : 0;
+  const allRoutinePct = allRoutineCount ? Math.round(allRoutineDone/allRoutineCount*100) : 0;
   const nonRoutineTasks = activeTasks.filter(t => !!t.deadline);
   const memberStats = TEAM.map(name => {
     const mine = nonRoutineTasks.filter(t=>hasAssignee(t, name));
@@ -2296,44 +2344,14 @@ export default function MeetBot() {
             <div style={{ height:"100%", width:`${deadlinePct}%`, background:"linear-gradient(90deg,var(--accent),var(--green))", borderRadius:4, transition:"width 0.6s ease" }}/>
           </div>
         </>)}
-        {routineOnlyTasks.length > 0 && (<>
-          <div onClick={()=>setExpandRoutine(!expandRoutine)} style={{ display:"flex", justifyContent:"space-between", fontSize:15, marginBottom:6, cursor:"pointer" }}>
-            <span style={{ color:"var(--muted)" }}>🔄 例行任務 <span style={{ fontSize:13 }}>{expandRoutine?"▲":"▼"}</span></span>
-            <span style={{ fontWeight:700, color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>{routineDone}/{routineOnlyTasks.length}（{routinePct}%）</span>
+        {allRoutineCount > 0 && (<>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:15, marginBottom:6 }}>
+            <span style={{ color:"var(--muted)" }}>🔄 例行任務</span>
+            <span style={{ fontWeight:700, color:"var(--accent)", fontFamily:"'DM Mono',monospace" }}>{allRoutineDone}/{allRoutineCount}（{allRoutinePct}%）</span>
           </div>
           <div style={{ height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${routinePct}%`, background:"linear-gradient(90deg,#a78bfa,var(--accent))", borderRadius:4, transition:"width 0.6s ease" }}/>
+            <div style={{ height:"100%", width:`${allRoutinePct}%`, background:"linear-gradient(90deg,#a78bfa,var(--accent))", borderRadius:4, transition:"width 0.6s ease" }}/>
           </div>
-          {expandRoutine && (
-            <div style={{ marginTop:12 }}>
-              {TEAM.map(name => {
-                const myRoutine = routineOnlyTasks.filter(t => hasAssignee(t, name));
-                if (myRoutine.length === 0) return null;
-                const myDone = myRoutine.filter(t => t.done).length;
-                return (
-                  <div key={name} style={{ marginBottom:10 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                      <Avatar name={name} size={24}/>
-                      <span style={{ fontSize:14, fontWeight:600 }}>{name}</span>
-                      <span style={{ fontSize:13, color:"var(--muted)", marginLeft:"auto", fontFamily:"'DM Mono',monospace" }}>{myDone}/{myRoutine.length}</span>
-                    </div>
-                    {myRoutine.map(t => (
-                      <div key={t.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0 6px 32px" }}>
-                        <div onClick={()=>toggleDone(t.id)} style={{
-                          width:20, height:20, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                          border:`2px solid ${t.done?"var(--green)":"var(--border)"}`,
-                          background: t.done?"var(--green)":"transparent",
-                          display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize:12, color:"#fff", transition:"all 0.2s"
-                        }}>{t.done?"✓":""}</div>
-                        <span style={{ fontSize:14, color: t.done?"var(--muted)":"var(--text)", textDecoration: t.done?"line-through":"none", flex:1 }}>{t.title}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </>)}
       </div>
 
@@ -2348,88 +2366,113 @@ export default function MeetBot() {
         </div>
       )}
 
-      {/* 例行任務清單 */}
-      {routineTasks.length > 0 && (
+      {/* 例行任務清單（合併：例行任務系統 + 無截止日任務） */}
+      {(routineTasks.length > 0 || routineOnlyTasks.length > 0) && (
         <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
             <div style={{ fontSize:18, fontWeight:700 }}>🔄 例行任務</div>
             <div style={{ fontSize:14, color:"var(--green)", fontWeight:700, fontFamily:"'DM Mono',monospace" }}>
-              {routineTasks.filter(t => routineChecks[t.id]).length}/{routineTasks.length}
+              {routineTasks.filter(t => routineChecks[t.id]).length + routineOnlyTasks.filter(t => t.done).length}/{routineTasks.length + routineOnlyTasks.length}
             </div>
           </div>
           <div style={{ height:6, background:"var(--border)", borderRadius:3, overflow:"hidden", marginBottom:12 }}>
-            <div style={{ height:"100%", width:`${routineTasks.length ? Math.round(routineTasks.filter(t=>routineChecks[t.id]).length/routineTasks.length*100) : 0}%`, borderRadius:3, background:"linear-gradient(90deg,#00e5c3,#4f8cff)", transition:"width 0.6s" }}/>
+            {(() => {
+              const total = routineTasks.length + routineOnlyTasks.length;
+              const done = routineTasks.filter(t => routineChecks[t.id]).length + routineOnlyTasks.filter(t => t.done).length;
+              return <div style={{ height:"100%", width:`${total ? Math.round(done/total*100) : 0}%`, borderRadius:3, background:"linear-gradient(90deg,#00e5c3,#4f8cff)", transition:"width 0.6s" }}/>;
+            })()}
           </div>
           {(() => {
-            // 依負責人分組顯示
+            // 合併兩種來源，依負責人分組
             const grouped = {};
             const noAssignee = [];
+            // 例行任務系統的項目
             routineTasks.forEach(t => {
               if (t.assignee) {
                 if (!grouped[t.assignee]) grouped[t.assignee] = [];
-                grouped[t.assignee].push(t);
+                grouped[t.assignee].push({ ...t, _type: "routine" });
               } else {
-                noAssignee.push(t);
+                noAssignee.push({ ...t, _type: "routine" });
+              }
+            });
+            // 無截止日的一般任務
+            routineOnlyTasks.forEach(t => {
+              const assignees = (t.assignee || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (assignees.length === 0) {
+                noAssignee.push({ ...t, _type: "task" });
+              } else {
+                assignees.forEach(name => {
+                  if (!grouped[name]) grouped[name] = [];
+                  grouped[name].push({ ...t, _type: "task" });
+                });
               }
             });
             const assigneeNames = TEAM.filter(n => grouped[n]);
             return (
               <>
                 {assigneeNames.map(name => {
-                  const tasks = grouped[name];
-                  const done = tasks.filter(t => routineChecks[t.id]).length;
+                  const items = grouped[name];
+                  const done = items.filter(t => t._type === "routine" ? routineChecks[t.id] : t.done).length;
                   return (
                     <div key={name} style={{ borderTop:"1px solid var(--border)", paddingTop:10, marginBottom:6 }}>
                       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
                         <span style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>{name}</span>
-                        <span style={{ fontSize:13, color: done===tasks.length ? "var(--green)" : "var(--muted)", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{done}/{tasks.length}</span>
+                        <span style={{ fontSize:13, color: done===items.length ? "var(--green)" : "var(--muted)", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{done}/{items.length}</span>
                       </div>
-                      {tasks.map(t => (
-                        <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
-                          <div onClick={() => toggleRoutineCheck(t.id)} style={{
-                            width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                            border:`2px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
-                            background: routineChecks[t.id] ? "var(--green)" : "transparent",
-                            display:"flex", alignItems:"center", justifyContent:"center",
-                            fontSize:13, color:"#fff", transition:"all 0.2s"
-                          }}>{routineChecks[t.id] ? "✓" : ""}</div>
-                          <div style={{
-                            flex:1, fontSize:15, lineHeight:1.4,
-                            textDecoration: routineChecks[t.id] ? "line-through" : "none",
-                            color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
-                            opacity: routineChecks[t.id] ? 0.6 : 1
-                          }}>{t.title}</div>
-                          {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
-                            padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
-                          }}>✕</div>}
-                        </div>
-                      ))}
+                      {items.map(t => {
+                        const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
+                        const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
+                        return (
+                          <div key={`${t._type}-${t.id}`} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                            <div onClick={onToggle} style={{
+                              width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                              border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
+                              background: isDone ? "var(--green)" : "transparent",
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              fontSize:13, color:"#fff", transition:"all 0.2s"
+                            }}>{isDone ? "✓" : ""}</div>
+                            <div style={{
+                              flex:1, fontSize:15, lineHeight:1.4,
+                              textDecoration: isDone ? "line-through" : "none",
+                              color: isDone ? "var(--muted)" : "var(--text)",
+                              opacity: isDone ? 0.6 : 1
+                            }}>{t.title}</div>
+                            {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                              padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                            }}>✕</div>}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
                 {noAssignee.length > 0 && (
                   <div style={{ borderTop:"1px solid var(--border)", paddingTop:10, marginBottom:6 }}>
                     <div style={{ fontSize:15, fontWeight:700, color:"var(--muted)", marginBottom:6 }}>未指派</div>
-                    {noAssignee.map(t => (
-                      <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
-                        <div onClick={() => toggleRoutineCheck(t.id)} style={{
-                          width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                          border:`2px solid ${routineChecks[t.id] ? "var(--green)" : "var(--border)"}`,
-                          background: routineChecks[t.id] ? "var(--green)" : "transparent",
-                          display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize:13, color:"#fff", transition:"all 0.2s"
-                        }}>{routineChecks[t.id] ? "✓" : ""}</div>
-                        <div style={{
-                          flex:1, fontSize:15, lineHeight:1.4,
-                          textDecoration: routineChecks[t.id] ? "line-through" : "none",
-                          color: routineChecks[t.id] ? "var(--muted)" : "var(--text)",
-                          opacity: routineChecks[t.id] ? 0.6 : 1
-                        }}>{t.title}</div>
-                        {canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
-                          padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
-                        }}>✕</div>}
-                      </div>
-                    ))}
+                    {noAssignee.map(t => {
+                      const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
+                      const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
+                      return (
+                        <div key={`${t._type}-${t.id}`} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                          <div onClick={onToggle} style={{
+                            width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                            border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
+                            background: isDone ? "var(--green)" : "transparent",
+                            display:"flex", alignItems:"center", justifyContent:"center",
+                            fontSize:13, color:"#fff", transition:"all 0.2s"
+                          }}>{isDone ? "✓" : ""}</div>
+                          <div style={{
+                            flex:1, fontSize:15, lineHeight:1.4,
+                            textDecoration: isDone ? "line-through" : "none",
+                            color: isDone ? "var(--muted)" : "var(--text)",
+                            opacity: isDone ? 0.6 : 1
+                          }}>{t.title}</div>
+                          {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                            padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                          }}>✕</div>}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -2754,11 +2797,33 @@ export default function MeetBot() {
     <div className="mb-content-pad">
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
         <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase" }}>成員完成率（即時）</div>
-        <button onClick={()=>exportToWord(tasks)} style={{
-          padding:"9px 16px", borderRadius:10, border:"1px solid var(--border)",
-          background:"var(--card)", color:"var(--text)", fontSize:15, fontWeight:600,
-          cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6
-        }}>📄 匯出 Word</button>
+        <div style={{ position:"relative" }}>
+          <button onClick={()=>setShowExportMenu(v=>!v)} style={{
+            padding:"9px 16px", borderRadius:10, border:"1px solid var(--border)",
+            background:"var(--card)", color:"var(--text)", fontSize:15, fontWeight:600,
+            cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6
+          }}>📄 匯出 PDF ▾</button>
+          {showExportMenu && (<>
+            <div onClick={()=>setShowExportMenu(false)} style={{ position:"fixed", inset:0, zIndex:99 }}/>
+            <div style={{ position:"absolute", right:0, top:"110%", background:"var(--card)", border:"1px solid var(--border)", borderRadius:12, padding:6, zIndex:100, boxShadow:"0 8px 24px rgba(0,0,0,0.25)", minWidth:180 }}>
+              <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks.filter(t=> !isAutoHidden(t)), "目前任務", routineTasks, routineChecks); }}
+                style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--text)", whiteSpace:"nowrap" }}
+                onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                📋 目前任務（{activeTasks.filter(t=> !isAutoHidden(t)).length} 項）
+              </div>
+              <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks.filter(isAutoHidden), "已隱藏任務", routineTasks, routineChecks); }}
+                style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--muted)", whiteSpace:"nowrap" }}
+                onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                🗂 已隱藏任務（{activeTasks.filter(isAutoHidden).length} 項）
+              </div>
+              <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks, "全部任務", routineTasks, routineChecks); }}
+                style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--accent)", whiteSpace:"nowrap" }}
+                onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                📑 全部任務（{activeTasks.length} 項）
+              </div>
+            </div>
+          </>)}
+        </div>
       </div>
       {memberStats.length===0 && <div style={{ color:"var(--muted)", fontSize:15, textAlign:"center", padding:30 }}>尚無任務資料</div>}
       <div className="mb-member-grid">
@@ -3318,11 +3383,33 @@ export default function MeetBot() {
             )}
             {urgentCount>0 && <div style={{ background:"rgba(255,91,121,0.15)", border:"1px solid var(--red)", color:"var(--red)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>緊急 {urgentCount} 項</div>}
             <div style={{ background:"rgba(0,229,195,0.1)", border:"1px solid rgba(0,229,195,0.3)", color:"var(--green)", fontSize:14, fontWeight:700, padding:"3px 12px", borderRadius:20 }}>{pct}% 完成</div>
-            <button onClick={()=>exportToWord(tasks)} style={{
-              padding:"5px 14px", borderRadius:10, border:"1px solid var(--border)",
-              background:"var(--card)", color:"var(--text)", fontSize:14, fontWeight:600,
-              cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5
-            }}>📄 匯出 Word</button>
+            <div style={{ position:"relative" }}>
+              <button onClick={()=>setShowExportMenu(v=>!v)} style={{
+                padding:"5px 14px", borderRadius:10, border:"1px solid var(--border)",
+                background:"var(--card)", color:"var(--text)", fontSize:14, fontWeight:600,
+                cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5
+              }}>📄 匯出 PDF ▾</button>
+              {showExportMenu && (<>
+                <div onClick={()=>setShowExportMenu(false)} style={{ position:"fixed", inset:0, zIndex:99 }}/>
+                <div style={{ position:"absolute", right:0, top:"110%", background:"var(--card)", border:"1px solid var(--border)", borderRadius:12, padding:6, zIndex:100, boxShadow:"0 8px 24px rgba(0,0,0,0.25)", minWidth:180 }}>
+                  <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks.filter(t=> !isAutoHidden(t)), "目前任務", routineTasks, routineChecks); }}
+                    style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--text)", whiteSpace:"nowrap" }}
+                    onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                    📋 目前任務（{activeTasks.filter(t=> !isAutoHidden(t)).length} 項）
+                  </div>
+                  <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks.filter(isAutoHidden), "已隱藏任務", routineTasks, routineChecks); }}
+                    style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--muted)", whiteSpace:"nowrap" }}
+                    onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                    🗂 已隱藏任務（{activeTasks.filter(isAutoHidden).length} 項）
+                  </div>
+                  <div onClick={()=>{ setShowExportMenu(false); exportToPDF(activeTasks, "全部任務", routineTasks, routineChecks); }}
+                    style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--accent)", whiteSpace:"nowrap" }}
+                    onMouseOver={e=>e.currentTarget.style.background="var(--surf)"} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                    📑 全部任務（{activeTasks.length} 項）
+                  </div>
+                </div>
+              </>)}
+            </div>
             <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:14, color: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--muted)" }}>
               <div style={{ width:8, height:8, borderRadius:"50%", background: !isOnline?"var(--orange)":syncing?"var(--accent)":"var(--green)", animation: syncing?"pulse 1s infinite":"none" }}/>
               {!isOnline ? "離線" : syncing ? "同步中..." : syncLabel}
