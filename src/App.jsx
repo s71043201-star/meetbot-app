@@ -69,7 +69,7 @@ const DEFAULT_REMINDERS = {
 };
 
 // ── 工具函式 ──────────────────────────────────
-const today    = () => new Date().toISOString().slice(0,10);
+const today    = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const daysLeft = (d) => Math.ceil((new Date(d) - new Date(today())) / 86400000);
 const memberColor = (n) => AVATAR_COLORS[TEAM.indexOf(n) % AVATAR_COLORS.length] || "#888";
 const pad2 = (n) => String(n).padStart(2,"0");
@@ -305,7 +305,7 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
               {TEAM.map(name => {
                 const sel = form.assignees.includes(name);
                 const myTasks = (allTasks||[]).filter(tt => !tt.done && (tt.assignee||"").split(",").map(s=>s.trim()).includes(name));
-                const todayStr = new Date().toISOString().slice(0,10);
+                const todayStr = today();
                 const overdue = myTasks.filter(tt => tt.deadline && tt.deadline < todayStr).length;
                 return (
                   <div key={name} onClick={()=> canEdit && setForm(f=>({...f,assignees: sel ? f.assignees.filter(n=>n!==name) : [...f.assignees, name]}))}
@@ -1260,7 +1260,7 @@ function calcNextReminder(tasks, reminders) {
 
 // ── AI 解析 ───────────────────────────────────
 async function parseWithAI(text) {
-  const today_str = new Date().toISOString().slice(0,10);
+  const today_str = today();
   const res = await fetch(`${BACKEND_URL}/parse-meeting`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ text: `你是會議記錄分析助理。從以下會議紀錄中，找出所有「任務/行動項目」。
@@ -1758,7 +1758,7 @@ export default function MeetBot() {
       id: Date.now()+i, title:t.title, assignee:t.assignee,
       deadline:t.deadline, meeting, done:false,
       priority: daysLeft(t.deadline)<=1 ? "critical" : "medium",
-      deletedAt: null, createdAt: new Date().toISOString().slice(0,10),
+      deletedAt: null, createdAt: today(),
       progressNote: "", progressNoteTime: "",
     }));
     setTasks(prev => [...newTasks,...prev]);
@@ -1779,7 +1779,7 @@ export default function MeetBot() {
       assignee: assignees.join(","), deadline: manualForm.deadline || "",
       meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
       done: false, priority: manualForm.priority || "medium",
-      deletedAt: null, createdAt: new Date().toISOString().slice(0,10),
+      deletedAt: null, createdAt: today(),
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
