@@ -3210,6 +3210,34 @@ export default function MeetBot() {
       {/* 時間軸視圖 */}
       {calView==="timeline" && (
         <div>
+          {/* 已過期的會議 - 可收合，放最上面 */}
+          {meetings.filter(m => m.date < today()).length > 0 && (
+            <div style={{ marginBottom:20 }}>
+              <div onClick={() => setShowPastMeetings(p => !p)}
+                style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", userSelect:"none", padding:"10px 14px", borderRadius:12, background:"var(--surf)", border:"1px solid var(--border)", transition:"all 0.2s" }}>
+                <span style={{ fontSize:16, transition:"transform 0.2s", transform: showPastMeetings ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                <span style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1 }}>過去的會議與活動</span>
+                <span style={{ fontSize:13, padding:"2px 10px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)", fontWeight:600 }}>{meetings.filter(m => m.date < today()).length}</span>
+              </div>
+              {showPastMeetings && (
+                <div style={{ marginTop:12, animation:"fadeUp 0.3s ease" }}>
+                  {meetings.filter(m => m.date < today()).sort((a,b) => b.date.localeCompare(a.date)).map(m => (
+                    <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, opacity:0.6, cursor:"pointer", transition:"opacity 0.2s" }}
+                      onMouseEnter={e => e.currentTarget.style.opacity="0.85"} onMouseLeave={e => e.currentTarget.style.opacity="0.6"}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:15, fontWeight:500 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
+                          <div style={{ fontSize:13, color:"var(--muted)", marginTop:2 }}>{m.date} {m.time==="TBD"?"待定":m.time} · {m.location||""}{m.meetingUrl && !(m.location||"").includes("線上") ? " · 🔗 線上同步會議" : ""}</div>
+                        </div>
+                        <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600, flexShrink:0 }}>詳情 ›</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1.5, marginBottom:14 }}>近期會議與活動</div>
           {meetings.filter(m => m.date >= today()).sort((a,b) => a.date.localeCompare(b.date) || (a.time||"").localeCompare(b.time||"")).length === 0 && (
             <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:15 }}>尚無近期會議與活動</div>
@@ -3280,33 +3308,6 @@ export default function MeetBot() {
               );
             })}
           </div>
-
-          {/* 已過期的會議 - 可收合 */}
-          {meetings.filter(m => m.date < today()).length > 0 && (
-            <div style={{ marginTop:24 }}>
-              <div onClick={() => setShowPastMeetings(p => !p)}
-                style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", userSelect:"none", padding:"10px 14px", borderRadius:12, background:"var(--surf)", border:"1px solid var(--border)", transition:"all 0.2s" }}>
-                <span style={{ fontSize:16, transition:"transform 0.2s", transform: showPastMeetings ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-                <span style={{ fontSize:15, color:"var(--muted)", fontWeight:700, letterSpacing:1 }}>過去的會議與活動</span>
-                <span style={{ fontSize:13, padding:"2px 10px", borderRadius:10, background:"rgba(107,116,148,0.1)", color:"var(--muted)", fontWeight:600 }}>{meetings.filter(m => m.date < today()).length}</span>
-              </div>
-              {showPastMeetings && (
-                <div style={{ marginTop:12, animation:"fadeUp 0.3s ease" }}>
-                  {meetings.filter(m => m.date < today()).sort((a,b) => b.date.localeCompare(a.date)).map(m => (
-                    <div key={m.id} onClick={() => setViewingMeeting(m)} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:8, opacity:0.6, cursor:"pointer", transition:"opacity 0.2s" }}
-                      onMouseEnter={e => e.currentTarget.style.opacity="0.85"} onMouseLeave={e => e.currentTarget.style.opacity="0.6"}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:15, fontWeight:500 }}>{m.eventType==="event"?"🎯":"📋"} {m.title}</div>
-                          <div style={{ fontSize:13, color:"var(--muted)", marginTop:2 }}>{m.date} {m.time==="TBD"?"待定":m.time} · {m.location||""}{m.meetingUrl && !(m.location||"").includes("線上") ? " · 🔗 線上同步會議" : ""}</div>
-                        </div>
-                        <div style={{ fontSize:14, color:"var(--accent)", fontWeight:600, flexShrink:0 }}>詳情 ›</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           )}
         </div>
       )}
