@@ -1932,6 +1932,18 @@ export default function MeetBot() {
     setRoutineTasks(next);
     saveRoutineTasks(next);
   };
+  const updateTaskReminder = (id, patch) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+  };
+  // 統一更新提醒：根據 _type 呼叫不同的更新函式
+  const updateItemReminder = (item, patch) => {
+    if (item._type === "routine") updateRoutineReminder(item.id, patch);
+    else updateTaskReminder(item.id, patch);
+  };
+  const removeTaskFromRoutineView = (id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, deletedAt: Date.now() } : t));
+    showToast("已刪除任務","#6b7494");
+  };
 
   // ── 任務編輯 ──
   const saveTaskEdit = (form) => {
@@ -2160,7 +2172,7 @@ export default function MeetBot() {
     return { name, total:mine.length, done, pct: mine.length ? Math.round(done/mine.length*100):0 };
   }).filter(m=>m.total>0);
 
-  const nextReminders = calcNextReminder(tasks, reminders, routineTasks);
+  const nextReminders = calcNextReminder(tasks, reminders, [...routineTasks, ...routineOnlyTasks]);
   const syncLabel = lastSync ? `${pad2(lastSync.getHours())}:${pad2(lastSync.getMinutes())} 同步` : "同步中...";
   const WEEKDAYS = ["日","一","二","三","四","五","六"];
 
@@ -2239,11 +2251,11 @@ export default function MeetBot() {
       height:calc(100vh - 72px); overflow-y:auto;
     }
     .mb-wide .mb-tabs{ display:none !important; }
-    .mb-wide .mb-content-area{ flex:1; overflow-y:auto; }
+    .mb-wide .mb-content-area{ flex:1; overflow-y:auto; overflow-x:hidden; min-width:0; }
     .mb-wide .mb-content-pad{ padding:24px 32px 40px !important; }
-    .mb-wide .mb-task-grid{ display:grid !important; grid-template-columns:1fr 1fr; gap:12px; }
-    .mb-wide .mb-member-grid{ display:grid !important; grid-template-columns:1fr 1fr; gap:12px; }
-    .mb-wide .mb-member-card{ margin-bottom:0 !important; }
+    .mb-wide .mb-task-grid{ display:grid !important; grid-template-columns:1fr 1fr; gap:12px; overflow:hidden; }
+    .mb-wide .mb-member-grid{ display:grid !important; grid-template-columns:1fr 1fr; gap:12px; overflow:hidden; }
+    .mb-wide .mb-member-card{ margin-bottom:0 !important; min-width:0; overflow:hidden; }
   `;
 
   // ── 任務卡片 ──
@@ -2501,6 +2513,7 @@ export default function MeetBot() {
                         const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
                         const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
                         const isEditingReminder = editingRoutineReminder === t.id;
+                        const onRemove = t._type === "routine" ? () => removeRoutineTask(t.id) : () => removeTaskFromRoutineView(t.id);
                         return (
                           <div key={`${t._type}-${t.id}`}>
                             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
@@ -2518,7 +2531,7 @@ export default function MeetBot() {
                                   color: isDone ? "var(--muted)" : "var(--text)",
                                   opacity: isDone ? 0.6 : 1
                                 }}>{t.title}</div>
-                                {t._type === "routine" && t.reminderOn && (
+                                {t.reminderOn && (
                                   <div onClick={() => canManageRoutine && setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
                                     fontSize:12, color:"var(--accent)", marginTop:2,
                                     cursor: canManageRoutine ? "pointer" : "default",
@@ -2527,7 +2540,7 @@ export default function MeetBot() {
                                     ⏰ 每週{WEEKDAYS[t.reminderWeekday ?? 1]} {pad2(t.reminderHour ?? 9)}:00
                                   </div>
                                 )}
-                                {t._type === "routine" && !t.reminderOn && canManageRoutine && (
+                                {!t.reminderOn && canManageRoutine && (
                                   <div onClick={() => setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
                                     fontSize:12, color:"var(--muted)", marginTop:2, cursor:"pointer", opacity:0.6
                                   }}>
@@ -2535,23 +2548,23 @@ export default function MeetBot() {
                                   </div>
                                 )}
                               </div>
-                              {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                              {canManageRoutine && <div onClick={onRemove} style={{
                                 padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
                               }}>✕</div>}
                             </div>
                             {/* 內聯提醒編輯面板 */}
-                            {t._type === "routine" && isEditingReminder && canManageRoutine && (
+                            {isEditingReminder && canManageRoutine && (
                               <div style={{ marginLeft:46, marginBottom:8, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 12px" }}>
                                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                                   <span style={{ fontSize:13, fontWeight:600 }}>⏰ 每週提醒</span>
-                                  <Toggle on={t.reminderOn ?? false} onChange={() => { updateRoutineReminder(t.id, { reminderOn: !(t.reminderOn ?? false) }); }}/>
+                                  <Toggle on={t.reminderOn ?? false} onChange={() => { updateItemReminder(t, { reminderOn: !(t.reminderOn ?? false) }); }}/>
                                 </div>
                                 {(t.reminderOn ?? false) && (<>
                                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6, flexWrap:"wrap", gap:4 }}>
                                     <span style={{ fontSize:12, color:"var(--muted)" }}>星期</span>
                                     <div style={{ display:"flex", gap:4 }}>
                                       {[1,2,3,4,5].map(d => (
-                                        <div key={d} onClick={() => updateRoutineReminder(t.id, { reminderWeekday: d })} style={{
+                                        <div key={d} onClick={() => updateItemReminder(t, { reminderWeekday: d })} style={{
                                           width:30, height:30, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center",
                                           fontSize:12, cursor:"pointer", fontWeight:600,
                                           background: (t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--bg)",
@@ -2565,7 +2578,7 @@ export default function MeetBot() {
                                     <span style={{ fontSize:12, color:"var(--muted)" }}>時間</span>
                                     <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                                       {[7,8,9,10,11,12,13,14,15,16,17,18].map(h => (
-                                        <div key={h} onClick={() => updateRoutineReminder(t.id, { reminderHour: h })} style={{
+                                        <div key={h} onClick={() => updateItemReminder(t, { reminderHour: h })} style={{
                                           padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer",
                                           fontFamily:"'DM Mono',monospace",
                                           background: (t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--bg)",
@@ -2594,6 +2607,7 @@ export default function MeetBot() {
                       const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
                       const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
                       const isEditingReminder = editingRoutineReminder === t.id;
+                      const onRemove = t._type === "routine" ? () => removeRoutineTask(t.id) : () => removeTaskFromRoutineView(t.id);
                       return (
                         <div key={`${t._type}-${t.id}`}>
                           <div style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
@@ -2611,16 +2625,16 @@ export default function MeetBot() {
                                 color: isDone ? "var(--muted)" : "var(--text)",
                                 opacity: isDone ? 0.6 : 1
                               }}>{t.title}</div>
-                              {t._type === "routine" && t.reminderOn && (
+                              {t.reminderOn && (
                                 <div onClick={() => canManageRoutine && setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
                                   fontSize:12, color:"var(--accent)", marginTop:2,
                                   cursor: canManageRoutine ? "pointer" : "default",
                                   display:"flex", alignItems:"center", gap:4
                                 }}>
-                                  ⏰ 每週{WEEKDAYS[t.reminderWeekday]} {pad2(t.reminderHour)}:00
+                                  ⏰ 每週{WEEKDAYS[t.reminderWeekday ?? 1]} {pad2(t.reminderHour ?? 9)}:00
                                 </div>
                               )}
-                              {t._type === "routine" && !t.reminderOn && canManageRoutine && (
+                              {!t.reminderOn && canManageRoutine && (
                                 <div onClick={() => setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
                                   fontSize:12, color:"var(--muted)", marginTop:2, cursor:"pointer", opacity:0.6
                                 }}>
@@ -2628,22 +2642,22 @@ export default function MeetBot() {
                                 </div>
                               )}
                             </div>
-                            {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                            {canManageRoutine && <div onClick={onRemove} style={{
                               padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
                             }}>✕</div>}
                           </div>
-                          {t._type === "routine" && isEditingReminder && canManageRoutine && (
+                          {isEditingReminder && canManageRoutine && (
                             <div style={{ marginLeft:46, marginBottom:8, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 12px" }}>
                               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                                 <span style={{ fontSize:13, fontWeight:600 }}>⏰ 每週提醒</span>
-                                <Toggle on={t.reminderOn ?? false} onChange={() => { updateRoutineReminder(t.id, { reminderOn: !(t.reminderOn ?? false) }); }}/>
+                                <Toggle on={t.reminderOn ?? false} onChange={() => { updateItemReminder(t, { reminderOn: !(t.reminderOn ?? false) }); }}/>
                               </div>
                               {(t.reminderOn ?? false) && (<>
                                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6, flexWrap:"wrap", gap:4 }}>
                                   <span style={{ fontSize:12, color:"var(--muted)" }}>星期</span>
                                   <div style={{ display:"flex", gap:4 }}>
                                     {[1,2,3,4,5].map(d => (
-                                      <div key={d} onClick={() => updateRoutineReminder(t.id, { reminderWeekday: d })} style={{
+                                      <div key={d} onClick={() => updateItemReminder(t, { reminderWeekday: d })} style={{
                                         width:30, height:30, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center",
                                         fontSize:12, cursor:"pointer", fontWeight:600,
                                         background: (t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--bg)",
@@ -2657,7 +2671,7 @@ export default function MeetBot() {
                                   <span style={{ fontSize:12, color:"var(--muted)" }}>時間</span>
                                   <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                                     {[7,8,9,10,11,12,13,14,15,16,17,18].map(h => (
-                                      <div key={h} onClick={() => updateRoutineReminder(t.id, { reminderHour: h })} style={{
+                                      <div key={h} onClick={() => updateItemReminder(t, { reminderHour: h })} style={{
                                         padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer",
                                         fontFamily:"'DM Mono',monospace",
                                         background: (t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--bg)",
