@@ -581,9 +581,13 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
 function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
   const [title, setTitle] = useState("");
   const [selectedAssignees, setSelectedAssignees] = useState(isAdmin ? [] : [currentUser]);
+  const [reminderOn, setReminderOn] = useState(true);
+  const [reminderWeekday, setReminderWeekday] = useState(1);
+  const [reminderHour, setReminderHour] = useState(9);
   const toggleAssignee = (name) => setSelectedAssignees(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
   const allSelected = selectedAssignees.length === TEAM.length;
   const toggleAll = () => setSelectedAssignees(allSelected ? [] : [...TEAM]);
+  const WD = ["日","一","二","三","四","五","六"];
   return (
     <div style={{ background:"var(--card)", border:"1px solid var(--accent)", borderRadius:14, padding:"16px" }}>
       <div style={{ fontSize:18, fontWeight:700, marginBottom:12 }}>🔄 新增例行任務</div>
@@ -627,13 +631,57 @@ function RoutineTaskForm({ onAdd, onCancel, currentUser, isAdmin }) {
           {currentUser}（自己）
         </div>
       )}
+      {/* 每週提醒設定 */}
+      <div style={{ background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, padding:"12px 14px", marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: reminderOn ? 10 : 0 }}>
+          <div style={{ fontSize:14, fontWeight:600, color:"var(--text)" }}>⏰ 每週提醒</div>
+          <Toggle on={reminderOn} onChange={() => setReminderOn(v => !v)}/>
+        </div>
+        {reminderOn && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10, paddingTop:10, borderTop:"1px solid var(--border)" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:6 }}>
+              <span style={{ fontSize:13, color:"var(--muted)" }}>星期</span>
+              <div style={{ display:"flex", gap:5 }}>
+                {[1,2,3,4,5].map(d => (
+                  <div key={d} onClick={() => setReminderWeekday(d)} style={{
+                    width:36, height:36, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:14, cursor:"pointer", fontWeight:600,
+                    background: reminderWeekday === d ? "var(--accent)" : "var(--bg)",
+                    color: reminderWeekday === d ? "#fff" : "var(--muted)",
+                    border: `1px solid ${reminderWeekday === d ? "var(--accent)" : "var(--border)"}`,
+                    transition:"all 0.15s"
+                  }}>{WD[d]}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:6 }}>
+              <span style={{ fontSize:13, color:"var(--muted)" }}>時間</span>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                {[7,8,9,10,11,12,13,14,15,16,17,18].map(h => (
+                  <div key={h} onClick={() => setReminderHour(h)} style={{
+                    padding:"5px 10px", borderRadius:8, fontSize:14, cursor:"pointer",
+                    fontFamily:"'DM Mono',monospace",
+                    background: reminderHour === h ? "var(--accent)" : "var(--bg)",
+                    color: reminderHour === h ? "#fff" : "var(--muted)",
+                    border: `1px solid ${reminderHour === h ? "var(--accent)" : "var(--border)"}`,
+                    transition:"all 0.15s"
+                  }}>{pad2(h)}:00</div>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize:12, color:"var(--muted)", background:"var(--bg)", borderRadius:6, padding:"6px 10px" }}>
+              每週{WD[reminderWeekday]} <span style={{ color:"var(--accent)", fontWeight:600 }}>{pad2(reminderHour)}:00</span> 提醒負責人（台灣時間）
+            </div>
+          </div>
+        )}
+      </div>
       <div style={{ display:"flex", gap:10 }}>
         <button onClick={onCancel} style={{
           flex:1, padding:"12px", borderRadius:10, border:"1px solid var(--border)",
           background:"var(--surf)", color:"var(--muted)", fontSize:15, fontWeight:600,
           cursor:"pointer", fontFamily:"inherit"
         }}>取消</button>
-        <button onClick={() => { if(title.trim() && selectedAssignees.length > 0) onAdd(title.trim(), selectedAssignees); }} style={{
+        <button onClick={() => { if(title.trim() && selectedAssignees.length > 0) onAdd(title.trim(), selectedAssignees, { reminderOn, reminderWeekday, reminderHour }); }} style={{
           flex:2, padding:"12px", borderRadius:10, border:"none",
           background: (title.trim() && selectedAssignees.length > 0) ? "linear-gradient(135deg,var(--accent),#00b89c)" : "var(--border)",
           color: (title.trim() && selectedAssignees.length > 0) ? "#fff" : "var(--muted)",
@@ -1237,7 +1285,7 @@ function exportToPDF(tasks, label, routineTasksList, routineChecksMap) {
 }
 
 // ── 計算下次提醒時間 ──────────────────────────
-function calcNextReminder(tasks, reminders) {
+function calcNextReminder(tasks, reminders, routineTasksList = []) {
   const pending = tasks.filter(t => !t.done && t.deadline);
   const hits = [];
   const now = new Date();
@@ -1253,6 +1301,24 @@ function calcNextReminder(tasks, reminders) {
       fireAt.setHours(reminders.dayBefore.hour, 0, 0, 0);
       if (fireAt > now) hits.push({ task: t, at: fireAt, type: `截止前 ${reminders.dayBefore.days} 天` });
     }
+  });
+  // 例行任務提醒：計算下次觸發時間
+  const WD_NAMES = ["日","一","二","三","四","五","六"];
+  routineTasksList.filter(t => t.reminderOn).forEach(t => {
+    const wd = t.reminderWeekday ?? 1;
+    const hr = t.reminderHour ?? 9;
+    // 計算從現在起下一次符合 weekday + hour 的時間（台灣時間）
+    const nowTW = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+    const fireAt = new Date(nowTW);
+    fireAt.setHours(hr, 0, 0, 0);
+    // 調整到下一個正確的星期幾
+    const diff = (wd - nowTW.getDay() + 7) % 7;
+    if (diff === 0 && nowTW >= fireAt) {
+      fireAt.setDate(fireAt.getDate() + 7); // 已過今天的時間，下週
+    } else {
+      fireAt.setDate(fireAt.getDate() + diff);
+    }
+    hits.push({ task: { ...t, assignee: t.assignee || "未指派" }, at: fireAt, type: `每週${WD_NAMES[wd]}提醒` });
   });
   hits.sort((a,b) => a.at - b.at);
   return hits.slice(0,5);
@@ -1373,11 +1439,11 @@ async function saveRoutineChecks(checks) {
 }
 
 // ── 呼叫後端發送 LINE 提醒 ────────────────────
-async function checkAndNotify(tasks, reminders) {
+async function checkAndNotify(tasks, reminders, routineTasks = []) {
   try {
     const res = await fetch(`${BACKEND_URL}/check-reminders`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ tasks, reminders })
+      body: JSON.stringify({ tasks, reminders, routineTasks })
     });
     const data = await res.json();
     return data.sent || 0;
@@ -1627,6 +1693,7 @@ export default function MeetBot() {
   const [routineTasks,   setRoutineTasks]   = useState([]);
   const [routineChecks,  setRoutineChecks]  = useState({});
   const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [editingRoutineReminder, setEditingRoutineReminder] = useState(null); // routine task id being edited
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [expandRoutine, setExpandRoutine] = useState(false);
   const [expandedComments, setExpandedComments] = useState(null); // task id or null
@@ -1839,10 +1906,15 @@ export default function MeetBot() {
       return next;
     });
   };
-  const addRoutineTask = (title, assignees) => {
+  const addRoutineTask = (title, assignees, reminder = {}) => {
     // assignees 為陣列，每人各建一條
     const list = Array.isArray(assignees) ? assignees : [assignees];
-    const newTasks = list.map((a, i) => ({ id: Date.now() + i, title, assignee: a }));
+    const newTasks = list.map((a, i) => ({
+      id: Date.now() + i, title, assignee: a,
+      reminderOn: reminder.reminderOn ?? false,
+      reminderWeekday: reminder.reminderWeekday ?? 1,
+      reminderHour: reminder.reminderHour ?? 9,
+    }));
     const next = [...routineTasks, ...newTasks];
     setRoutineTasks(next);
     saveRoutineTasks(next);
@@ -1854,6 +1926,11 @@ export default function MeetBot() {
     setRoutineTasks(next);
     saveRoutineTasks(next);
     showToast("已刪除例行任務","#6b7494");
+  };
+  const updateRoutineReminder = (id, patch) => {
+    const next = routineTasks.map(t => t.id === id ? { ...t, ...patch } : t);
+    setRoutineTasks(next);
+    saveRoutineTasks(next);
   };
 
   // ── 任務編輯 ──
@@ -2083,7 +2160,7 @@ export default function MeetBot() {
     return { name, total:mine.length, done, pct: mine.length ? Math.round(done/mine.length*100):0 };
   }).filter(m=>m.total>0);
 
-  const nextReminders = calcNextReminder(tasks, reminders);
+  const nextReminders = calcNextReminder(tasks, reminders, routineTasks);
   const syncLabel = lastSync ? `${pad2(lastSync.getHours())}:${pad2(lastSync.getMinutes())} 同步` : "同步中...";
   const WEEKDAYS = ["日","一","二","三","四","五","六"];
 
@@ -2423,24 +2500,87 @@ export default function MeetBot() {
                       {items.map(t => {
                         const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
                         const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
+                        const isEditingReminder = editingRoutineReminder === t.id;
                         return (
-                          <div key={`${t._type}-${t.id}`} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
-                            <div onClick={onToggle} style={{
-                              width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                              border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
-                              background: isDone ? "var(--green)" : "transparent",
-                              display:"flex", alignItems:"center", justifyContent:"center",
-                              fontSize:13, color:"#fff", transition:"all 0.2s"
-                            }}>{isDone ? "✓" : ""}</div>
-                            <div style={{
-                              flex:1, fontSize:15, lineHeight:1.4,
-                              textDecoration: isDone ? "line-through" : "none",
-                              color: isDone ? "var(--muted)" : "var(--text)",
-                              opacity: isDone ? 0.6 : 1
-                            }}>{t.title}</div>
-                            {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
-                              padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
-                            }}>✕</div>}
+                          <div key={`${t._type}-${t.id}`}>
+                            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                              <div onClick={onToggle} style={{
+                                width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                                border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
+                                background: isDone ? "var(--green)" : "transparent",
+                                display:"flex", alignItems:"center", justifyContent:"center",
+                                fontSize:13, color:"#fff", transition:"all 0.2s"
+                              }}>{isDone ? "✓" : ""}</div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{
+                                  fontSize:15, lineHeight:1.4,
+                                  textDecoration: isDone ? "line-through" : "none",
+                                  color: isDone ? "var(--muted)" : "var(--text)",
+                                  opacity: isDone ? 0.6 : 1
+                                }}>{t.title}</div>
+                                {t._type === "routine" && t.reminderOn && (
+                                  <div onClick={() => canManageRoutine && setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
+                                    fontSize:12, color:"var(--accent)", marginTop:2,
+                                    cursor: canManageRoutine ? "pointer" : "default",
+                                    display:"flex", alignItems:"center", gap:4
+                                  }}>
+                                    ⏰ 每週{WEEKDAYS[t.reminderWeekday ?? 1]} {pad2(t.reminderHour ?? 9)}:00
+                                  </div>
+                                )}
+                                {t._type === "routine" && !t.reminderOn && canManageRoutine && (
+                                  <div onClick={() => setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
+                                    fontSize:12, color:"var(--muted)", marginTop:2, cursor:"pointer", opacity:0.6
+                                  }}>
+                                    + 設定提醒
+                                  </div>
+                                )}
+                              </div>
+                              {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                                padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                              }}>✕</div>}
+                            </div>
+                            {/* 內聯提醒編輯面板 */}
+                            {t._type === "routine" && isEditingReminder && canManageRoutine && (
+                              <div style={{ marginLeft:46, marginBottom:8, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 12px" }}>
+                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                  <span style={{ fontSize:13, fontWeight:600 }}>⏰ 每週提醒</span>
+                                  <Toggle on={t.reminderOn ?? false} onChange={() => { updateRoutineReminder(t.id, { reminderOn: !(t.reminderOn ?? false) }); }}/>
+                                </div>
+                                {(t.reminderOn ?? false) && (<>
+                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6, flexWrap:"wrap", gap:4 }}>
+                                    <span style={{ fontSize:12, color:"var(--muted)" }}>星期</span>
+                                    <div style={{ display:"flex", gap:4 }}>
+                                      {[1,2,3,4,5].map(d => (
+                                        <div key={d} onClick={() => updateRoutineReminder(t.id, { reminderWeekday: d })} style={{
+                                          width:30, height:30, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center",
+                                          fontSize:12, cursor:"pointer", fontWeight:600,
+                                          background: (t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--bg)",
+                                          color: (t.reminderWeekday ?? 1) === d ? "#fff" : "var(--muted)",
+                                          border: `1px solid ${(t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--border)"}`,
+                                        }}>{WEEKDAYS[d]}</div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
+                                    <span style={{ fontSize:12, color:"var(--muted)" }}>時間</span>
+                                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                                      {[7,8,9,10,11,12,13,14,15,16,17,18].map(h => (
+                                        <div key={h} onClick={() => updateRoutineReminder(t.id, { reminderHour: h })} style={{
+                                          padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer",
+                                          fontFamily:"'DM Mono',monospace",
+                                          background: (t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--bg)",
+                                          color: (t.reminderHour ?? 9) === h ? "#fff" : "var(--muted)",
+                                          border: `1px solid ${(t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--border)"}`,
+                                        }}>{pad2(h)}:00</div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </>)}
+                                <div onClick={() => setEditingRoutineReminder(null)} style={{
+                                  marginTop:8, fontSize:12, color:"var(--accent)", cursor:"pointer", textAlign:"right", fontWeight:600
+                                }}>完成</div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -2453,24 +2593,86 @@ export default function MeetBot() {
                     {noAssignee.map(t => {
                       const isDone = t._type === "routine" ? routineChecks[t.id] : t.done;
                       const onToggle = t._type === "routine" ? () => toggleRoutineCheck(t.id) : () => toggleDone(t.id);
+                      const isEditingReminder = editingRoutineReminder === t.id;
                       return (
-                        <div key={`${t._type}-${t.id}`} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
-                          <div onClick={onToggle} style={{
-                            width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
-                            border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
-                            background: isDone ? "var(--green)" : "transparent",
-                            display:"flex", alignItems:"center", justifyContent:"center",
-                            fontSize:13, color:"#fff", transition:"all 0.2s"
-                          }}>{isDone ? "✓" : ""}</div>
-                          <div style={{
-                            flex:1, fontSize:15, lineHeight:1.4,
-                            textDecoration: isDone ? "line-through" : "none",
-                            color: isDone ? "var(--muted)" : "var(--text)",
-                            opacity: isDone ? 0.6 : 1
-                          }}>{t.title}</div>
-                          {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
-                            padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
-                          }}>✕</div>}
+                        <div key={`${t._type}-${t.id}`}>
+                          <div style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0 6px 12px" }}>
+                            <div onClick={onToggle} style={{
+                              width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                              border:`2px solid ${isDone ? "var(--green)" : "var(--border)"}`,
+                              background: isDone ? "var(--green)" : "transparent",
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              fontSize:13, color:"#fff", transition:"all 0.2s"
+                            }}>{isDone ? "✓" : ""}</div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{
+                                fontSize:15, lineHeight:1.4,
+                                textDecoration: isDone ? "line-through" : "none",
+                                color: isDone ? "var(--muted)" : "var(--text)",
+                                opacity: isDone ? 0.6 : 1
+                              }}>{t.title}</div>
+                              {t._type === "routine" && t.reminderOn && (
+                                <div onClick={() => canManageRoutine && setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
+                                  fontSize:12, color:"var(--accent)", marginTop:2,
+                                  cursor: canManageRoutine ? "pointer" : "default",
+                                  display:"flex", alignItems:"center", gap:4
+                                }}>
+                                  ⏰ 每週{WEEKDAYS[t.reminderWeekday]} {pad2(t.reminderHour)}:00
+                                </div>
+                              )}
+                              {t._type === "routine" && !t.reminderOn && canManageRoutine && (
+                                <div onClick={() => setEditingRoutineReminder(isEditingReminder ? null : t.id)} style={{
+                                  fontSize:12, color:"var(--muted)", marginTop:2, cursor:"pointer", opacity:0.6
+                                }}>
+                                  + 設定提醒
+                                </div>
+                              )}
+                            </div>
+                            {t._type === "routine" && canManageRoutine && <div onClick={() => removeRoutineTask(t.id)} style={{
+                              padding:"4px 8px", cursor:"pointer", color:"var(--red)", fontSize:13, fontWeight:600, opacity:0.5
+                            }}>✕</div>}
+                          </div>
+                          {t._type === "routine" && isEditingReminder && canManageRoutine && (
+                            <div style={{ marginLeft:46, marginBottom:8, background:"var(--surf)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 12px" }}>
+                              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                                <span style={{ fontSize:13, fontWeight:600 }}>⏰ 每週提醒</span>
+                                <Toggle on={t.reminderOn ?? false} onChange={() => { updateRoutineReminder(t.id, { reminderOn: !(t.reminderOn ?? false) }); }}/>
+                              </div>
+                              {(t.reminderOn ?? false) && (<>
+                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6, flexWrap:"wrap", gap:4 }}>
+                                  <span style={{ fontSize:12, color:"var(--muted)" }}>星期</span>
+                                  <div style={{ display:"flex", gap:4 }}>
+                                    {[1,2,3,4,5].map(d => (
+                                      <div key={d} onClick={() => updateRoutineReminder(t.id, { reminderWeekday: d })} style={{
+                                        width:30, height:30, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center",
+                                        fontSize:12, cursor:"pointer", fontWeight:600,
+                                        background: (t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--bg)",
+                                        color: (t.reminderWeekday ?? 1) === d ? "#fff" : "var(--muted)",
+                                        border: `1px solid ${(t.reminderWeekday ?? 1) === d ? "var(--accent)" : "var(--border)"}`,
+                                      }}>{WEEKDAYS[d]}</div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:4 }}>
+                                  <span style={{ fontSize:12, color:"var(--muted)" }}>時間</span>
+                                  <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                                    {[7,8,9,10,11,12,13,14,15,16,17,18].map(h => (
+                                      <div key={h} onClick={() => updateRoutineReminder(t.id, { reminderHour: h })} style={{
+                                        padding:"4px 8px", borderRadius:6, fontSize:12, cursor:"pointer",
+                                        fontFamily:"'DM Mono',monospace",
+                                        background: (t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--bg)",
+                                        color: (t.reminderHour ?? 9) === h ? "#fff" : "var(--muted)",
+                                        border: `1px solid ${(t.reminderHour ?? 9) === h ? "var(--accent)" : "var(--border)"}`,
+                                      }}>{pad2(h)}:00</div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>)}
+                              <div onClick={() => setEditingRoutineReminder(null)} style={{
+                                marginTop:8, fontSize:12, color:"var(--accent)", cursor:"pointer", textAlign:"right", fontWeight:600
+                              }}>完成</div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -3068,7 +3270,7 @@ export default function MeetBot() {
 
       <button onClick={async () => {
         showToast("發送中...","#6b7494");
-        const sent = await checkAndNotify(tasks, reminders);
+        const sent = await checkAndNotify(tasks, reminders, routineTasks);
         if (sent > 0) { setLastNotify(new Date()); showToast(`已發送 ${sent} 則 LINE 提醒`,"#00e5c3"); }
         else showToast("目前沒有符合條件的提醒","#6b7494");
       }} style={{ width:"100%", padding:"15px", borderRadius:12, border:"1px solid var(--border)", background:"var(--card)", color:"var(--text)", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit", marginTop:12 }}>
