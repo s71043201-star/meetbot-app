@@ -1700,7 +1700,7 @@ export default function MeetBot() {
   const [expandedDeps, setExpandedDeps] = useState(null); // task id or null
   // routineForm state removed — RoutineTaskForm 獨立管理自己的 state
 
-  const [isWide, setIsWide] = useState(false);
+  const [isWide, setIsWide] = useState(true);
 
   const fileRef       = useRef();
   const rootRef       = useRef();
@@ -1752,11 +1752,11 @@ export default function MeetBot() {
     const el = rootRef.current;
     if (!el) return;
     const ro = new ResizeObserver(entries => {
-      for (const e of entries) setIsWide(e.contentRect.width >= 900);
+      for (const e of entries) setIsWide(e.contentRect.width >= 600);
     });
     ro.observe(el);
     // 立即讀一次，避免等第一次 resize 事件
-    setIsWide(el.getBoundingClientRect().width >= 900);
+    setIsWide(el.getBoundingClientRect().width >= 600);
     return () => ro.disconnect();
   }, [loading]); // loading 變 false 後 rootRef 才指向主 div，需要重跑
 
