@@ -436,7 +436,7 @@ function TaskEditModal({ task, onSave, onDelete, onNotify, onClose, canSetPriori
             width:"100%", padding:"13px", borderRadius:10, border:"1px solid var(--orange)",
             background:"rgba(255,159,67,0.1)", color:"var(--orange)", fontSize:15, fontWeight:700,
             cursor:"pointer", fontFamily:"inherit", marginTop:2
-          }}>📨 立即發送 LINE 通知給 {form.assignees.join("、")}</button>}
+          }}>📨 立即發送 Slack 提醒給 {form.assignees.join("、")}</button>}
           {onConvertToRoutine && canEdit && (
             <button onClick={() => {
               if (window.confirm(`確定將「${form.title}」轉為例行任務？\n將為 ${form.assignees.length > 0 ? form.assignees.join("、") : "未指派"} 各建立一條例行任務。`)) {
@@ -2061,7 +2061,7 @@ export default function MeetBot() {
   const notifyTask = async () => {
     if (!editingTaskFull) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/notify-task`, {
+      const res = await fetch(`${BACKEND_URL}/notify-new-task`, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ task: editingTaskFull })
       });
@@ -3256,7 +3256,7 @@ export default function MeetBot() {
               let sent = 0;
               for (const t of matched) {
                 try {
-                  const res = await fetch(`${BACKEND_URL}/notify-task`, {
+                  const res = await fetch(`${BACKEND_URL}/notify-new-task`, {
                     method:"POST", headers:{"Content-Type":"application/json"},
                     body: JSON.stringify({ task: t })
                   });
@@ -3285,10 +3285,10 @@ export default function MeetBot() {
       <button onClick={async () => {
         showToast("發送中...","#6b7494");
         const sent = await checkAndNotify(tasks, reminders, routineTasks);
-        if (sent > 0) { setLastNotify(new Date()); showToast(`已發送 ${sent} 則 LINE 提醒`,"#00e5c3"); }
+        if (sent > 0) { setLastNotify(new Date()); showToast(`已發送 ${sent} 則 Slack 提醒`,"#00e5c3"); }
         else showToast("目前沒有符合條件的提醒","#6b7494");
       }} style={{ width:"100%", padding:"15px", borderRadius:12, border:"1px solid var(--border)", background:"var(--card)", color:"var(--text)", fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit", marginTop:12 }}>
-        立即檢查並發送 LINE 提醒
+        立即檢查並發送 Slack 提醒
       </button>
       {lastNotify && <div style={{ textAlign:"center", fontSize:15, color:"var(--muted)", marginTop:10 }}>上次發送：{pad2(lastNotify.getHours())}:{pad2(lastNotify.getMinutes())}</div>}
     </div>
