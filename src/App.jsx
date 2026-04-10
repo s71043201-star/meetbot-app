@@ -1326,18 +1326,14 @@ function calcNextReminder(tasks, reminders, routineTasksList = []) {
 
 // ── AI 解析 ───────────────────────────────────
 async function parseWithAI(text) {
-  const today_str = today();
   const res = await fetch(`${BACKEND_URL}/parse-meeting`, {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ text: `你是會議記錄分析助理。從以下會議紀錄中，找出所有「任務/行動項目」。
-每個任務需包含：負責人（可多人）、任務描述、截止日期。今天是 ${today_str}。
-若日期只說「本週五」請換算成實際日期。若無法確定截止日期，設定為 7 天後。
-負責人請從以下名單選最接近的：${TEAM.join("、")}。若無法對應，填「待指派」。
-若任務有多位負責人，用逗號分隔（例："蔡蕙芳,戴豐逸"）。
-請只回傳 JSON 陣列，格式如下，不要有任何說明文字：
-[{"title":"任務描述","assignee":"負責人1,負責人2","deadline":"YYYY-MM-DD"}]
-會議紀錄：\n${text}` })
+    body: JSON.stringify({ text })
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `伺服器錯誤 (${res.status})`);
+  }
   const data = await res.json();
   return data.items || [];
 }
@@ -1815,8 +1811,12 @@ export default function MeetBot() {
     try {
       const ab = await file.arrayBuffer();
       const { value: text } = await mammoth.extractRawText({ arrayBuffer: ab });
+      if (!text || !text.trim()) { showToast("文件內容為空，無法解析","#ff5b79"); setParsing(false); return; }
       setParseResult(await parseWithAI(text));
-    } catch { showToast("解析失敗，請再試一次","#ff5b79"); }
+    } catch (err) {
+      console.error("AI 解析失敗:", err);
+      showToast(err.message || "解析失敗，請再試一次","#ff5b79");
+    }
     setParsing(false);
   };
 
@@ -2985,15 +2985,43 @@ export default function MeetBot() {
       {parseResult && (
         <div style={{ animation:"fadeUp 0.4s ease" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, fontSize:15, color:"var(--green)", fontWeight:700 }}>找到 {parseResult.length} 項任務，確認後同步給全團隊</div>
-          {parseResult.map((t,i)=>(
-            <div key={i} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:10 }}>
+          {parseResult.map((t,i)=>{
+            const noAssignee = !t.assignee || t.assignee === "待指派";
+            const noDeadline = !t.deadline || t.deadline === "待確認";
+            const incomplete = noAssignee || noDeadline;
+            return (
+            <div key={i} style={{ background:"var(--card)", border: incomplete ? "2px solid var(--orange)" : "1px solid var(--border)", borderRadius:14, padding:"14px 16px", marginBottom:10, position:"relative" }}>
+              {incomplete && <span style={{ position:"absolute", top:8, right:12, fontSize:11, background:"rgba(255,159,67,0.15)", color:"var(--orange)", padding:"2px 8px", borderRadius:8, fontWeight:600 }}>⚠ 資訊不完整</span>}
               <div style={{ fontSize:18, fontWeight:500, marginBottom:8 }}>{t.title}</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:5 }}>{getAssignees(t).map((n,i)=><Avatar key={i} name={n} size={22}/>)}<span style={{ fontSize:15, color:"var(--muted)" }}>{getAssignees(t).join("、")}</span></div>
-                <span style={bdg("var(--orange)","rgba(255,159,67,0.1)")}>📅 {t.deadline}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:5 }}>{getAssignees(t).map((n,j)=><Avatar key={j} name={n} size={22}/>)}<span style={{ fontSize:15, color: noAssignee ? "var(--orange)" : "var(--muted)" }}>{noAssignee ? "⚠ 待指派" : getAssignees(t).join("、")}</span></div>
+                <span style={bdg(noDeadline ? "#ff5b79" : "var(--orange)", noDeadline ? "rgba(255,91,121,0.1)" : "rgba(255,159,67,0.1)")}>📅 {noDeadline ? "⚠ 未設期限" : t.deadline}</span>
               </div>
             </div>
-          ))}
+          );})}
+          {parseResult.some(t => !t.assignee || t.assignee === "待指派" || !t.deadline || t.deadline === "待確認") && (
+            <button onClick={async () => {
+              if (!slackWebhook) return showToast("請先設定 Slack Webhook URL","#ff5b79");
+              const incomplete = parseResult.filter(t => !t.assignee || t.assignee === "待指派" || !t.deadline || t.deadline === "待確認");
+              let msg = `⚠️ MeetBot 任務提醒\n\n以下 ${incomplete.length} 項任務資訊不完整，請管理者確認：\n\n`;
+              incomplete.forEach((t,i) => {
+                const issues = [];
+                if (!t.assignee || t.assignee === "待指派") issues.push("未指派負責人");
+                if (!t.deadline || t.deadline === "待確認") issues.push("未設截止日期");
+                msg += `${i+1}. 「${t.title}」— ${issues.join("、")}\n`;
+              });
+              msg += `\n📎 來源：${docName}\n🔗 https://s71043201-star.github.io/meetbot-app/`;
+              try {
+                const res = await fetch(`${BACKEND_URL}/send-slack`, {
+                  method:"POST", headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({ webhookUrl: slackWebhook, message: msg })
+                });
+                const data = await res.json();
+                if (data.ok) showToast("已通知管理者處理不完整任務","#00e5c3");
+                else showToast("發送失敗：" + (data.error||""), "#ff5b79");
+              } catch { showToast("發送失敗，請檢查網路連線", "#ff5b79"); }
+            }} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,#ff9f43,#ff5b79)", color:"#fff", fontSize:16, fontWeight:700, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 4px 20px rgba(255,91,121,0.3)", marginBottom:8 }}>⚠ 一鍵通知管理者：有任務資訊不完整</button>
+          )}
           <button onClick={confirmTasks} style={{ width:"100%", padding:"16px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--green),#00b89c)", color:"#fff", fontSize:18, fontWeight:700, cursor:"pointer", fontFamily:"inherit", boxShadow:"0 4px 20px rgba(0,229,195,0.3)", marginTop:4 }}>同步給全團隊</button>
         </div>
       )}
