@@ -2,8 +2,8 @@
 import * as mammoth from "mammoth";
 
 // ── 固定團隊成員 ──────────────────────────────
-const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研"];
-const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4"];
+const TEAM = ["黃琴茹","蔡蕙芳","吳承儒","張鈺微","吳亞璇","許雅淇","戴豐逸","陳佩研","彭琦雅"];
+const AVATAR_COLORS = ["#4f8cff","#00e5c3","#ff9f43","#ff5b79","#a78bfa","#34d399","#f97316","#06b6d4","#ec4899"];
 const ADMINS = ["蔡蕙芳", "戴豐逸"];
 const SPECIALISTS = ["許雅淇"];
 const TEAM_LEADS = ["黃琴茹", "吳承儒"];
