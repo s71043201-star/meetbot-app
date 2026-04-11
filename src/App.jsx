@@ -3837,7 +3837,7 @@ export default function MeetBot() {
                 </div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                  {["蔡蕙芳","黃琴茹","吳承儒","張鈺微","陳佩研","吳亞璇","戴豐逸","許雅淇"].map(name => {
+                  {["蔡蕙芳","黃琴茹","吳承儒","張鈺微","陳佩研","吳亞璇","戴豐逸","許雅淇","彭琦雅"].map(name => {
                     const roleLabel = getRoleLabel(name);
                     const roleColor = ADMINS.includes(name) ? "#ff9f43" : SPECIALISTS.includes(name) ? "#4f8cff" : TEAM_LEADS.includes(name) ? "#00e5c3" : OFFICERS.includes(name) ? "#a78bfa" : "#6b7494";
                     const roleBg = ADMINS.includes(name) ? "rgba(255,159,67,0.12)" : SPECIALISTS.includes(name) ? "rgba(79,140,255,0.12)" : TEAM_LEADS.includes(name) ? "rgba(0,229,195,0.12)" : OFFICERS.includes(name) ? "rgba(167,139,250,0.12)" : "rgba(107,116,148,0.10)";
