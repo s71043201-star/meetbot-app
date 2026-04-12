@@ -1700,6 +1700,8 @@ export default function MeetBot() {
 
   const fileRef       = useRef();
   const rootRef       = useRef();
+  const titleRef      = useRef();
+  const meetingRef    = useRef();
   const isFirstRender = useRef(true);
   const isSaving      = useRef(false);
   const tasksRef      = useRef([]);
@@ -1835,7 +1837,9 @@ export default function MeetBot() {
   };
 
   const addManualTask = () => {
-    if (!manualForm.title.trim()) {
+    const title = titleRef.current?.value || "";
+    const meeting = meetingRef.current?.value || "";
+    if (!title.trim()) {
       showToast("請填寫任務名稱","#ff5b79"); return;
     }
     const assignees = isAdmin ? manualForm.assignees : [currentUser];
@@ -1843,14 +1847,16 @@ export default function MeetBot() {
       showToast("請選擇至少一位負責人","#ff5b79"); return;
     }
     const newTask = {
-      id: Date.now(), title: manualForm.title.trim(),
+      id: Date.now(), title: title.trim(),
       assignee: assignees.join(","), deadline: manualForm.deadline || "",
-      meeting: manualForm.meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
+      meeting: meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
       done: false, priority: manualForm.priority || "medium",
       deletedAt: null, createdAt: today(),
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
+    if (titleRef.current) titleRef.current.value = "";
+    if (meetingRef.current) meetingRef.current.value = "";
     setManualForm({ title:"", assignees:[], deadline:"", meeting:"", priority:"medium" });
     showToast("已新增 1 項任務");
   };
@@ -2900,14 +2906,14 @@ export default function MeetBot() {
   );
 
   // ── 上傳內容 ──
-  const UploadContent = () => (
+  const uploadContent = (
     <div className="mb-content-pad">
       <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginBottom:16 }}>
         <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:22 }}>新增單筆任務</div>
         <input
+          ref={titleRef}
           placeholder="任務名稱"
-          value={manualForm.title}
-          onChange={e=>setManualForm(f=>({...f,title:e.target.value}))}
+          defaultValue=""
           style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
         />
         {isAdmin ? (
@@ -2941,9 +2947,9 @@ export default function MeetBot() {
           style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
         />
         <input
+          ref={meetingRef}
           placeholder="會議名稱（選填）"
-          value={manualForm.meeting}
-          onChange={e=>setManualForm(f=>({...f,meeting:e.target.value}))}
+          defaultValue=""
           style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:14, outline:"none" }}
         />
         {ADMINS.includes(currentUser) && (
@@ -3716,7 +3722,7 @@ export default function MeetBot() {
             {/* 頁面內容 */}
             {tab==="dashboard" && DashboardContent}
             {tab==="calendar"  && CalendarContent}
-            {tab==="upload"    && <UploadContent/>}
+            {tab==="upload"    && uploadContent}
             {tab==="team"      && <TeamContent/>}
             {tab==="reminders" && <RemindersContent/>}
           </div>
