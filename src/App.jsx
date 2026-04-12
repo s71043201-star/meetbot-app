@@ -156,6 +156,88 @@ function Stepper({ value, min, max, onChange, suffix="" }) {
   );
 }
 
+// ── 新增單筆任務表單（獨立元件，避免父層 re-render 干擾 IME）──
+function ManualTaskForm({ isAdmin, currentUser, onAdd }) {
+  const [title, setTitle] = useState("");
+  const [meeting, setMeeting] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [assignees, setAssignees] = useState([]);
+  const [priority, setPriority] = useState("medium");
+
+  const submit = () => {
+    if (!title.trim()) return;
+    onAdd({ title: title.trim(), assignees, deadline, meeting: meeting.trim(), priority });
+    setTitle(""); setMeeting(""); setDeadline(""); setAssignees([]); setPriority("medium");
+  };
+
+  return (
+    <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginBottom:16 }}>
+      <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:22 }}>新增單筆任務</div>
+      <input
+        placeholder="任務名稱"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+      />
+      {isAdmin ? (
+        <div style={{ marginBottom:10 }}>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>負責人（可多選）</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {TEAM.map(name => {
+              const sel = assignees.includes(name);
+              return (
+                <div key={name} onClick={() => setAssignees(a => sel ? a.filter(n=>n!==name) : [...a, name])}
+                  style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 12px 6px 6px", borderRadius:20, cursor:"pointer",
+                    background: sel ? "rgba(79,140,255,0.15)" : "var(--surf)",
+                    border: `1.5px solid ${sel ? "var(--accent)" : "var(--border)"}`, transition:"all 0.2s" }}>
+                  <Avatar name={name} size={22}/>
+                  <span style={{ fontSize:14, fontWeight: sel?600:400, color: sel?"var(--accent)":"var(--muted)" }}>{name}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+          <Avatar name={currentUser} size={22}/> {currentUser}（自己）
+        </div>
+      )}
+      <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4 }}>截止日期（例行任務可留空）</div>
+      <input
+        type="date"
+        value={deadline}
+        onChange={e => setDeadline(e.target.value)}
+        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
+      />
+      <input
+        placeholder="會議名稱（選填）"
+        value={meeting}
+        onChange={e => setMeeting(e.target.value)}
+        style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:14, outline:"none" }}
+      />
+      {ADMINS.includes(currentUser) && (
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {PRIORITIES.map(p => (
+              <div key={p.key} onClick={() => setPriority(p.key)}
+                style={{
+                  flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
+                  textAlign:"center", minWidth:60,
+                  background: priority===p.key ? p.bg : "var(--surf)",
+                  color: priority===p.key ? p.color : "var(--muted)",
+                  border: `1.5px solid ${priority===p.key ? p.color : "var(--border)"}`,
+                  transition:"all 0.2s"
+                }}>{p.label}</div>
+            ))}
+          </div>
+        </div>
+      )}
+      <button onClick={submit} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:18, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
+    </div>
+  );
+}
+
 // ── 進度備註 Modal ────────────────────────────
 function NoteModal({ task, onSave, onClose }) {
   const [note, setNote] = useState(task.progressNote || "");
@@ -1668,7 +1750,6 @@ export default function MeetBot() {
   const [parsing,      setParsing]      = useState(false);
   const [parseResult,  setParseResult]  = useState(null);
   const [docName,      setDocName]      = useState("");
-  const [manualForm,   setManualForm]   = useState({ title:"", assignees:[], deadline:"", meeting:"", priority:"medium" });
   const [toast,        setToast]        = useState(null);
   const [savedPulse,   setSavedPulse]   = useState(false);
   const [editingTask,  setEditingTask]  = useState(null); // 備註 modal
@@ -1700,8 +1781,6 @@ export default function MeetBot() {
 
   const fileRef       = useRef();
   const rootRef       = useRef();
-  const titleRef      = useRef();
-  const meetingRef    = useRef();
   const isFirstRender = useRef(true);
   const isSaving      = useRef(false);
   const tasksRef      = useRef([]);
@@ -1836,28 +1915,20 @@ export default function MeetBot() {
     showToast(`已同步 ${newTasks.length} 項任務給全團隊`);
   };
 
-  const addManualTask = () => {
-    const title = titleRef.current?.value || "";
-    const meeting = meetingRef.current?.value || "";
-    if (!title.trim()) {
-      showToast("請填寫任務名稱","#ff5b79"); return;
-    }
-    const assignees = isAdmin ? manualForm.assignees : [currentUser];
+  const addManualTask = ({ title, assignees: formAssignees, deadline, meeting, priority }) => {
+    const assignees = isAdmin ? formAssignees : [currentUser];
     if (assignees.length === 0) {
       showToast("請選擇至少一位負責人","#ff5b79"); return;
     }
     const newTask = {
-      id: Date.now(), title: title.trim(),
-      assignee: assignees.join(","), deadline: manualForm.deadline || "",
-      meeting: meeting.trim() || (manualForm.deadline ? "手動新增" : "例行任務"),
-      done: false, priority: manualForm.priority || "medium",
+      id: Date.now(), title,
+      assignee: assignees.join(","), deadline: deadline || "",
+      meeting: meeting || (deadline ? "手動新增" : "例行任務"),
+      done: false, priority: priority || "medium",
       deletedAt: null, createdAt: today(),
       progressNote: "", progressNoteTime: "",
     };
     setTasks(prev => [newTask, ...prev]);
-    if (titleRef.current) titleRef.current.value = "";
-    if (meetingRef.current) meetingRef.current.value = "";
-    setManualForm({ title:"", assignees:[], deadline:"", meeting:"", priority:"medium" });
     showToast("已新增 1 項任務");
   };
 
@@ -2908,70 +2979,7 @@ export default function MeetBot() {
   // ── 上傳內容 ──
   const uploadContent = (
     <div className="mb-content-pad">
-      <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:"16px", marginBottom:16 }}>
-        <div style={{ fontWeight:700, color:"var(--text)", marginBottom:14, fontSize:22 }}>新增單筆任務</div>
-        <input
-          ref={titleRef}
-          placeholder="任務名稱"
-          defaultValue=""
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
-        />
-        {isAdmin ? (
-          <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>負責人（可多選）</div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-              {TEAM.map(name => {
-                const sel = manualForm.assignees.includes(name);
-                return (
-                  <div key={name} onClick={()=>setManualForm(f=>({...f,assignees: sel ? f.assignees.filter(n=>n!==name) : [...f.assignees, name]}))}
-                    style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 12px 6px 6px", borderRadius:20, cursor:"pointer",
-                      background: sel ? "rgba(79,140,255,0.15)" : "var(--surf)",
-                      border: `1.5px solid ${sel ? "var(--accent)" : "var(--border)"}`, transition:"all 0.2s" }}>
-                    <Avatar name={name} size={22}/>
-                    <span style={{ fontSize:14, fontWeight: sel?600:400, color: sel?"var(--accent)":"var(--muted)" }}>{name}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
-            <Avatar name={currentUser} size={22}/> {currentUser}（自己）
-          </div>
-        )}
-        <div style={{ fontSize:14, color:"var(--muted)", marginBottom:4 }}>截止日期（例行任務可留空）</div>
-        <input
-          type="date"
-          value={manualForm.deadline}
-          onChange={e=>setManualForm(f=>({...f,deadline:e.target.value}))}
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:10, outline:"none" }}
-        />
-        <input
-          ref={meetingRef}
-          placeholder="會議名稱（選填）"
-          defaultValue=""
-          style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid var(--border)", background:"var(--bg)", color:"var(--text)", fontSize:15, fontFamily:"inherit", marginBottom:14, outline:"none" }}
-        />
-        {ADMINS.includes(currentUser) && (
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:14, color:"var(--muted)", marginBottom:6, fontWeight:600 }}>優先等級</div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {PRIORITIES.map(p => (
-                <div key={p.key} onClick={() => setManualForm(f=>({...f,priority:p.key}))}
-                  style={{
-                    flex:1, padding:"9px 8px", borderRadius:10, cursor:"pointer", fontSize:14, fontWeight:600,
-                    textAlign:"center", minWidth:60,
-                    background: manualForm.priority===p.key ? p.bg : "var(--surf)",
-                    color: manualForm.priority===p.key ? p.color : "var(--muted)",
-                    border: `1.5px solid ${manualForm.priority===p.key ? p.color : "var(--border)"}`,
-                    transition:"all 0.2s"
-                  }}>{p.label}</div>
-              ))}
-            </div>
-          </div>
-        )}
-        <button onClick={addManualTask} style={{ width:"100%", padding:"14px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),#7c5fe6)", color:"#fff", fontSize:18, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>新增任務</button>
-      </div>
+      <ManualTaskForm isAdmin={isAdmin} currentUser={currentUser} onAdd={addManualTask} />
       {canUpload && <>
       <div onClick={()=>!parsing&&fileRef.current.click()} style={{ border:`2px dashed ${parsing?"var(--accent)":"var(--border)"}`, borderRadius:16, padding:"36px 20px", textAlign:"center", cursor:"pointer", background:"var(--card)", marginBottom:16, transition:"border-color 0.2s" }}>
         <input ref={fileRef} type="file" accept=".docx" onChange={handleFile} style={{ display:"none" }}/>
