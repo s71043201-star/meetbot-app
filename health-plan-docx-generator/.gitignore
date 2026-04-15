@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+build/
+dist/
+*.spec
+output*/
+test_output*/
+output/
+output_april/
+test_receipt*
+*.pdf
