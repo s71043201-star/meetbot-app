@@ -379,19 +379,32 @@ class App(ctk.CTk):
         }
 
         def _match_clinic(institution):
-            """依序嘗試精確→子字串→首字元比對，回傳人名或 None"""
+            """依序嘗試精確→子字串→最長共同前綴比對，回傳人名或 None"""
             if institution in clinic_to_person:
                 return clinic_to_person[institution]
             # 子字串比對（雙向）
             for key, person in clinic_to_person.items():
                 if key in institution or institution in key:
                     return person
-            # 首字元比對（如「洪耳鼻喉科診所」vs「洪ENT」）
+            # 最長共同前綴比對（≥3字即視為同一診所）
+            # 例：「王志靈內科診所」vs「王志靈診所」→ 前綴「王志靈」=3字 → 匹配
             if institution:
-                first = institution[0]
-                cands = [(k, v) for k, v in clinic_to_person.items() if k and k[0] == first]
-                if len(cands) == 1:
-                    return cands[0][1]
+                best_person = None
+                best_len = 0
+                for key, person in clinic_to_person.items():
+                    if not key:
+                        continue
+                    prefix_len = 0
+                    for a, b in zip(institution, key):
+                        if a == b:
+                            prefix_len += 1
+                        else:
+                            break
+                    if prefix_len >= 3 and prefix_len > best_len:
+                        best_len = prefix_len
+                        best_person = person
+                if best_person:
+                    return best_person
             return None
 
         for hm in data.health_mgmts:
