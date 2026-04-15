@@ -139,8 +139,12 @@ def load_receipts_from_dir(dir_path: str,
                         # 把這筆移到以人名為 key
                         lookup.pop(name, None)
                         existing.recipient_name = name  # 診所名保留給具領人
+                        existing.clinic_name = name     # 同時存入所屬診所欄
                         lookup[an] = existing
                         key_name = an
+                    else:
+                        # 找不到人名，以診所名為 key，診所名也存進 clinic_name
+                        existing.clinic_name = name
 
                 status = "[OK]" if has_data else "[--]"
                 log(f"  ({i}/{total}) {status} [{role}] {key_name}")
@@ -185,11 +189,20 @@ def _extract_name_from_filename(base: str) -> str:
     # 格式 1/2/3：個人核銷領據-YYYYMM月-[分類or姓名]-...
     if parts and "核銷領據" in parts[0]:
         if len(parts) >= 3:
-            # 健康管理費：parts[2]="健康管理費"，parts[3]=診所名稱（直接取，不過_is_valid_name）
+            # 健康管理費格式：
+            #   A) ...-健康管理費-{人名}$金額           → 直接回傳人名
+            #   B) ...-健康管理費-{診所名}-{人名}$金額  → 人名在 parts[4]
+            #   C) ...-健康管理費-{診所名}$金額         → 靠 Word 戶名換人名
             if "健康管理費" in parts[2] and len(parts) >= 4:
-                candidate = _strip_amount(parts[3]).strip()
-                if candidate:
-                    return candidate
+                p3 = _strip_amount(parts[3]).strip()
+                # 格式 B：parts[4] 是有效人名 → 優先使用
+                if len(parts) >= 5:
+                    p4 = _strip_amount(parts[4]).strip()
+                    if p4 and _is_valid_name(p4):
+                        return p4
+                # 格式 A or C：parts[3] 直接回傳
+                if p3:
+                    return p3
             # parts[2] 可能是姓名或分類詞（情緒/運動/社會/營養）
             candidate = _strip_amount(parts[2])
             if _is_valid_name(candidate):
