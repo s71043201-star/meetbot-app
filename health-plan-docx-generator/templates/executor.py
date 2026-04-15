@@ -198,7 +198,7 @@ def generate_executor_receipts(data: AllData, output_dir: str,
         out_path = os.path.join(output_dir, f"{name}_領據.docx")
         generate_receipt(
             receipt, data.report_year, data.report_month,
-            out_path, fee_type=executor.prescription_type + "處方處方處置費",
+            out_path, fee_type=executor.prescription_type + "處方處置費",
         )
 
 

@@ -117,15 +117,21 @@ def _fix_personal_info_indent(doc):
         if not any(kw in txt for kw in INFO_KWS):
             continue
 
-        # 移除開頭的純空白 run
+        # 有 anchor drawing 的段落（具領人用印）跳過，不加縮排
+        WPD = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+        if any(True for _ in p.iter(f"{{{WPD}}}anchor")):
+            continue
+
+        # 移除開頭的純空白 run（圖框旁段落有前置空格，圖框下方則無）
         for r in list(p.findall(qn("w:r"))):
             run_txt = "".join(t.text or "" for t in r.iter(qn("w:t")))
             if run_txt and run_txt.strip() == "":
                 p.remove(r)
             else:
-                break  # 碰到有內容的 run 就停
+                break
 
-        # 加左縮排（所有行，含換行，都從圖框右側開始）
+        # 所有個資欄位統一加相同左縮排，確保對齊
+        # （圖框旁：避免被蓋住；圖框下方：視覺對齊）
         pPr = p.find(qn("w:pPr"))
         if pPr is None:
             pPr = parse_xml(f'<w:pPr {nsdecls("w")}/>')
