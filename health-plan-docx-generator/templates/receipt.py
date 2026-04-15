@@ -386,7 +386,38 @@ def _fill_para_after_colon(para, value: str):
                 for wt in wts:
                     if (wt.text or "").strip():
                         _shrink_run_font(wt, max_sz=max_sz)
+                # 超長文字（地址等）額外水平壓縮，整行含空白都縮
+                # >25字 → 60%；>20字 → 70%；>14字 → 80%
+                if len(value) > 14:
+                    if len(value) > 25:
+                        w_val = 60
+                    elif len(value) > 20:
+                        w_val = 70
+                    else:
+                        w_val = 80
+                    for wt in wts:
+                        _condense_run_width(wt, w_val=w_val)
             return
+
+
+def _condense_run_width(wt_elem, w_val: int = 75):
+    """水平縮放字元寬度（w:w），讓超長文字在同行顯示。
+    w_val=75 表示 75% 寬度；含前置空白 run 也壓縮以釋放更多空間。
+    """
+    from lxml import etree
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+    run = wt_elem.getparent()
+    if run is None:
+        return
+    rPr = run.find(qn("w:rPr"))
+    if rPr is None:
+        rPr = parse_xml(f'<w:rPr {nsdecls("w")}/>')
+        run.insert(0, rPr)
+    w_elem = rPr.find(qn("w:w"))
+    if w_elem is None:
+        w_elem = etree.SubElement(rPr, qn("w:w"))
+    w_elem.set(qn("w:val"), str(w_val))
 
 
 def _shrink_run_font(wt_elem, max_sz: int = 28):
