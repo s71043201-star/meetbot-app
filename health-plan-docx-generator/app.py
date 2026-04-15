@@ -364,6 +364,41 @@ class App(ctk.CTk):
         generate_health_mgmt_excel(raw_records, prefix, hm_dir)
         self.after(0, lambda: self._log("[OK] Excel 統計檔 (3 份)"))
 
+        # 預先載入人員個資（整個 _do_generate 共用）
+        receipt_lookup = {}
+        db_path = self.var_people_db.get().strip()
+        if db_path and os.path.exists(db_path):
+            self.after(0, lambda: self._log("讀取人員個資檔..."))
+            receipt_lookup = load_people_db(db_path)
+
+        # 建立「診所名 → 人名」反查表（用於健管費診所人員修正）
+        clinic_to_person = {
+            info.clinic_name: person_name
+            for person_name, info in receipt_lookup.items()
+            if info.role == "診所行政人員" and info.clinic_name
+        }
+
+        def _match_clinic(institution):
+            """依序嘗試精確→子字串→首字元比對，回傳人名或 None"""
+            if institution in clinic_to_person:
+                return clinic_to_person[institution]
+            # 子字串比對（雙向）
+            for key, person in clinic_to_person.items():
+                if key in institution or institution in key:
+                    return person
+            # 首字元比對（如「洪耳鼻喉科診所」vs「洪ENT」）
+            if institution:
+                first = institution[0]
+                cands = [(k, v) for k, v in clinic_to_person.items() if k and k[0] == first]
+                if len(cands) == 1:
+                    return cands[0][1]
+            return None
+
+        for hm in data.health_mgmts:
+            person = _match_clinic(hm.medical_institution)
+            if person:
+                hm.clinic_person = person
+
         steps_done = 0
         total_steps = sum([
             self.var_gen_presc.get(),
@@ -417,7 +452,7 @@ class App(ctk.CTk):
         if self.var_gen_health.get() and data.health_mgmts:
             d = subdir("健康管理費")
             path = os.path.join(d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
-            generate_health_mgmt_doc(data, path)
+            generate_health_mgmt_doc(data, path, min_prescriptions=min_presc)
             self._docx_to_pdf(path)
             self.after(0, lambda: self._log("[OK] 健康管理費總表 + PDF"))
             step()
@@ -440,13 +475,6 @@ class App(ctk.CTk):
         # 子資料夾 4: 執行人員領據（處方處置費，含總表+明細合併PDF）
         if self.var_gen_receipt.get() and data.executors:
             d = subdir("處方處置費領據")
-
-            receipt_lookup = {}
-            db_path = self.var_people_db.get().strip()
-            if db_path and os.path.exists(db_path):
-                self.after(0, lambda: self._log("讀取人員個資檔..."))
-                receipt_lookup = load_people_db(db_path)
-
             self.after(0, lambda: self._log("產生處方處置費領據（含PDF）..."))
             generate_executor_merged_docs(data, d, also_pdf=True,
                                           receipt_lookup=receipt_lookup)
@@ -457,11 +485,6 @@ class App(ctk.CTk):
 
         # 子資料夾 5: 醫師處方費/執行費領據（各自獨立子資料夾）
         if self.var_gen_doctor_receipt.get() and data.doctors:
-            receipt_lookup = {}
-            db_path = self.var_people_db.get().strip()
-            if db_path and os.path.exists(db_path):
-                receipt_lookup = load_people_db(db_path)
-            # 處方費 → 子資料夾「處方費」，處方執行費 → 子資料夾「處方執行費」
             d_presc = subdir("處方費領據")
             d_exec  = subdir("處方執行費領據")
             generate_doctor_receipts(data, d_presc, d_exec,

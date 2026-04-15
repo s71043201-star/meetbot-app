@@ -196,7 +196,7 @@ def _append_confirm_after_amount_table(doc, fee_type: str):
                     txt = t.text or ""
                     if "應付" in txt or "新臺幣" in txt:
                         # 把確認文字加在金額前面，用逗號相連
-                        prefix = f"{fee_type}處方處置費，確認金額明細如附件所示無誤請簽名，"
+                        prefix = f"{fee_type}，確認金額明細如附件所示無誤請簽名，"
                         t.text = prefix + txt
                         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
                         break
@@ -225,7 +225,7 @@ def _insert_fee_type(all_texts, fee_type: str):
     for t in all_texts:
         txt = t.text or ""
         if "照護計畫" in txt:
-            t.text = txt + fee_type + "處方處置費，確認金額明細如附件所示無誤請簽名"
+            t.text = txt + fee_type + "，確認金額明細如附件所示無誤請簽名"
             return
 
 
@@ -375,10 +375,16 @@ def _fill_para_after_colon(para, value: str):
             # firstLine indent 段落縮小字體會影響縮排比例（不縮）
             has_first_line = _para_has_firstline_indent(para)
             if not has_first_line and len(value) > 11:
-                # 標籤文字 + 值縮小（前置空格 run 跳過）
+                # 自適應字體大小：讓長文字盡量在一行內顯示
+                # 14pt（28 half-pt）約可放 18 個中文字；依比例縮，最小 10pt（20）
+                CHARS_AT_14PT = 18
+                if len(value) > CHARS_AT_14PT:
+                    max_sz = max(20, int(28 * CHARS_AT_14PT / len(value)))
+                else:
+                    max_sz = 28  # 14pt
                 for wt in wts:
-                    if (wt.text or "").strip():  # 非純空白才縮
-                        _shrink_run_font(wt, max_sz=28)  # 28 half-pt = 14pt
+                    if (wt.text or "").strip():
+                        _shrink_run_font(wt, max_sz=max_sz)
             return
 
 
@@ -541,7 +547,7 @@ def _restructure_receipt_table(doc, fee_type: str):
     # 3. 在表格位置插入三個純文字段落（zi → fee → amount）
     tbl_parent = target_tbl.getparent()
     amount_p = make_para(amount_text)
-    fee_p    = make_para(f"{fee_type}處方處置費。")
+    fee_p    = make_para(f"{fee_type}。")
     zi_p     = make_para(zi_text + "-")
 
     # addprevious 每次都插在 table 正前方，所以按 zi→fee→amount 順序插
