@@ -96,7 +96,7 @@ def generate_doctor_receipts(data: AllData,
             receipt = replace(base_receipt, amount=doc_data.prescription_fee)
             out = os.path.join(presc_dir, f"{name}_處方費領據.docx")
             generate_receipt(receipt, data.report_year, data.report_month,
-                             out, fee_type="處方")
+                             out, fee_type="運動、營養、社會情緒調適處方處方費")
             docx_to_convert.append(out)
 
         # 處方執行費領據 → 處方執行費領據資料夾
@@ -104,7 +104,7 @@ def generate_doctor_receipts(data: AllData,
             receipt = replace(base_receipt, amount=doc_data.execution_fee)
             out = os.path.join(exec_dir, f"{name}_處方執行費領據.docx")
             generate_receipt(receipt, data.report_year, data.report_month,
-                             out, fee_type="處方執行")
+                             out, fee_type="運動、營養、社會情緒調適處方處方執行費")
             docx_to_convert.append(out)
 
         # 各自轉成獨立 PDF
@@ -198,7 +198,7 @@ def generate_executor_receipts(data: AllData, output_dir: str,
         out_path = os.path.join(output_dir, f"{name}_領據.docx")
         generate_receipt(
             receipt, data.report_year, data.report_month,
-            out_path, fee_type=executor.prescription_type,
+            out_path, fee_type=executor.prescription_type + "處方處方處置費",
         )
 
 

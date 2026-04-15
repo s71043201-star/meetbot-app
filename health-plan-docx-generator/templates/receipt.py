@@ -374,12 +374,13 @@ def _fill_para_after_colon(para, value: str):
             # 只有「空格縮排」段落（無 firstLine indent）才縮小字體；
             # firstLine indent 段落縮小字體會影響縮排比例（不縮）
             has_first_line = _para_has_firstline_indent(para)
-            if not has_first_line and len(value) > 11:
-                # 自適應字體大小：讓長文字盡量在一行內顯示
-                # 14pt（28 half-pt）約可放 18 個中文字；依比例縮，最小 10pt（20）
-                CHARS_AT_14PT = 18
+            if not has_first_line and len(value) > 7:
+                # 自適應字體：讓填入值盡量在一行內顯示，避免換行產生空白視覺行
+                # 實測：標籤+前置空格佔去大量寬度，每行有效放約 9 字（14pt 基準）
+                # 比例縮小，最小 9pt（18 half-pt）
+                CHARS_AT_14PT = 9
                 if len(value) > CHARS_AT_14PT:
-                    max_sz = max(20, int(28 * CHARS_AT_14PT / len(value)))
+                    max_sz = max(18, int(28 * CHARS_AT_14PT / len(value)))
                 else:
                     max_sz = 28  # 14pt
                 for wt in wts:
