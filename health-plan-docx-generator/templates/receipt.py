@@ -62,6 +62,9 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     # === 替換具領人名字 ===
     _replace_name(all_texts, receipt.recipient_name)
 
+    # === 個資段落：移除前置空格，改用 paragraph indent 對齊圖框右側 ===
+    _fix_personal_info_indent(doc)
+
     # === 填入個人資料（身分證、地址、電話、銀行資訊）===
     _fill_personal_info(doc, receipt)
 
@@ -70,6 +73,69 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
         _restructure_receipt_table(doc, fee_type)
 
     doc.save(output_path)
+
+
+def _fix_personal_info_indent(doc):
+    """移除個資段落前置空格 run，改用段落左縮排對齊「具領人用印」圖框右側。
+
+    原本前置空格只推開第一行，換行後第二行從左邊界開始被圖框蓋住（看起來空白）。
+    改用 w:ind w:left 後，所有行（含換行）都從圖框右側開始，地址有完整 ~11cm 可用。
+    """
+    from lxml import etree
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    WPD = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+    body = doc.element.body
+
+    # 1. 從 anchor 計算「具領人用印」圖框右側位置（twips）
+    indent_twips = 3240  # 預設 ~5.7cm（6.03cm anchor - 0.31cm offset）
+    for p in body.findall(qn("w:p")):
+        for anchor in p.iter(f"{{{WPD}}}anchor"):
+            pos_h = anchor.find(f"{{{WPD}}}positionH")
+            extent = anchor.find(f"{{{WPD}}}extent")
+            if pos_h is None or extent is None:
+                continue
+            pos_off = pos_h.find(f"{{{WPD}}}posOffset")
+            if pos_off is None:
+                continue
+            h_off_emu = int(pos_off.text or "0")
+            # 只處理左側 anchor（offset 接近 0 或負值）
+            if h_off_emu > 1_000_000:
+                continue
+            cx_emu = int(extent.get("cx", 0))
+            right_emu = h_off_emu + cx_emu
+            # EMU → twips（1 twip = 635 EMU）
+            indent_twips = max(2000, int(right_emu / 635))
+            break
+
+    # 2. 個資段落關鍵字
+    INFO_KWS = ("具領", "身分證", "戶籍", "聯絡電話", "戶名", "銀行", "帳號")
+
+    for p in body.findall(qn("w:p")):
+        txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
+        if not any(kw in txt for kw in INFO_KWS):
+            continue
+
+        # 移除開頭的純空白 run
+        for r in list(p.findall(qn("w:r"))):
+            run_txt = "".join(t.text or "" for t in r.iter(qn("w:t")))
+            if run_txt and run_txt.strip() == "":
+                p.remove(r)
+            else:
+                break  # 碰到有內容的 run 就停
+
+        # 加左縮排（所有行，含換行，都從圖框右側開始）
+        pPr = p.find(qn("w:pPr"))
+        if pPr is None:
+            pPr = parse_xml(f'<w:pPr {nsdecls("w")}/>')
+            p.insert(0, pPr)
+        ind = pPr.find(qn("w:ind"))
+        if ind is None:
+            ind = etree.SubElement(pPr, qn("w:ind"))
+        # 只有在沒有 firstLine indent 時才設 left（避免破壞縮排結構）
+        if ind.get(qn("w:firstLine")) is None:
+            ind.set(qn("w:left"), str(indent_twips))
 
 
 def _replace_year_month(all_texts, year: int, month: int):
