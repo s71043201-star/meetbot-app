@@ -43,22 +43,61 @@ def load_receipts_from_dir(dir_path: str,
     if not dir_path or not os.path.isdir(dir_path):
         return {}
 
-    # 第一步：掃描所有檔案，每人只保留一個最佳檔案（.docx 優先）
-    best: dict[str, tuple[str, str]] = {}  # name → (fpath, ext)
-    for fname in os.listdir(dir_path):
-        base, ext = os.path.splitext(fname)
-        ext_lower = ext.lower()
-        if ext_lower not in (".doc", ".docx"):
-            continue
-        if "領據" not in base and "receipt" not in base.lower():
-            continue
-        name = _extract_name_from_filename(base)
-        if not name:
-            continue
-        fpath = os.path.join(dir_path, fname)
-        # 同名時：.docx 優先，否則保留已有的
-        if name not in best or ext_lower == ".docx":
-            best[name] = (fpath, ext_lower)
+    # 資料夾名稱 → 角色對應（優先於檔名判斷）
+    FOLDER_ROLE_MAP = {
+        # 醫師類
+        "醫師": "醫師",
+        "處方執行費": "醫師",
+        "處方處方費": "醫師",
+        "處方費": "醫師",
+        # 課程老師類
+        "課程老師": "課程老師",
+        "老師": "課程老師",
+        "處方處置費": "課程老師",
+        # 診所行政人員類
+        "健康管理費": "診所行政人員",
+        "診所行政": "診所行政人員",
+        "行政人員": "診所行政人員",
+        "健管": "診所行政人員",
+    }
+
+    def _folder_role(folder_path: str) -> str:
+        """從資料夾名稱判斷角色，找不到就回傳空字串（靠檔名判斷）"""
+        folder_name = os.path.basename(folder_path)
+        for kw, r in FOLDER_ROLE_MAP.items():
+            if kw in folder_name:
+                return r
+        return ""
+
+    # 第一步：遞迴掃描所有檔案，每人只保留一個最佳檔案（.docx 優先）
+    best: dict[str, tuple[str, str, str]] = {}  # name → (fpath, ext, role)
+    for root, _dirs, files in os.walk(dir_path):
+        folder_forced_role = _folder_role(root)  # 資料夾強制角色（空=靠檔名）
+        for fname in files:
+            base, ext = os.path.splitext(fname)
+            ext_lower = ext.lower()
+            if ext_lower not in (".doc", ".docx"):
+                continue
+            if "領據" not in base and "receipt" not in base.lower():
+                continue
+            name = _extract_name_from_filename(base)
+            if not name:
+                continue
+            # 角色：資料夾名稱優先，否則靠檔名判斷
+            role = folder_forced_role or _detect_role_from_filename(base)
+            fpath = os.path.join(root, fname)
+            # 同名時：資料夾強制角色 > 醫師 > 其他；再比 .docx 優先
+            if name not in best:
+                best[name] = (fpath, ext_lower, role)
+            else:
+                prev_role = best[name][2]
+                # 有資料夾強制角色的優先
+                if folder_forced_role and not _folder_role(os.path.dirname(best[name][0])):
+                    best[name] = (fpath, ext_lower, role)
+                elif role == "醫師" and prev_role != "醫師" and not folder_forced_role:
+                    best[name] = (fpath, ext_lower, role)
+                elif ext_lower == ".docx" and best[name][1] != ".docx":
+                    best[name] = (fpath, ext_lower, role)
 
     if not best:
         return {}
@@ -67,7 +106,7 @@ def load_receipts_from_dir(dir_path: str,
     log(f"找到 {total} 位人員，開始讀取...")
 
     # 第二步：.doc 批次轉換（只開關 Word 一次）
-    doc_items = [(n, p) for n, (p, e) in best.items() if e == ".doc"]
+    doc_items = [(n, p) for n, (p, e, r) in best.items() if e == ".doc"]
     docx_cache: dict[str, str] = {}
     if doc_items:
         log(f"轉換 {len(doc_items)} 個 .doc 檔（請稍候）...")
@@ -75,8 +114,8 @@ def load_receipts_from_dir(dir_path: str,
 
     # 第三步：逐一讀取
     lookup: dict[str, ReceiptInfo] = {}
-    for i, (name, (fpath, ext_lower)) in enumerate(best.items(), 1):
-        lookup[name] = ReceiptInfo(recipient_name=name)
+    for i, (name, (fpath, ext_lower, role)) in enumerate(best.items(), 1):
+        lookup[name] = ReceiptInfo(recipient_name=name, role=role)
         try:
             read_path = docx_cache.get(fpath, fpath) if ext_lower == ".doc" else fpath
             read_ext  = ".docx" if ext_lower == ".doc" else ext_lower
@@ -90,12 +129,25 @@ def load_receipts_from_dir(dir_path: str,
                     if not getattr(existing, field) and getattr(info, field):
                         setattr(existing, field, getattr(info, field))
                         has_data = True
+
+                # 診所行政人員：若戶名是有效人名，以戶名作為 Excel 姓名鍵值
+                # 診所名稱保留在 recipient_name（具領人欄位，印在領據上）
+                key_name = name
+                if role == "診所行政人員":
+                    an = (existing.account_name or "").strip()
+                    if an and _is_valid_name(an) and an != name:
+                        # 把這筆移到以人名為 key
+                        lookup.pop(name, None)
+                        existing.recipient_name = name  # 診所名保留給具領人
+                        lookup[an] = existing
+                        key_name = an
+
                 status = "[OK]" if has_data else "[--]"
-                log(f"  ({i}/{total}) {status} {name}")
+                log(f"  ({i}/{total}) {status} [{role}] {key_name}")
             else:
-                log(f"  ({i}/{total}) [--] {name} (僅記錄名字)")
+                log(f"  ({i}/{total}) [--] [{role}] {name} (僅記錄名字)")
         except Exception:
-            log(f"  ({i}/{total}) [NG] {name} (讀取失敗)")
+            log(f"  ({i}/{total}) [NG] [{role}] {name} (讀取失敗)")
 
     # 清理暫存 .docx
     for tmp in docx_cache.values():
@@ -114,17 +166,31 @@ def _extract_name_from_filename(base: str) -> str:
     2. 個人核銷領據(不扣稅)-11503月-情緒-呂惠萍$4,800     → 呂惠萍
     3. 個人核銷領據(不扣稅)-11503月-健康管理費-王永良診所  → 跳過（診所）
     4. 領據-扣稅-11503月-李政璋-處方費$38400              → 李政璋
+    5. 何叔芳_領據                                        → 何叔芳（執行人員格式）
+    6. 何叔芳_處方費領據 / 何叔芳_處方執行費領據            → 何叔芳（醫師格式）
     """
     import re
     # 去掉括號內容
     base = re.sub(r"[（(][^）)]*[）)]", "", base).strip()
+
+    # 格式 5/6：{姓名}_領據 / {姓名}_處方費領據 / {姓名}_處方執行費領據
+    # 下底線分隔，第一段就是姓名
+    if "_" in base and "領據" in base:
+        candidate = _strip_amount(base.split("_")[0]).strip()
+        if _is_valid_name(candidate):
+            return candidate
 
     parts = [p.strip() for p in base.split("-")]
 
     # 格式 1/2/3：個人核銷領據-YYYYMM月-[分類or姓名]-...
     if parts and "核銷領據" in parts[0]:
         if len(parts) >= 3:
-            # parts[2] 可能是姓名或分類詞（情緒/運動/社會/營養/健康管理費）
+            # 健康管理費：parts[2]="健康管理費"，parts[3]=診所名稱（直接取，不過_is_valid_name）
+            if "健康管理費" in parts[2] and len(parts) >= 4:
+                candidate = _strip_amount(parts[3]).strip()
+                if candidate:
+                    return candidate
+            # parts[2] 可能是姓名或分類詞（情緒/運動/社會/營養）
             candidate = _strip_amount(parts[2])
             if _is_valid_name(candidate):
                 return candidate
@@ -142,6 +208,33 @@ def _extract_name_from_filename(base: str) -> str:
                 return candidate
 
     return ""  # 無法解析就跳過
+
+
+def _detect_role_from_filename(base: str) -> str:
+    """從檔名判斷角色：
+    - 醫師：處方費、處方執行費
+    - 課程老師：處方處置費
+    - 診所行政人員：健康管理費
+    """
+    # 處方費 / 處方執行費 → 醫師
+    if "處方執行費" in base:
+        return "醫師"
+    if "處方費" in base and "處置" not in base:
+        return "醫師"
+    # 扣稅領據（金額大）→ 醫師
+    if "扣稅" in base:
+        return "醫師"
+    # 處方處置費 → 課程老師
+    if "處方處置費" in base:
+        return "課程老師"
+    # 健康管理費 → 診所行政人員
+    if "健康管理費" in base:
+        return "診所行政人員"
+    # {姓名}_領據（執行人員格式）→ 課程老師
+    if "_領據" in base and "處方" not in base:
+        return "課程老師"
+    # 個人核銷領據 預設課程老師
+    return "課程老師"
 
 
 def _strip_amount(s: str) -> str:

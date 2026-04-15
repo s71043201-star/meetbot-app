@@ -12,10 +12,11 @@ import os
 import openpyxl
 from models import ReceiptInfo
 
-COLUMNS = ["姓名", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號"]
+COLUMNS = ["姓名", "角色", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號"]
 
 FIELD_MAP = {
     "姓名":     "recipient_name",
+    "角色":     "role",
     "身分證字號": "id_number",
     "戶籍地址":  "address",
     "聯絡電話":  "phone",
@@ -38,13 +39,17 @@ def create_template(path: str):
         cell.font = openpyxl.styles.Font(bold=True)
 
     # 欄寬
-    widths = [10, 14, 30, 14, 10, 20, 10, 20]
+    widths = [10, 10, 14, 30, 14, 10, 20, 10, 20]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
     # 範例資料（第二列）
-    ws.append(["王永良", "A123456789", "台北市中山區中山北路一段1號",
+    ws.append(["王永良", "醫師", "A123456789", "台北市中山區中山北路一段1號",
                 "02-1234-5678", "王永良", "台灣銀行中山分行", "004", "123456789012"])
+    # 備註列：角色說明
+    note_row = ws.max_row + 1
+    ws.cell(row=note_row, column=1, value="※ 角色填寫：醫師 / 課程老師 / 診所行政人員")
+    ws.cell(row=note_row, column=1).font = openpyxl.styles.Font(color="808080", italic=True)
 
     wb.save(path)
     pass
@@ -69,6 +74,7 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
             from dataclasses import replace
             merged[name] = replace(
                 old,
+                role=info.role or old.role,  # 優先用新偵測到的角色
                 id_number=old.id_number or info.id_number,
                 address=old.address or info.address,
                 phone=old.phone or info.phone,
@@ -89,19 +95,20 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
         cell = ws.cell(row=1, column=col, value=name)
         cell.font = openpyxl.styles.Font(bold=True)
 
-    widths = [10, 14, 30, 14, 10, 20, 10, 20]
+    widths = [10, 10, 14, 30, 14, 10, 20, 10, 20]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
     for row_idx, (name, info) in enumerate(sorted(merged.items()), 2):
         ws.cell(row=row_idx, column=1, value=name)
-        ws.cell(row=row_idx, column=2, value=info.id_number or "")
-        ws.cell(row=row_idx, column=3, value=info.address or "")
-        ws.cell(row=row_idx, column=4, value=info.phone or "")
-        ws.cell(row=row_idx, column=5, value=info.account_name or "")
-        ws.cell(row=row_idx, column=6, value=info.bank_branch or "")
-        ws.cell(row=row_idx, column=7, value=info.bank_code or "")
-        ws.cell(row=row_idx, column=8, value=info.account_number or "")
+        ws.cell(row=row_idx, column=2, value=info.role or "")
+        ws.cell(row=row_idx, column=3, value=info.id_number or "")
+        ws.cell(row=row_idx, column=4, value=info.address or "")
+        ws.cell(row=row_idx, column=5, value=info.phone or "")
+        ws.cell(row=row_idx, column=6, value=info.account_name or "")
+        ws.cell(row=row_idx, column=7, value=info.bank_branch or "")
+        ws.cell(row=row_idx, column=8, value=info.bank_code or "")
+        ws.cell(row=row_idx, column=9, value=info.account_number or "")
 
     wb.save(path)
     return len(merged)

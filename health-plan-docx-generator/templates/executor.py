@@ -11,7 +11,7 @@ from docx.shared import Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
-from models import AllData, ExecutorData
+from models import AllData, ExecutorData, ReceiptInfo
 from templates.doc_utils import (
     compact_paragraph,
     create_document, add_title, add_run, set_cell_text,
@@ -64,9 +64,10 @@ def generate_executor_patient_list_doc(data: AllData, output_path: str):
     doc.save(output_path)
 
 
-def generate_doctor_receipts(data: AllData, output_dir: str,
+def generate_doctor_receipts(data: AllData,
+                             presc_dir: str, exec_dir: str,
                              receipt_lookup: dict | None = None):
-    """產生每位醫師的處方費 + 處方執行費領據 .docx，並合併成一份 PDF"""
+    """產生每位醫師的處方費（→presc_dir）+ 處方執行費（→exec_dir）領據，各自轉 PDF"""
     from templates.receipt import generate_receipt
     from dataclasses import replace
 
@@ -90,18 +91,18 @@ def generate_doctor_receipts(data: AllData, output_dir: str,
 
         docx_to_convert = []
 
-        # 處方費領據（獨立一份）
+        # 處方費領據 → 處方費領據資料夾
         if doc_data.prescription_fee > 0:
             receipt = replace(base_receipt, amount=doc_data.prescription_fee)
-            out = os.path.join(output_dir, f"{name}_處方費領據.docx")
+            out = os.path.join(presc_dir, f"{name}_處方費領據.docx")
             generate_receipt(receipt, data.report_year, data.report_month,
                              out, fee_type="處方")
             docx_to_convert.append(out)
 
-        # 處方執行費領據（獨立一份）
+        # 處方執行費領據 → 處方執行費領據資料夾
         if doc_data.execution_fee > 0:
             receipt = replace(base_receipt, amount=doc_data.execution_fee)
-            out = os.path.join(output_dir, f"{name}_處方執行費領據.docx")
+            out = os.path.join(exec_dir, f"{name}_處方執行費領據.docx")
             generate_receipt(receipt, data.report_year, data.report_month,
                              out, fee_type="處方執行")
             docx_to_convert.append(out)

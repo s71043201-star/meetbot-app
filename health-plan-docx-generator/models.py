@@ -51,6 +51,7 @@ class ReceiptInfo:
     bank_code: str = ""  # 銀行代碼
     account_number: str = ""  # 帳號
     amount: int = 0  # 應付金額
+    role: str = ""  # 角色：醫師 / 執行人員
 
 
 @dataclass

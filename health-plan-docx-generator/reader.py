@@ -99,9 +99,18 @@ def read_prescription_report(filepath: str,
                 pass
 
     # === 2. 建立 DoctorPrescription 列表 ===
+    PRESC_UNIT = 300   # 每份處方費
+    EXEC_UNIT  = 100   # 每份處方執行費
     doctors = []
     for (clinic, doctor_name), type_counts in sorted(doctor_prescription.items()):
         exec_counts = doctor_execution.get((clinic, doctor_name), {})
+        total_presc = sum(type_counts.values())
+        total_exec  = sum(exec_counts.values())
+
+        # 優先用 Excel 欄位金額；若欄位為 0（未填）則依份數 × 單價計算
+        presc_fee = doctor_presc_fee.get((clinic, doctor_name), 0) or (total_presc * PRESC_UNIT)
+        exec_fee  = doctor_exec_fee.get((clinic, doctor_name), 0)  or (total_exec  * EXEC_UNIT)
+
         doctors.append(DoctorPrescription(
             medical_institution=clinic,
             doctor_name=doctor_name,
@@ -113,8 +122,8 @@ def read_prescription_report(filepath: str,
             nutrition_exec=exec_counts.get("營養處方", 0),
             emotion_exec=exec_counts.get("情緒調適處方", 0),
             social_exec=exec_counts.get("社會處方", 0),
-            prescription_fee=doctor_presc_fee.get((clinic, doctor_name), 0),
-            execution_fee=doctor_exec_fee.get((clinic, doctor_name), 0),
+            prescription_fee=presc_fee,
+            execution_fee=exec_fee,
         ))
 
     # === 3. 健康管理費（按診所統計）===
@@ -125,7 +134,8 @@ def read_prescription_report(filepath: str,
         for row in rows:
             unique_patients.add(row[COL_NAME])
             if not admin_person:
-                admin_person = str(row[COL_DOCTOR] or "")
+                # 優先取執行人員（診所負責人），無則退回開立醫師
+                admin_person = str(row[COL_EXEC_PERSON] or row[COL_DOCTOR] or "")
 
         total_count = len(rows)
         people_count = len(unique_patients)

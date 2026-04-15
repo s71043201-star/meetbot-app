@@ -437,9 +437,9 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log("[OK] 執行人員民眾明細表"))
             step()
 
-        # 子資料夾 4: 執行人員領據（含總表+明細合併PDF）
+        # 子資料夾 4: 執行人員領據（處方處置費，含總表+明細合併PDF）
         if self.var_gen_receipt.get() and data.executors:
-            d = subdir("執行人員領據")
+            d = subdir("處方處置費領據")
 
             receipt_lookup = {}
             db_path = self.var_people_db.get().strip()
@@ -447,25 +447,28 @@ class App(ctk.CTk):
                 self.after(0, lambda: self._log("讀取人員個資檔..."))
                 receipt_lookup = load_people_db(db_path)
 
-            self.after(0, lambda: self._log("產生執行人員領據（含PDF）..."))
+            self.after(0, lambda: self._log("產生處方處置費領據（含PDF）..."))
             generate_executor_merged_docs(data, d, also_pdf=True,
                                           receipt_lookup=receipt_lookup)
             count = sum(1 for ex in data.executors
                         if ex.receipt and ex.receipt.amount > 0)
-            self.after(0, lambda: self._log(f"[OK] 執行人員領據 ({count} 份，含合併PDF)"))
+            self.after(0, lambda: self._log(f"[OK] 處方處置費領據 ({count} 份，含合併PDF)"))
             step()
 
-        # 子資料夾 5: 醫師處方費/執行費領據
+        # 子資料夾 5: 醫師處方費/執行費領據（各自獨立子資料夾）
         if self.var_gen_doctor_receipt.get() and data.doctors:
-            d = subdir("醫師領據")
             receipt_lookup = {}
             db_path = self.var_people_db.get().strip()
             if db_path and os.path.exists(db_path):
                 receipt_lookup = load_people_db(db_path)
-            generate_doctor_receipts(data, d, receipt_lookup=receipt_lookup)
+            # 處方費 → 子資料夾「處方費」，處方執行費 → 子資料夾「處方執行費」
+            d_presc = subdir("處方費領據")
+            d_exec  = subdir("處方執行費領據")
+            generate_doctor_receipts(data, d_presc, d_exec,
+                                     receipt_lookup=receipt_lookup)
             count = sum(1 for doc in data.doctors
                         if doc.prescription_fee > 0 or doc.execution_fee > 0)
-            self.after(0, lambda: self._log(f"[OK] 醫師領據 ({count} 位)"))
+            self.after(0, lambda: self._log(f"[OK] 醫師領據 ({count} 位，分處方費/處方執行費)"))
             step()
 
         self.after(0, lambda: self.progress.set(1.0))
