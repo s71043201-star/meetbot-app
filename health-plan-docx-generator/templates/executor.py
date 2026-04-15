@@ -26,6 +26,181 @@ DATA_COL_WIDTHS = [950000, 2100000, 1400000, 1750000]
 PATIENT_COL_WIDTHS = [450000, 950000, 1200000, 1500000, 1100000, 1280000]
 
 
+def generate_treatment_fee_doc(data: AllData, output_path: str):
+    """產生所有執行人員的處方處置費核銷總表（合併成一份 Word）"""
+    doc = create_document(landscape=False)
+    for section in doc.sections:
+        section.left_margin = Cm(1.5)
+        section.right_margin = Cm(1.5)
+
+    first = True
+    for executor in data.executors:
+        if not executor.receipt or executor.receipt.amount <= 0:
+            continue
+        if not first:
+            add_page_break(doc)
+        _add_treatment_fee_page(doc, data, executor)
+        first = False
+
+    doc.save(output_path)
+
+
+def generate_executor_patient_list_doc(data: AllData, output_path: str):
+    """產生所有執行人員的民眾明細表（合併成一份 Word）"""
+    doc = create_document(landscape=False)
+    for section in doc.sections:
+        section.left_margin = Cm(1.5)
+        section.right_margin = Cm(1.5)
+
+    first = True
+    for executor in data.executors:
+        if not executor.receipt or executor.receipt.amount <= 0:
+            continue
+        if not first:
+            add_page_break(doc)
+        _add_patient_list_page(doc, data, executor)
+        first = False
+
+    doc.save(output_path)
+
+
+def generate_doctor_receipts(data: AllData, output_dir: str,
+                             receipt_lookup: dict | None = None):
+    """產生每位醫師的處方費 + 處方執行費領據 .docx，並合併成一份 PDF"""
+    from templates.receipt import generate_receipt
+    from dataclasses import replace
+
+    for doc_data in data.doctors:
+        name = doc_data.doctor_name
+        base_receipt = ReceiptInfo(recipient_name=name)
+
+        # 從個資檔補入個人資料
+        if receipt_lookup and name in receipt_lookup:
+            prev = receipt_lookup[name]
+            base_receipt = replace(
+                base_receipt,
+                id_number=prev.id_number,
+                address=prev.address,
+                phone=prev.phone,
+                account_name=prev.account_name,
+                bank_branch=prev.bank_branch,
+                bank_code=prev.bank_code,
+                account_number=prev.account_number,
+            )
+
+        docx_to_convert = []
+
+        # 處方費領據（獨立一份）
+        if doc_data.prescription_fee > 0:
+            receipt = replace(base_receipt, amount=doc_data.prescription_fee)
+            out = os.path.join(output_dir, f"{name}_處方費領據.docx")
+            generate_receipt(receipt, data.report_year, data.report_month,
+                             out, fee_type="處方")
+            docx_to_convert.append(out)
+
+        # 處方執行費領據（獨立一份）
+        if doc_data.execution_fee > 0:
+            receipt = replace(base_receipt, amount=doc_data.execution_fee)
+            out = os.path.join(output_dir, f"{name}_處方執行費領據.docx")
+            generate_receipt(receipt, data.report_year, data.report_month,
+                             out, fee_type="處方執行")
+            docx_to_convert.append(out)
+
+        # 各自轉成獨立 PDF
+        if docx_to_convert:
+            _convert_docx_list_to_pdf(docx_to_convert)
+
+
+def _convert_docx_list_to_pdf(docx_paths: list):
+    """將多份 docx 各自轉成獨立 PDF（不合併，醫師領據用）"""
+    try:
+        import win32com.client
+    except ImportError:
+        return
+    word = win32com.client.Dispatch("Word.Application")
+    word.Visible = False
+    try:
+        for docx_path in docx_paths:
+            pdf_path = docx_path.replace(".docx", ".pdf")
+            try:
+                wdoc = word.Documents.Open(os.path.abspath(docx_path))
+                wdoc.SaveAs(os.path.abspath(pdf_path), FileFormat=17)
+                wdoc.Close()
+            except Exception:
+                pass
+    finally:
+        word.Quit()
+
+
+def _merge_docx_to_pdf(docx_paths: list, output_dir: str, name: str):
+    """將多份 docx 轉成 PDF 後合併"""
+    try:
+        import win32com.client
+        import PyPDF2
+    except ImportError:
+        return
+
+    pdf_paths = []
+    word = win32com.client.Dispatch("Word.Application")
+    word.Visible = False
+    try:
+        for docx_path in docx_paths:
+            pdf_path = docx_path.replace(".docx", ".pdf")
+            try:
+                wdoc = word.Documents.Open(os.path.abspath(docx_path))
+                wdoc.SaveAs(os.path.abspath(pdf_path), FileFormat=17)
+                wdoc.Close()
+                pdf_paths.append(pdf_path)
+            except Exception:
+                pass
+    finally:
+        word.Quit()
+
+    if len(pdf_paths) >= 2:
+        merged_path = os.path.join(output_dir, f"{name}_領據合併.pdf")
+        merger = PyPDF2.PdfMerger()
+        for p in pdf_paths:
+            merger.append(p)
+        merger.write(merged_path)
+        merger.close()
+
+
+def generate_executor_receipts(data: AllData, output_dir: str,
+                               receipt_lookup: dict | None = None):
+    """只產生每位執行人員的領據 .docx（不合併 PDF）
+
+    receipt_lookup: {姓名: ReceiptInfo}，從舊領據讀入，自動帶入個人資料
+    """
+    for executor in data.executors:
+        if not executor.receipt or executor.receipt.amount <= 0:
+            continue
+
+        name = executor.executor_name
+        receipt = executor.receipt
+
+        if receipt_lookup and name in receipt_lookup:
+            prev = receipt_lookup[name]
+            from dataclasses import replace
+            receipt = replace(
+                receipt,
+                recipient_name=receipt.recipient_name or prev.recipient_name or name,
+                id_number=receipt.id_number or prev.id_number,
+                address=receipt.address or prev.address,
+                phone=receipt.phone or prev.phone,
+                account_name=receipt.account_name or prev.account_name,
+                bank_branch=receipt.bank_branch or prev.bank_branch,
+                bank_code=receipt.bank_code or prev.bank_code,
+                account_number=receipt.account_number or prev.account_number,
+            )
+
+        from templates.receipt import generate_receipt
+        out_path = os.path.join(output_dir, f"{name}_領據.docx")
+        generate_receipt(
+            receipt, data.report_year, data.report_month,
+            out_path, fee_type=executor.prescription_type,
+        )
+
+
 def generate_executor_merged_docs(data: AllData, output_dir: str,
                                   also_pdf: bool = True,
                                   receipt_lookup: dict | None = None):
@@ -58,7 +233,7 @@ def generate_executor_merged_docs(data: AllData, output_dir: str,
                 bank_code=receipt.bank_code or prev.bank_code,
                 account_number=receipt.account_number or prev.account_number,
             )
-            print(f"  [領據] {name} 已帶入舊領據個人資料")
+            pass
 
         # === Word 1: 核銷總表 + 明細表（直式，縮小邊距）===
         doc = create_document(landscape=False)

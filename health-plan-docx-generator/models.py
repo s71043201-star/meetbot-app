@@ -15,6 +15,8 @@ class DoctorPrescription:
     nutrition_exec: int = 0  # 營養處方 執行份數
     emotion_exec: int = 0  # 情緒調適處方 執行份數
     social_exec: int = 0  # 社會處方 執行份數
+    prescription_fee: int = 0   # 處方費總金額
+    execution_fee: int = 0      # 處方執行費總金額
 
 
 @dataclass

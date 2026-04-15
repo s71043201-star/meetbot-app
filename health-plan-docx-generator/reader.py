@@ -30,6 +30,8 @@ COL_EXEC_UNIT = 12
 COL_EXEC_PERSON = 13
 COL_EXEC_DONE = 14
 COL_EXEC_DATE = 16
+COL_PRESC_FEE = 17   # 處方費（每筆金額）
+COL_EXEC_FEE = 18    # 處方執行費（每筆金額）
 COL_DATE = 21
 
 
@@ -55,6 +57,9 @@ def read_prescription_report(filepath: str,
     doctor_prescription = defaultdict(lambda: defaultdict(int))
     # key: (診所, 醫師) → {處方類型: 執行份數}
     doctor_execution = defaultdict(lambda: defaultdict(int))
+    # key: (診所, 醫師) → 金額加總
+    doctor_presc_fee = defaultdict(int)
+    doctor_exec_fee = defaultdict(int)
     # key: 診所 → 所有記錄
     clinic_records = defaultdict(list)
     # key: (執行單位, 執行人員) → {處方類型: [records]}
@@ -72,6 +77,13 @@ def read_prescription_report(filepath: str,
         doctor_prescription[(clinic, doctor)][ptype] += 1
         clinic_records[clinic].append(row)
 
+        # 累計處方費
+        try:
+            pf = int(row[COL_PRESC_FEE] or 0)
+            doctor_presc_fee[(clinic, doctor)] += pf
+        except (TypeError, ValueError):
+            pass
+
         # 處方執行（有執行日期 = 已執行）
         exec_done = row[COL_EXEC_DONE]
         exec_person = row[COL_EXEC_PERSON]
@@ -79,6 +91,12 @@ def read_prescription_report(filepath: str,
         if exec_done and exec_person:
             doctor_execution[(clinic, doctor)][ptype] += 1
             executor_records[(str(exec_unit or ""), str(exec_person))][ptype].append(row)
+            # 累計處方執行費
+            try:
+                ef = int(row[COL_EXEC_FEE] or 0)
+                doctor_exec_fee[(clinic, doctor)] += ef
+            except (TypeError, ValueError):
+                pass
 
     # === 2. 建立 DoctorPrescription 列表 ===
     doctors = []
@@ -95,6 +113,8 @@ def read_prescription_report(filepath: str,
             nutrition_exec=exec_counts.get("營養處方", 0),
             emotion_exec=exec_counts.get("情緒調適處方", 0),
             social_exec=exec_counts.get("社會處方", 0),
+            prescription_fee=doctor_presc_fee.get((clinic, doctor_name), 0),
+            execution_fee=doctor_exec_fee.get((clinic, doctor_name), 0),
         ))
 
     # === 3. 健康管理費（按診所統計）===

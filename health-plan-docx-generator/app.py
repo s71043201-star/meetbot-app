@@ -26,8 +26,18 @@ from templates.clinic import (
 from templates.executor import (
     generate_treatment_fee_doc,
     generate_executor_patient_list_doc,
-    generate_executor_receipts,
+    generate_executor_merged_docs,
+    generate_doctor_receipts,
 )
+from receipt_reader import load_receipts_from_dir
+from people_db import load_people_db, create_template, export_to_db
+
+
+# 偵測執行位置（exe 打包後用 sys.executable，開發時用 __file__）
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "word_templates")
@@ -119,6 +129,7 @@ class App(ctk.CTk):
         self.var_gen_treatment = ctk.BooleanVar(value=True)
         self.var_gen_patient = ctk.BooleanVar(value=True)
         self.var_gen_receipt = ctk.BooleanVar(value=True)
+        self.var_gen_doctor_receipt = ctk.BooleanVar(value=True)
 
         checks = [
             ("處方費核銷總表", self.var_gen_presc),
@@ -127,6 +138,7 @@ class App(ctk.CTk):
             ("處方處置費核銷總表", self.var_gen_treatment),
             ("執行人員民眾明細表", self.var_gen_patient),
             ("執行人員領據", self.var_gen_receipt),
+            ("醫師處方費/執行費領據", self.var_gen_doctor_receipt),
         ]
 
         for i, (label, var) in enumerate(checks):
@@ -135,13 +147,42 @@ class App(ctk.CTk):
                             font=ctk.CTkFont(size=13)).grid(
                                 row=r, column=c, padx=10, pady=4, sticky="w")
 
+        # ── 人員個資檔 ──
+        self._section_label(main, "4. 人員個資檔（選填，新增/修改人員資料）")
+        frame_db = ctk.CTkFrame(main, fg_color="transparent")
+        frame_db.pack(fill="x", pady=(0, 4))
+
+        default_db = os.path.join(APP_DIR, "人員個資.xlsx")
+        self.var_people_db = ctk.StringVar(value=default_db)
+        ctk.CTkEntry(frame_db, textvariable=self.var_people_db,
+                     height=36).pack(side="left", fill="x", expand=True,
+                                     padx=(0, 8))
+        ctk.CTkButton(frame_db, text="選擇檔案", width=90, height=36,
+                      command=self._browse_people_db).pack(side="right")
+
+        frame_db2 = ctk.CTkFrame(main, fg_color="transparent")
+        frame_db2.pack(fill="x", pady=(0, 10))
+        ctk.CTkButton(frame_db2, text="建立空白範本", width=110, height=30,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._create_people_db_template).pack(side="left")
+        ctk.CTkButton(frame_db2, text="開啟編輯", width=90, height=30,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._open_people_db).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(frame_db2, text="從舊領據匯入", width=110, height=30,
+                      fg_color="steelblue", hover_color="steelblue4",
+                      command=self._import_from_receipts).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(frame_db2,
+                     text="  每人一行填寫：姓名、身分證、地址、電話、銀行資訊",
+                     text_color="gray50", font=ctk.CTkFont(size=12)).pack(
+                         side="left", padx=8)
+
         # ── 輸出目錄 ──
-        self._section_label(main, "4. 輸出位置")
+        self._section_label(main, "5. 輸出位置")
         frame_out = ctk.CTkFrame(main, fg_color="transparent")
         frame_out.pack(fill="x", pady=(0, 10))
 
         self.var_output = ctk.StringVar(
-            value=os.path.join(os.path.expanduser("~"), "Desktop", "核銷文件"))
+            value=os.path.join(APP_DIR, "核銷文件"))
         ctk.CTkEntry(frame_out, textvariable=self.var_output,
                      height=36).pack(side="left", fill="x", expand=True,
                                      padx=(0, 8))
@@ -176,6 +217,82 @@ class App(ctk.CTk):
             filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
         if path:
             self.var_excel.set(path)
+
+    def _browse_people_db(self):
+        path = filedialog.askopenfilename(
+            title="選擇人員個資 Excel",
+            filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
+        if path:
+            self.var_people_db.set(path)
+
+    def _create_people_db_template(self):
+        path = self.var_people_db.get().strip()
+        if not path:
+            path = os.path.join(os.path.expanduser("~"), "Desktop", "人員個資.xlsx")
+        if os.path.exists(path):
+            if not messagebox.askyesno("確認", f"檔案已存在，要覆蓋嗎？\n{path}"):
+                return
+        create_template(path)
+        self.var_people_db.set(path)
+        os.startfile(path)
+
+    def _import_from_receipts(self):
+        """從舊領據資料夾讀取個資，寫入人員個資 Excel"""
+        receipts_dir = filedialog.askdirectory(title="選擇舊領據資料夾")
+        if not receipts_dir:
+            return
+        db_path = self.var_people_db.get().strip()
+        if not db_path:
+            db_path = os.path.join(APP_DIR, "人員個資.xlsx")
+            self.var_people_db.set(db_path)
+
+        def _do_import():
+            try:
+                self.after(0, lambda: self._log("\n── 從舊領據匯入 ──"))
+
+                def on_progress(msg):
+                    self.after(0, lambda m=msg: self._log(m))
+
+                lookup = load_receipts_from_dir(receipts_dir,
+                                                progress_cb=on_progress)
+                if not lookup:
+                    self.after(0, lambda: messagebox.showwarning(
+                        "找不到資料", "資料夾內沒有找到領據檔案"))
+                    return
+                count = export_to_db(lookup, db_path)
+                self.after(0, lambda: self._log(
+                    f"\n完成！共 {count} 筆人員資料已存入:\n{db_path}"))
+                self.after(0, lambda: messagebox.showinfo(
+                    "匯入完成",
+                    f"已將 {count} 筆人員資料存入個資檔\n\n{db_path}"))
+                self.after(0, lambda: os.startfile(db_path))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("錯誤", str(e)))
+
+        threading.Thread(target=_do_import, daemon=True).start()
+
+    def _open_people_db(self):
+        path = self.var_people_db.get().strip()
+        if not path or not os.path.exists(path):
+            messagebox.showwarning("找不到檔案", "請先選擇或建立人員個資檔")
+            return
+        os.startfile(path)
+
+    def _docx_to_pdf(self, docx_path: str):
+        """將 Word 檔轉成同目錄的 PDF（需要 Word 已安裝）"""
+        try:
+            import win32com.client
+            pdf_path = docx_path.replace(".docx", ".pdf")
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            try:
+                doc = word.Documents.Open(os.path.abspath(docx_path))
+                doc.SaveAs(os.path.abspath(pdf_path), FileFormat=17)
+                doc.Close()
+            finally:
+                word.Quit()
+        except Exception:
+            pass
 
     def _browse_output(self):
         path = filedialog.askdirectory(title="選擇輸出目錄")
@@ -255,6 +372,7 @@ class App(ctk.CTk):
             self.var_gen_treatment.get(),
             self.var_gen_patient.get(),
             self.var_gen_receipt.get(),
+            self.var_gen_doctor_receipt.get(),
         ])
         if total_steps == 0:
             total_steps = 1
@@ -279,7 +397,8 @@ class App(ctk.CTk):
                 generate_prescription_fee_from_template(tmpl, data, path)
             else:
                 generate_prescription_fee_doc(data, path)
-            self.after(0, lambda: self._log("[OK] 處方費核銷總表"))
+            self._docx_to_pdf(path)
+            self.after(0, lambda: self._log("[OK] 處方費核銷總表 + PDF"))
             step()
 
         if self.var_gen_exec.get() and data.doctors:
@@ -290,7 +409,8 @@ class App(ctk.CTk):
                 generate_execution_fee_from_template(tmpl, data, path)
             else:
                 generate_execution_fee_doc(data, path)
-            self.after(0, lambda: self._log("[OK] 處方執行費核銷總表"))
+            self._docx_to_pdf(path)
+            self.after(0, lambda: self._log("[OK] 處方執行費核銷總表 + PDF"))
             step()
 
         # 子資料夾 2: 健康管理費
@@ -298,7 +418,8 @@ class App(ctk.CTk):
             d = subdir("健康管理費")
             path = os.path.join(d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
             generate_health_mgmt_doc(data, path)
-            self.after(0, lambda: self._log("[OK] 健康管理費總表"))
+            self._docx_to_pdf(path)
+            self.after(0, lambda: self._log("[OK] 健康管理費總表 + PDF"))
             step()
 
         # 子資料夾 3: 處方處置費
@@ -316,13 +437,35 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log("[OK] 執行人員民眾明細表"))
             step()
 
-        # 子資料夾 4: 領據
+        # 子資料夾 4: 執行人員領據（含總表+明細合併PDF）
         if self.var_gen_receipt.get() and data.executors:
-            d = subdir("領據")
-            generate_executor_receipts(data, d)
+            d = subdir("執行人員領據")
+
+            receipt_lookup = {}
+            db_path = self.var_people_db.get().strip()
+            if db_path and os.path.exists(db_path):
+                self.after(0, lambda: self._log("讀取人員個資檔..."))
+                receipt_lookup = load_people_db(db_path)
+
+            self.after(0, lambda: self._log("產生執行人員領據（含PDF）..."))
+            generate_executor_merged_docs(data, d, also_pdf=True,
+                                          receipt_lookup=receipt_lookup)
             count = sum(1 for ex in data.executors
                         if ex.receipt and ex.receipt.amount > 0)
-            self.after(0, lambda: self._log(f"[OK] 領據 ({count} 份)"))
+            self.after(0, lambda: self._log(f"[OK] 執行人員領據 ({count} 份，含合併PDF)"))
+            step()
+
+        # 子資料夾 5: 醫師處方費/執行費領據
+        if self.var_gen_doctor_receipt.get() and data.doctors:
+            d = subdir("醫師領據")
+            receipt_lookup = {}
+            db_path = self.var_people_db.get().strip()
+            if db_path and os.path.exists(db_path):
+                receipt_lookup = load_people_db(db_path)
+            generate_doctor_receipts(data, d, receipt_lookup=receipt_lookup)
+            count = sum(1 for doc in data.doctors
+                        if doc.prescription_fee > 0 or doc.execution_fee > 0)
+            self.after(0, lambda: self._log(f"[OK] 醫師領據 ({count} 位)"))
             step()
 
         self.after(0, lambda: self.progress.set(1.0))
