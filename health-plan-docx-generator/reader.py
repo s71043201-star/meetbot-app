@@ -162,12 +162,19 @@ def read_prescription_report(issuance_path: str,
                 if key in seen:
                     continue
                 seen.add(key)
+                # 開立日期時間可能是 datetime 物件，轉字串取日期部分
+                issue_raw = row[COL_DATE] if len(row) > COL_DATE else ""
+                if issue_raw:
+                    issue_str = str(issue_raw).split(" ")[0]
+                else:
+                    issue_str = ""
                 out.append(PatientRecord(
                     name=str(row[COL_NAME] or ""),
                     id_number=str(row[COL_ID] or ""),
                     birth_date=str(row[COL_BIRTH] or ""),
                     prescriber=doctor_name,
                     exec_date=str(row[COL_EXEC_DATE] or ""),
+                    issue_date=issue_str,
                     prescription_type=ptype,
                 ))
             return out

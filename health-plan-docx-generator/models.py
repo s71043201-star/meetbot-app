@@ -40,6 +40,7 @@ class PatientRecord:
     birth_date: str  # 出生年月日 yyyy/mm/dd
     prescriber: str  # 處方人員姓名
     exec_date: str = ""  # 執行日期
+    issue_date: str = ""  # 開立日期
     prescription_type: str = ""  # 處方類型（運動/營養/情緒調適/社會 處方）
 
 

@@ -506,18 +506,22 @@ def _add_doctor_patient_list_page(doc, data: AllData,
     set_col_widths(table, PATIENT_COL_WIDTHS)
 
     fs = 12
+    # 處方費 → 顯示開立日期；處方執行費 → 顯示執行日期
+    use_exec = "執行" in fee_label
+    date_header = "執行日期" if use_exec else "開立日期"
     headers = ["序號", "民眾姓名", "出生日期",
-               "處方類型", "處方人員", "執行日期"]
+               "處方類型", "處方人員", date_header]
     for i, h in enumerate(headers):
         set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
 
     for i, pat in enumerate(patients):
+        date_val = pat.exec_date if use_exec else getattr(pat, "issue_date", "")
         set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
         set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
         set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
         set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
         set_cell_text(table.cell(i + 1, 4), doctor.doctor_name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(pat.exec_date or ""), font_size=fs)
+        set_cell_text(table.cell(i + 1, 5), str(date_val or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
