@@ -17,6 +17,7 @@ class DoctorPrescription:
     social_exec: int = 0  # 社會處方 執行份數
     prescription_fee: int = 0   # 處方費總金額
     execution_fee: int = 0      # 處方執行費總金額
+    patients: List["PatientRecord"] = field(default_factory=list)  # 此醫師開立處方的民眾（for 明細表）
 
 
 @dataclass
@@ -27,6 +28,7 @@ class HealthManagement:
     prescription_people: int = 0  # 開立處方人數
     prescription_count: int = 0  # 開立份數
     is_qualified: bool = False  # 是否達標
+    patients: List["PatientRecord"] = field(default_factory=list)  # 此診所的民眾明細
 
 
 @dataclass
@@ -37,6 +39,7 @@ class PatientRecord:
     birth_date: str  # 出生年月日 yyyy/mm/dd
     prescriber: str  # 處方人員姓名
     exec_date: str = ""  # 執行日期
+    prescription_type: str = ""  # 處方類型（運動/營養/情緒調適/社會 處方）
 
 
 @dataclass
@@ -51,7 +54,9 @@ class ReceiptInfo:
     bank_code: str = ""  # 銀行代碼
     account_number: str = ""  # 帳號
     amount: int = 0  # 應付金額
-    role: str = ""  # 角色：醫師 / 執行人員
+    role: str = ""  # 角色：醫師 / 課程老師 / 診所行政人員
+    clinic_name: str = ""  # 所屬診所（診所行政人員用）
+    email: str = ""  # Email（寄送核銷文件用）
 
 
 @dataclass
@@ -74,3 +79,4 @@ class AllData:
     patients: List[PatientRecord] = field(default_factory=list)
     clinic_receipt: Optional[ReceiptInfo] = None
     executors: List[ExecutorData] = field(default_factory=list)
+    min_prescriptions: int = 0  # 健管費最低份數門檻（UI 傳入，供總表註解顯示）

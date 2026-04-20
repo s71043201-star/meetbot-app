@@ -7,12 +7,14 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from datetime import date
 
+from config import PEOPLE_DIVISOR, MIN_PRESCRIPTIONS_DEFAULT, config_source
 from reader import read_prescription_report
 from excel_writer import (
     read_raw_records,
     generate_prescription_fee_excel,
     generate_execution_fee_excel,
     generate_health_mgmt_excel,
+    generate_health_mgmt_excel_per_clinic,
 )
 from templates.clone_fill import (
     generate_prescription_fee_from_template,
@@ -28,9 +30,20 @@ from templates.executor import (
     generate_executor_patient_list_doc,
     generate_executor_merged_docs,
     generate_doctor_receipts,
+    generate_health_mgmt_individual_docs,
+    _convert_docx_list_to_pdf,
+    merge_doctor_receipt_pdfs,
+    merge_health_mgmt_pdfs,
+    merge_executor_pdfs,
 )
 from receipt_reader import load_receipts_from_dir
 from people_db import load_people_db, create_template, export_to_db
+from email_sender import (
+    build_email_jobs,
+    send_via_gmail_smtp,
+    EmailJob,
+    SmtpAuthError,
+)
 
 
 # 偵測執行位置（exe 打包後用 sys.executable，開發時用 __file__）
@@ -111,7 +124,7 @@ class App(ctk.CTk):
         month_menu.pack(side="left", padx=(5, 20))
 
         ctk.CTkLabel(row1, text="健管費最低份數").pack(side="left")
-        self.var_min = ctk.StringVar(value="0")
+        self.var_min = ctk.StringVar(value=str(MIN_PRESCRIPTIONS_DEFAULT))
         ctk.CTkEntry(row1, textvariable=self.var_min, width=70,
                      height=32).pack(side="left", padx=5)
 
@@ -189,12 +202,42 @@ class App(ctk.CTk):
         ctk.CTkButton(frame_out, text="選擇資料夾", width=100, height=36,
                       command=self._browse_output).pack(side="right")
 
+        # ── Gmail 寄送設定 ──
+        self._section_label(main, "6. Gmail 寄送設定（選填，產生後可批次寄送）")
+        frame_mail = ctk.CTkFrame(main, fg_color="transparent")
+        frame_mail.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(frame_mail, text="寄件 Gmail").pack(side="left")
+        self.var_sender_email = ctk.StringVar()
+        ctk.CTkEntry(frame_mail, textvariable=self.var_sender_email,
+                     placeholder_text="your-name@gmail.com",
+                     height=36).pack(side="left", fill="x", expand=True,
+                                     padx=(8, 8))
+        ctk.CTkLabel(frame_mail,
+                     text="App Password 於寄送時輸入",
+                     text_color="gray50",
+                     font=ctk.CTkFont(size=11)).pack(side="right")
+
         # ── 產生按鈕 ──
         self.btn_generate = ctk.CTkButton(
             main, text="產 生 文 件", height=48,
             font=ctk.CTkFont(size=16, weight="bold"),
             command=self._on_generate)
-        self.btn_generate.pack(pady=15, fill="x")
+        self.btn_generate.pack(pady=(15, 8), fill="x")
+
+        # 寄送按鈕（可直接用既有月份資料夾寄，不必重跑產生）
+        self.btn_send_email = ctk.CTkButton(
+            main, text="📧 預覽並寄送 Gmail", height=40,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#1e8449", hover_color="#196f3d",
+            command=self._on_open_email_preview)
+        self.btn_send_email.pack(pady=(0, 15), fill="x")
+
+        # 產生後保存的狀態（供寄送使用）
+        self._last_month_dir: str | None = None
+        self._last_receipt_lookup: dict = {}
+        self._last_year: int | None = None
+        self._last_month: int | None = None
 
         # ── Progress ──
         self.progress = ctk.CTkProgressBar(main)
@@ -279,18 +322,33 @@ class App(ctk.CTk):
         os.startfile(path)
 
     def _docx_to_pdf(self, docx_path: str):
-        """將 Word 檔轉成同目錄的 PDF（需要 Word 已安裝）"""
+        """將 Word 檔轉成同目錄的 PDF（需要 Word 已安裝）
+
+        用 DispatchEx 建立獨立 Word process，避免與先前 instance 衝突造成
+        'Word.Application.Visible can not be set' 錯誤。
+        """
         try:
             import win32com.client
             pdf_path = docx_path.replace(".docx", ".pdf")
-            word = win32com.client.Dispatch("Word.Application")
-            word.Visible = False
+            word = win32com.client.DispatchEx("Word.Application")
+            # Visible / DisplayAlerts 設失敗不致命，包 try/except
+            try:
+                word.Visible = False
+            except Exception:
+                pass
+            try:
+                word.DisplayAlerts = 0
+            except Exception:
+                pass
             try:
                 doc = word.Documents.Open(os.path.abspath(docx_path))
                 doc.SaveAs(os.path.abspath(pdf_path), FileFormat=17)
-                doc.Close()
+                doc.Close(SaveChanges=0)
             finally:
-                word.Quit()
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -307,6 +365,19 @@ class App(ctk.CTk):
         excel = self.var_excel.get().strip()
         if not excel or not os.path.exists(excel):
             messagebox.showerror("錯誤", "請選擇有效的 Excel 檔案")
+            return
+
+        # 驗證健管費最低份數：必須是數字,且必須是 PEOPLE_DIVISOR 的倍數
+        try:
+            min_val = int(self.var_min.get())
+        except (ValueError, TypeError):
+            messagebox.showerror("錯誤", "健管費最低份數必須是數字")
+            return
+        if min_val % PEOPLE_DIVISOR != 0:
+            messagebox.showerror(
+                "錯誤",
+                f"健管費最低份數必須是 {PEOPLE_DIVISOR} 的倍數（對應人數需為整數）",
+            )
             return
 
         self.btn_generate.configure(state="disabled", text="產生中...")
@@ -333,6 +404,7 @@ class App(ctk.CTk):
 
         os.makedirs(output, exist_ok=True)
 
+        self.after(0, lambda: self._log(f"設定檔來源: {config_source()}"))
         self.after(0, lambda: self._log("讀取 Excel 中..."))
         self.after(0, lambda: self.progress.set(0.1))
 
@@ -355,11 +427,12 @@ class App(ctk.CTk):
 
         # 產生 Excel 統計檔
         raw_records = read_raw_records(excel)
-        presc_dir = os.path.join(month_dir, "處方費")
+        presc_dir = os.path.join(month_dir, "處方費、處方執行費總表明細表合併檔與Excel")
         os.makedirs(presc_dir, exist_ok=True)
         generate_prescription_fee_excel(raw_records, prefix, presc_dir)
         generate_execution_fee_excel(raw_records, prefix, presc_dir)
-        hm_dir = os.path.join(month_dir, "健康管理費")
+        HEALTH_COMBINED_DIR = "健康管理費合併總表與個人excel"
+        hm_dir = os.path.join(month_dir, HEALTH_COMBINED_DIR)
         os.makedirs(hm_dir, exist_ok=True)
         generate_health_mgmt_excel(raw_records, prefix, hm_dir)
         self.after(0, lambda: self._log("[OK] Excel 統計檔 (3 份)"))
@@ -436,83 +509,536 @@ class App(ctk.CTk):
             os.makedirs(d, exist_ok=True)
             return d
 
-        # 子資料夾 1: 處方費
+        # 子資料夾 1: 處方費 + 處方執行費 合併檔 (名稱包含 Excel 同用途資料夾)
+        COMBINED_DIR_NAME = "處方費、處方執行費總表明細表合併檔與Excel"
+
+        # ── 收集所有需轉 PDF 的 docx 路徑，最後一次批次轉換 ──
+        all_pending_docx = []   # 所有待轉 PDF 的 docx
+        health_merge_info = None  # (docx_info, receipt_dir)
+        executor_merge_info = None
+        doctor_merge_info = None
+
         if self.var_gen_presc.get() and data.doctors:
-            d = subdir("處方費")
+            d = subdir(COMBINED_DIR_NAME)
             path = os.path.join(d, f"健康台灣深耕計畫_處方費-總表-{prefix}.docx")
             tmpl = DEFAULT_TEMPLATES["prescription"]
             if os.path.exists(tmpl):
                 generate_prescription_fee_from_template(tmpl, data, path)
             else:
                 generate_prescription_fee_doc(data, path)
-            self._docx_to_pdf(path)
-            self.after(0, lambda: self._log("[OK] 處方費核銷總表 + PDF"))
+            all_pending_docx.append(os.path.abspath(path))
+            self.after(0, lambda: self._log("[OK] 處方費核銷總表"))
             step()
 
         if self.var_gen_exec.get() and data.doctors:
-            d = subdir("處方費")
+            d = subdir(COMBINED_DIR_NAME)
             path = os.path.join(d, f"健康台灣深耕計畫_處方執行費核銷總表-{prefix}.docx")
             tmpl = DEFAULT_TEMPLATES["execution"]
             if os.path.exists(tmpl):
                 generate_execution_fee_from_template(tmpl, data, path)
             else:
                 generate_execution_fee_doc(data, path)
-            self._docx_to_pdf(path)
-            self.after(0, lambda: self._log("[OK] 處方執行費核銷總表 + PDF"))
+            all_pending_docx.append(os.path.abspath(path))
+            self.after(0, lambda: self._log("[OK] 處方執行費核銷總表"))
             step()
 
-        # 子資料夾 2: 健康管理費
         if self.var_gen_health.get() and data.health_mgmts:
-            d = subdir("健康管理費")
+            d = subdir(HEALTH_COMBINED_DIR)
             path = os.path.join(d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
             generate_health_mgmt_doc(data, path, min_prescriptions=min_presc)
-            self._docx_to_pdf(path)
-            self.after(0, lambda: self._log("[OK] 健康管理費總表 + PDF"))
+            all_pending_docx.append(os.path.abspath(path))
+
+            per_clinic_excel_dir = os.path.join(d, "個別Excel")
+            os.makedirs(per_clinic_excel_dir, exist_ok=True)
+            clinic_to_person_map = {
+                hm.medical_institution: (hm.clinic_person or hm.medical_institution)
+                for hm in data.health_mgmts
+            }
+            xlsx_paths = generate_health_mgmt_excel_per_clinic(
+                raw_records, prefix, per_clinic_excel_dir,
+                clinic_to_person=clinic_to_person_map,
+            )
+
+            self.after(0, lambda: self._log("產生健康管理費（個別 docx）..."))
+            hm_result = generate_health_mgmt_individual_docs(
+                data, month_dir,
+                receipt_lookup=receipt_lookup, also_pdf=False,
+            )
+            if hm_result:
+                hm_docx_info, hm_receipt_dir = hm_result
+                health_merge_info = (hm_docx_info, hm_receipt_dir)
+                for _, t, dd, r in hm_docx_info:
+                    all_pending_docx.extend([t, dd, r])
+
+            hm_count = sum(1 for hm in data.health_mgmts if hm.is_qualified)
+            self.after(0, lambda: self._log(
+                f"[OK] 健康管理費 ({hm_count} 間診所：Combined總表/個別Excel×{len(xlsx_paths)}/核銷總表/民眾明細/領據)"))
             step()
 
-        # 子資料夾 3: 處方處置費
+        TREATMENT_COMBINED_DIR = "處方處置費合併總表word"
+
         if self.var_gen_treatment.get() and data.executors:
-            d = subdir("處方處置費")
+            d = subdir(TREATMENT_COMBINED_DIR)
             path = os.path.join(d, f"健康台灣深耕計畫_處方處置費核銷總表-{prefix}.docx")
             generate_treatment_fee_doc(data, path)
             self.after(0, lambda: self._log("[OK] 處方處置費核銷總表"))
             step()
 
         if self.var_gen_patient.get() and data.executors:
-            d = subdir("處方處置費")
+            d = subdir(TREATMENT_COMBINED_DIR)
             path = os.path.join(d, f"健康台灣深耕計畫_執行人員民眾明細表-{prefix}.docx")
             generate_executor_patient_list_doc(data, path)
             self.after(0, lambda: self._log("[OK] 執行人員民眾明細表"))
             step()
 
-        # 子資料夾 4: 執行人員領據（處方處置費，含總表+明細合併PDF）
         if self.var_gen_receipt.get() and data.executors:
-            d = subdir("處方處置費領據")
-            self.after(0, lambda: self._log("產生處方處置費領據（含PDF）..."))
-            generate_executor_merged_docs(data, d, also_pdf=True,
-                                          receipt_lookup=receipt_lookup)
+            self.after(0, lambda: self._log("產生處方處置費（個別 docx）..."))
+            ex_result = generate_executor_merged_docs(
+                data, month_dir, also_pdf=False,
+                receipt_lookup=receipt_lookup)
+            if ex_result:
+                ex_docx_info, ex_receipt_dir = ex_result
+                executor_merge_info = (ex_docx_info, ex_receipt_dir)
+                for _, _, t, dd, r in ex_docx_info:
+                    all_pending_docx.extend([t, dd, r])
             count = sum(1 for ex in data.executors
                         if ex.receipt and ex.receipt.amount > 0)
-            self.after(0, lambda: self._log(f"[OK] 處方處置費領據 ({count} 份，含合併PDF)"))
+            self.after(0, lambda: self._log(f"[OK] 處方處置費 ({count} 人：核銷總表/民眾明細/領據)"))
             step()
 
-        # 子資料夾 5: 醫師處方費/執行費領據（各自獨立子資料夾）
         if self.var_gen_doctor_receipt.get() and data.doctors:
-            d_presc = subdir("處方費領據")
-            d_exec  = subdir("處方執行費領據")
-            generate_doctor_receipts(data, d_presc, d_exec,
-                                     receipt_lookup=receipt_lookup)
+            self.after(0, lambda: self._log("產生醫師處方費/處方執行費（個別 docx）..."))
+            dr_info = generate_doctor_receipts(
+                data, month_dir,
+                receipt_lookup=receipt_lookup,
+                also_pdf=False)
+            if dr_info:
+                doctor_merge_info = dr_info
+                for _, _, t, dd, r, _ in dr_info:
+                    all_pending_docx.extend([t, dd, r])
             count = sum(1 for doc in data.doctors
                         if doc.prescription_fee > 0 or doc.execution_fee > 0)
-            self.after(0, lambda: self._log(f"[OK] 醫師領據 ({count} 位，分處方費/處方執行費)"))
+            self.after(0, lambda: self._log(f"[OK] 醫師處方費/處方執行費 ({count} 位：核銷總表/民眾明細/領據)"))
             step()
+
+        # ── 一次批次 Word → PDF（只開一次 Word）──
+        if all_pending_docx:
+            total_pdf = len(all_pending_docx)
+            self.after(0, lambda: self._log(
+                f"批次轉換 {total_pdf} 份 Word → PDF（共用一個 Word 程序）..."))
+            def _pdf_progress(done, total, name):
+                if done % 10 == 0 or done == total:
+                    self.after(0, lambda d=done, t=total, n=name:
+                               self._log(f"  [{d}/{t}] {n}"))
+            _convert_docx_list_to_pdf(all_pending_docx, progress_cb=_pdf_progress)
+            self.after(0, lambda: self._log(f"[OK] {total_pdf} 份 PDF 轉換完成"))
+
+        # ── 合併每人的 3 份 PDF ──
+        if health_merge_info:
+            merge_health_mgmt_pdfs(*health_merge_info)
+        if executor_merge_info:
+            merge_executor_pdfs(*executor_merge_info)
+        if doctor_merge_info:
+            merge_doctor_receipt_pdfs(doctor_merge_info)
 
         self.after(0, lambda: self.progress.set(1.0))
         self.after(0, lambda: self._log(
             f"\n完成！共產生至: {output}"))
+
+        # 保存寄送所需狀態
+        self._last_month_dir = month_dir
+        self._last_receipt_lookup = receipt_lookup
+        self._last_year = year
+        self._last_month = month
+
         self.after(0, lambda: messagebox.showinfo(
-            "完成", f"所有文件已產生！\n\n輸出至: {output}"))
+            "完成", f"所有文件已產生！\n\n輸出至: {output}\n\n如需寄送，請按「預覽並寄送 Gmail」。"))
         self.after(0, lambda: os.startfile(output))
+
+    # ──────────────────────────────────────────────────────
+    # Gmail 寄送
+    # ──────────────────────────────────────────────────────
+    def _on_open_email_preview(self):
+        sender = self.var_sender_email.get().strip()
+        if not sender:
+            messagebox.showwarning("缺少寄件者", "請在「6. Gmail 寄送設定」填入寄件 Gmail。")
+            return
+        if "@" not in sender:
+            messagebox.showwarning("Email 格式錯誤", "寄件 Gmail 看起來不對，請確認。")
+            return
+
+        # 取得 year / month / month_dir：優先用本次產生的結果，
+        # 否則用目前 UI 上的年月 + 輸出資料夾推算（支援既有資料夾）
+        try:
+            year = int(self.var_year.get())
+            month = int(self.var_month.get())
+        except (ValueError, TypeError):
+            messagebox.showerror("錯誤", "申報年度/月份必須是數字")
+            return
+
+        output = self.var_output.get().strip()
+        if not output:
+            messagebox.showwarning("缺少輸出位置", "請在「5. 輸出位置」指定輸出資料夾。")
+            return
+
+        prefix = f"{year}年{month:02d}月"
+        month_dir = self._last_month_dir
+        if not month_dir or not os.path.isdir(month_dir) \
+                or self._last_year != year or self._last_month != month:
+            month_dir = os.path.join(output, prefix)
+
+        if not os.path.isdir(month_dir):
+            messagebox.showwarning(
+                "找不到月份資料夾",
+                f"找不到：\n{month_dir}\n\n請先按「產生文件」，或確認年月/輸出位置正確。")
+            return
+
+        # 個資檔：用本次產生的，或重新讀一次
+        receipt_lookup = self._last_receipt_lookup or {}
+        if not receipt_lookup:
+            db_path = self.var_people_db.get().strip()
+            if db_path and os.path.exists(db_path):
+                receipt_lookup = load_people_db(db_path)
+
+        self._log("\n── 掃描合併 PDF，建立寄送清單 ──")
+        self._log(f"  目錄：{month_dir}")
+        jobs = build_email_jobs(month_dir, receipt_lookup, year, month)
+        if not jobs:
+            messagebox.showinfo(
+                "無可寄送項目",
+                f"在下列目錄找不到合併 PDF：\n{month_dir}\n\n"
+                "預期結構為 *領據/PDF/**/*.pdf。請確認已產生領據文件。")
+            return
+
+        total = len(jobs)
+        sendable = sum(1 for j in jobs if j.status == "pending")
+        self._log(f"  共 {total} 位人員 / 可寄送 {sendable} 位")
+
+        EmailPreviewWindow(self, jobs, sender)
+
+
+# ──────────────────────────────────────────────────────────
+# 寄送預覽視窗
+# ──────────────────────────────────────────────────────────
+class EmailPreviewWindow(ctk.CTkToplevel):
+    """列出所有 EmailJob，可勾選、預覽、批次寄送。"""
+
+    COL_WIDTHS = [(36, "☑"), (110, "姓名"), (110, "角色"),
+                  (200, "診所"), (220, "Email"), (60, "附件"),
+                  (120, "狀態")]
+
+    def __init__(self, master, jobs: list[EmailJob], sender_email: str):
+        super().__init__(master)
+        self.title("Gmail 寄送預覽")
+        self.geometry("980x640")
+        self.minsize(900, 500)
+
+        self.jobs = jobs
+        self.sender_email = sender_email
+        self._row_widgets: list[dict] = []  # 每列 UI 元件參照
+
+        self._build_ui()
+        self._refresh_rows()
+
+        # 顯示後置前
+        self.after(100, self.lift)
+        self.after(150, self.focus_force)
+
+    def _build_ui(self):
+        # 頂部資訊
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(top, text=f"寄件者： {self.sender_email}",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        ctk.CTkLabel(top, text=f"  |  共 {len(self.jobs)} 位人員",
+                     text_color="gray50").pack(side="left")
+
+        # 操作列
+        ops = ctk.CTkFrame(self, fg_color="transparent")
+        ops.pack(fill="x", padx=15, pady=(0, 8))
+
+        ctk.CTkButton(ops, text="全選", width=80, height=30,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._select_all).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(ops, text="全不選", width=80, height=30,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._select_none).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(ops, text="僅選可寄送", width=100, height=30,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._select_sendable).pack(side="left", padx=(0, 6))
+
+        self.btn_send = ctk.CTkButton(
+            ops, text="✉ 確認寄送勾選項目", width=180, height=32,
+            fg_color="#1e8449", hover_color="#196f3d",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._on_send_clicked)
+        self.btn_send.pack(side="right")
+
+        # 表格標題列
+        hdr = ctk.CTkFrame(self, height=30)
+        hdr.pack(fill="x", padx=15)
+        for i, (w, title) in enumerate(self.COL_WIDTHS):
+            lbl = ctk.CTkLabel(hdr, text=title, width=w,
+                               font=ctk.CTkFont(size=12, weight="bold"),
+                               anchor="w")
+            lbl.grid(row=0, column=i, padx=4, sticky="w")
+
+        # 可滾動表格
+        self.table = ctk.CTkScrollableFrame(self, height=420)
+        self.table.pack(fill="both", expand=True, padx=15, pady=(4, 10))
+
+        # 底部狀態列
+        self.status_lbl = ctk.CTkLabel(self, text="",
+                                       text_color="gray40",
+                                       font=ctk.CTkFont(size=11),
+                                       anchor="w")
+        self.status_lbl.pack(fill="x", padx=15, pady=(0, 10))
+
+    def _refresh_rows(self):
+        # 清掉舊列
+        for w in self.table.winfo_children():
+            w.destroy()
+        self._row_widgets.clear()
+
+        for idx, job in enumerate(self.jobs):
+            row = ctk.CTkFrame(self.table,
+                               fg_color=("gray92", "gray20") if idx % 2 else "transparent")
+            row.pack(fill="x", pady=1)
+
+            # 勾選框
+            var = ctk.BooleanVar(value=job.selected)
+            chk = ctk.CTkCheckBox(row, text="", variable=var, width=24,
+                                  command=lambda j=job, v=var: self._toggle(j, v))
+            chk.grid(row=0, column=0, padx=4, pady=4)
+
+            # 其他欄位
+            values = [
+                (110, job.person_name),
+                (110, job.role or "—"),
+                (200, job.clinic_name or "—"),
+                (220, job.to_email or "—"),
+                (60, str(len(job.attachments))),
+            ]
+            for col_i, (w, text) in enumerate(values, start=1):
+                lbl = ctk.CTkLabel(row, text=text, width=w, anchor="w",
+                                   font=ctk.CTkFont(size=12))
+                lbl.grid(row=0, column=col_i, padx=4, sticky="w")
+
+            status_lbl = ctk.CTkLabel(row, text=self._status_text(job),
+                                      text_color=self._status_color(job),
+                                      width=120, anchor="w",
+                                      font=ctk.CTkFont(size=12))
+            status_lbl.grid(row=0, column=6, padx=4, sticky="w")
+
+            # 預覽按鈕
+            btn_preview = ctk.CTkButton(
+                row, text="預覽", width=56, height=24,
+                font=ctk.CTkFont(size=11),
+                fg_color="gray55", hover_color="gray45",
+                command=lambda j=job: self._preview_job(j))
+            btn_preview.grid(row=0, column=7, padx=(8, 4))
+
+            # 禁用不可寄送的勾選框
+            if job.status == "skipped":
+                chk.configure(state="disabled")
+
+            self._row_widgets.append({
+                "job": job, "chk_var": var, "chk": chk,
+                "status_lbl": status_lbl, "btn_preview": btn_preview,
+            })
+
+        self._update_status_bar()
+
+    def _status_text(self, job: EmailJob) -> str:
+        m = {
+            "pending": "待寄送",
+            "sent": "✓ 已寄出",
+            "failed": "✗ 失敗",
+            "skipped": f"跳過（{job.error}）" if job.error else "跳過",
+        }
+        return m.get(job.status, job.status)
+
+    def _status_color(self, job: EmailJob) -> str:
+        return {
+            "pending": "gray40",
+            "sent": "#1e8449",
+            "failed": "#c0392b",
+            "skipped": "#b7950b",
+        }.get(job.status, "gray40")
+
+    def _toggle(self, job: EmailJob, var: ctk.BooleanVar):
+        job.selected = var.get()
+        self._update_status_bar()
+
+    def _select_all(self):
+        for rw in self._row_widgets:
+            if rw["job"].status != "skipped":
+                rw["chk_var"].set(True)
+                rw["job"].selected = True
+        self._update_status_bar()
+
+    def _select_none(self):
+        for rw in self._row_widgets:
+            rw["chk_var"].set(False)
+            rw["job"].selected = False
+        self._update_status_bar()
+
+    def _select_sendable(self):
+        for rw in self._row_widgets:
+            job = rw["job"]
+            ok = job.is_sendable
+            rw["chk_var"].set(ok)
+            job.selected = ok
+        self._update_status_bar()
+
+    def _update_status_bar(self):
+        selected = sum(1 for j in self.jobs if j.selected and j.is_sendable)
+        skipped = sum(1 for j in self.jobs if j.status == "skipped")
+        sent = sum(1 for j in self.jobs if j.status == "sent")
+        failed = sum(1 for j in self.jobs if j.status == "failed")
+        total_bytes = sum(
+            j.total_attachment_bytes for j in self.jobs if j.selected and j.is_sendable
+        )
+        mb = total_bytes / (1024 * 1024)
+        self.status_lbl.configure(
+            text=f"將寄送 {selected} 封（附件合計 {mb:.1f} MB）  |  "
+                 f"跳過 {skipped}  |  已寄出 {sent}  |  失敗 {failed}"
+        )
+
+    def _preview_job(self, job: EmailJob):
+        win = ctk.CTkToplevel(self)
+        win.title(f"預覽 — {job.person_name}")
+        win.geometry("680x520")
+        win.transient(self)
+
+        # 主旨
+        frm = ctk.CTkFrame(win, fg_color="transparent")
+        frm.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(frm, text="主旨：",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(frm, text=job.subject, anchor="w").pack(
+            side="left", fill="x", expand=True, padx=(8, 0))
+
+        # 收件者
+        frm2 = ctk.CTkFrame(win, fg_color="transparent")
+        frm2.pack(fill="x", padx=15, pady=2)
+        ctk.CTkLabel(frm2, text="收件者：",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(frm2, text=job.to_email or "（無）",
+                     anchor="w").pack(side="left", padx=(8, 0))
+
+        # 內文
+        ctk.CTkLabel(win, text="內文：",
+                     font=ctk.CTkFont(size=12, weight="bold"),
+                     anchor="w").pack(fill="x", padx=15, pady=(10, 2))
+        txt = ctk.CTkTextbox(win, height=220,
+                             font=ctk.CTkFont(family="Microsoft JhengHei", size=12))
+        txt.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+        txt.insert("1.0", job.body)
+        txt.configure(state="disabled")
+
+        # 附件
+        ctk.CTkLabel(win, text=f"附件（{len(job.attachments)}）：",
+                     font=ctk.CTkFont(size=12, weight="bold"),
+                     anchor="w").pack(fill="x", padx=15, pady=(6, 2))
+        att_box = ctk.CTkTextbox(win, height=110,
+                                 font=ctk.CTkFont(family="Consolas", size=11))
+        att_box.pack(fill="both", expand=False, padx=15, pady=(0, 15))
+        for p in job.attachments:
+            att_box.insert("end", f"{p}\n")
+        att_box.configure(state="disabled")
+
+    def _on_send_clicked(self):
+        selected_jobs = [j for j in self.jobs if j.selected and j.is_sendable]
+        if not selected_jobs:
+            messagebox.showinfo("無可寄送項目", "沒有勾選任何可寄送的信件。")
+            return
+
+        # 輸入 App Password
+        pw_dialog = ctk.CTkInputDialog(
+            title="Gmail App Password",
+            text=f"即將寄送 {len(selected_jobs)} 封信。\n"
+                 f"請輸入 {self.sender_email} 的 App Password：")
+        app_password = pw_dialog.get_input()
+        if not app_password:
+            return
+        # 移除所有空白字元（含 unicode 空白、零寬字元、換行、tab 等）
+        app_password = "".join(
+            c for c in app_password
+            if not c.isspace() and c not in "\u200b\u200c\u200d\ufeff\u00a0"
+        )
+        # 只保留可列印 ASCII（App Password 只有 a-z 字母）
+        app_password = "".join(c for c in app_password if 32 < ord(c) < 127)
+        if not app_password:
+            messagebox.showwarning("未輸入密碼", "已取消寄送。")
+            return
+        # 檢查長度 — App Password 標準為 16 碼
+        if len(app_password) != 16:
+            if not messagebox.askyesno(
+                "密碼長度異常",
+                f"你輸入的密碼長度為 {len(app_password)} 字元，"
+                f"Gmail App Password 標準為 16 字元。\n\n"
+                f"是否仍要嘗試送出？（可能會被 Google 拒絕）",
+            ):
+                return
+
+        # 二次確認
+        if not messagebox.askyesno(
+            "確認寄送",
+            f"即將寄送 {len(selected_jobs)} 封 Gmail。\n\n"
+            f"寄件者：{self.sender_email}\n"
+            f"附件合計：{sum(j.total_attachment_bytes for j in selected_jobs) / 1024 / 1024:.1f} MB\n\n"
+            f"確認繼續？",
+        ):
+            return
+
+        self.btn_send.configure(state="disabled", text="寄送中…")
+        threading.Thread(
+            target=self._send_worker,
+            args=(selected_jobs, app_password),
+            daemon=True,
+        ).start()
+
+    def _send_worker(self, selected_jobs: list[EmailJob], app_password: str):
+        total = len(selected_jobs)
+        auth_error = False
+        for idx, job in enumerate(selected_jobs, 1):
+            self.after(0, lambda j=job: self._mark_status(j, "sending"))
+            try:
+                send_via_gmail_smtp(self.sender_email, app_password, job)
+            except SmtpAuthError as e:
+                auth_error = True
+                self.after(0, lambda msg=str(e): messagebox.showerror(
+                    "Gmail 認證失敗", msg))
+                break
+            except Exception:
+                pass  # 錯誤已記在 job
+            finally:
+                self.after(0, lambda j=job: self._mark_status(j, j.status))
+
+        # 完成
+        self.after(0, lambda: self.btn_send.configure(
+            state="normal", text="✉ 確認寄送勾選項目"))
+        if not auth_error:
+            sent = sum(1 for j in selected_jobs if j.status == "sent")
+            failed = sum(1 for j in selected_jobs if j.status == "failed")
+            self.after(0, lambda: messagebox.showinfo(
+                "寄送完成",
+                f"成功：{sent}\n失敗：{failed}\n總計：{total}"))
+
+    def _mark_status(self, job: EmailJob, display_status: str):
+        """即時更新某 job 的狀態欄。"""
+        for rw in self._row_widgets:
+            if rw["job"] is job:
+                if display_status == "sending":
+                    rw["status_lbl"].configure(text="寄送中…", text_color="gray40")
+                else:
+                    rw["status_lbl"].configure(
+                        text=self._status_text(job),
+                        text_color=self._status_color(job))
+                break
+        self._update_status_bar()
 
 
 if __name__ == "__main__":

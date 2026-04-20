@@ -1,7 +1,7 @@
 """人員個資資料庫 — 從 Excel 讀取/建立個人資料查找表
 
 Excel 格式（第一列為欄位名稱）：
-    姓名 | 身分證字號 | 戶籍地址 | 聯絡電話 | 戶名 | 銀行及分行 | 銀行代碼 | 帳號
+    姓名 | 身分證字號 | 戶籍地址 | 聯絡電話 | 戶名 | 銀行及分行 | 銀行代碼 | 帳號 | Email
 
 用法：
     lookup = load_people_db("人員個資.xlsx")
@@ -12,11 +12,12 @@ import os
 import openpyxl
 from models import ReceiptInfo
 
-COLUMNS = ["姓名", "角色", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號"]
+COLUMNS = ["姓名", "角色", "所屬診所", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號", "Email"]
 
 FIELD_MAP = {
     "姓名":     "recipient_name",
     "角色":     "role",
+    "所屬診所":  "clinic_name",
     "身分證字號": "id_number",
     "戶籍地址":  "address",
     "聯絡電話":  "phone",
@@ -24,6 +25,7 @@ FIELD_MAP = {
     "銀行及分行": "bank_branch",
     "銀行代碼":  "bank_code",
     "帳號":     "account_number",
+    "Email":    "email",
 }
 
 
@@ -39,13 +41,16 @@ def create_template(path: str):
         cell.font = openpyxl.styles.Font(bold=True)
 
     # 欄寬
-    widths = [10, 10, 14, 30, 14, 10, 20, 10, 20]
+    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
     # 範例資料（第二列）
-    ws.append(["王永良", "醫師", "A123456789", "台北市中山區中山北路一段1號",
-                "02-1234-5678", "王永良", "台灣銀行中山分行", "004", "123456789012"])
+    ws.append(["王永良", "醫師", "", "A123456789", "台北市中山區中山北路一段1號",
+                "02-1234-5678", "王永良", "台灣銀行中山分行", "004", "123456789012",
+                "wang@example.com"])
+    ws.append(["周建青", "診所行政人員", "何叔芳小兒科診所", "", "",
+                "", "周建青", "", "", "", ""])
     # 備註列：角色說明
     note_row = ws.max_row + 1
     ws.cell(row=note_row, column=1, value="※ 角色填寫：醫師 / 課程老師 / 診所行政人員")
@@ -74,7 +79,8 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
             from dataclasses import replace
             merged[name] = replace(
                 old,
-                role=info.role or old.role,  # 優先用新偵測到的角色
+                role=info.role or old.role,
+                clinic_name=info.clinic_name or old.clinic_name,
                 id_number=old.id_number or info.id_number,
                 address=old.address or info.address,
                 phone=old.phone or info.phone,
@@ -82,6 +88,7 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
                 bank_branch=old.bank_branch or info.bank_branch,
                 bank_code=old.bank_code or info.bank_code,
                 account_number=old.account_number or info.account_number,
+                email=old.email or info.email,
             )
         else:
             merged[name] = info
@@ -95,20 +102,23 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
         cell = ws.cell(row=1, column=col, value=name)
         cell.font = openpyxl.styles.Font(bold=True)
 
-    widths = [10, 10, 14, 30, 14, 10, 20, 10, 20]
+    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
-    for row_idx, (name, info) in enumerate(sorted(merged.items()), 2):
+    for row_idx, (name, info) in enumerate(
+            sorted(merged.items(), key=lambda x: (x[1].role or "", x[0])), 2):
         ws.cell(row=row_idx, column=1, value=name)
         ws.cell(row=row_idx, column=2, value=info.role or "")
-        ws.cell(row=row_idx, column=3, value=info.id_number or "")
-        ws.cell(row=row_idx, column=4, value=info.address or "")
-        ws.cell(row=row_idx, column=5, value=info.phone or "")
-        ws.cell(row=row_idx, column=6, value=info.account_name or "")
-        ws.cell(row=row_idx, column=7, value=info.bank_branch or "")
-        ws.cell(row=row_idx, column=8, value=info.bank_code or "")
-        ws.cell(row=row_idx, column=9, value=info.account_number or "")
+        ws.cell(row=row_idx, column=3, value=info.clinic_name or "")
+        ws.cell(row=row_idx, column=4, value=info.id_number or "")
+        ws.cell(row=row_idx, column=5, value=info.address or "")
+        ws.cell(row=row_idx, column=6, value=info.phone or "")
+        ws.cell(row=row_idx, column=7, value=info.account_name or "")
+        ws.cell(row=row_idx, column=8, value=info.bank_branch or "")
+        ws.cell(row=row_idx, column=9, value=info.bank_code or "")
+        ws.cell(row=row_idx, column=10, value=info.account_number or "")
+        ws.cell(row=row_idx, column=11, value=info.email or "")
 
     wb.save(path)
     return len(merged)

@@ -10,3 +10,11 @@ output/
 output_april/
 test_receipt*
 *.pdf
+
+# 個資與實際輸出（絕對不推）
+人員個資.xlsx
+核銷文件/
+sample_data.xlsx
+
+# 本地除錯腳本
+test_smtp.py
