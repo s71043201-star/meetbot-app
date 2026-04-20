@@ -13,6 +13,7 @@ import glob
 import os
 import smtplib
 import ssl
+import sys
 from dataclasses import dataclass, field
 from email import encoders
 from email.mime.base import MIMEBase
@@ -21,6 +22,39 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 
 from models import ReceiptInfo
+
+
+# 固定附件：領據填寫範本
+RECEIPT_TEMPLATE_FILENAME = "領據填寫範本.pdf"
+# 社區駐點辦公室收件地址（信件內文用）
+OFFICE_ADDRESS = "中央南路一段45號-1"
+
+
+def find_receipt_template_pdf() -> str | None:
+    """尋找領據填寫範本 PDF。
+    打包後：sys._MEIPASS/word_templates/ 或 exe 同目錄
+    開發時：本檔旁的 word_templates/
+    回傳絕對路徑或 None。
+    """
+    candidates: list[str] = []
+    if getattr(sys, "frozen", False):
+        # PyInstaller 打包後
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(os.path.join(
+                meipass, "word_templates", RECEIPT_TEMPLATE_FILENAME))
+        # 允許使用者放一份在 exe 同目錄覆蓋
+        candidates.append(os.path.join(
+            os.path.dirname(sys.executable), RECEIPT_TEMPLATE_FILENAME))
+    else:
+        candidates.append(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "word_templates", RECEIPT_TEMPLATE_FILENAME))
+
+    for p in candidates:
+        if os.path.isfile(p):
+            return os.path.abspath(p)
+    return None
 
 
 SMTP_HOST = "smtp.gmail.com"
@@ -94,6 +128,9 @@ def build_body(
     attachment_lines = []
     for idx, path in enumerate(attachments, 1):
         filename = os.path.basename(path)
+        if filename == RECEIPT_TEMPLATE_FILENAME:
+            attachment_lines.append(f"  {idx}. 領據填寫範本（{filename}）")
+            continue
         desc = _describe_attachment(path)
         if desc:
             attachment_lines.append(f"  {idx}. {desc}（{filename}）")
@@ -113,6 +150,8 @@ def build_body(
         f"\n"
         f"本次附件（共 {len(attachments)} 份）：\n"
         f"{attachment_block}\n"
+        f"\n"
+        f"請按附件範例填寫後寄回社區駐點辦公室（{OFFICE_ADDRESS}）。\n"
         f"\n"
         f"如有任何問題請與本會聯繫，謝謝。\n"
         f"\n"
@@ -184,11 +223,19 @@ def build_email_jobs(
         stem = os.path.splitext(os.path.basename(p))[0].strip()
         if not stem:
             continue
+        # 排除「領據填寫範本」本身（若被放進 month_dir 則會被誤抓）
+        if stem == os.path.splitext(RECEIPT_TEMPLATE_FILENAME)[0]:
+            continue
         by_person.setdefault(stem, []).append(p)
+
+    # 找範本 PDF（每封信附一份）
+    template_pdf = find_receipt_template_pdf()
 
     jobs: list[EmailJob] = []
     for name in sorted(by_person.keys()):
         files = sorted(by_person[name])
+        if template_pdf:
+            files.append(template_pdf)
         info = receipt_lookup.get(name)
 
         role = info.role if info else ""

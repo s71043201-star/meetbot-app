@@ -17,7 +17,8 @@ class DoctorPrescription:
     social_exec: int = 0  # 社會處方 執行份數
     prescription_fee: int = 0   # 處方費總金額
     execution_fee: int = 0      # 處方執行費總金額
-    patients: List["PatientRecord"] = field(default_factory=list)  # 此醫師開立處方的民眾（for 明細表）
+    patients: List["PatientRecord"] = field(default_factory=list)  # 此醫師「開立」處方的民眾（處方費明細用）
+    execution_patients: List["PatientRecord"] = field(default_factory=list)  # 此醫師處方「已執行」的民眾（執行費明細用）
 
 
 @dataclass

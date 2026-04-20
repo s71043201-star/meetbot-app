@@ -472,7 +472,12 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
 def _add_doctor_patient_list_page(doc, data: AllData,
                                    doctor, fee_label: str = "處方費"):
     """為醫師產生民眾明細頁（單頁，仿照執行人員版）"""
-    patients = doctor.patients
+    # 執行費明細：只列「當月有執行」的民眾
+    # 處方費明細：列「當月開立」的民眾
+    if "執行" in fee_label and getattr(doctor, "execution_patients", None):
+        patients = doctor.execution_patients
+    else:
+        patients = doctor.patients
     num = len(patients)
     prefix = f"{data.report_year}年{data.report_month:02d}月"
 

@@ -10,6 +10,8 @@ output/
 output_april/
 test_receipt*
 *.pdf
+# 範本 PDF 要進 git（排除規則要放行）
+!word_templates/領據填寫範本.pdf
 
 # 個資與實際輸出（絕對不推）
 人員個資.xlsx

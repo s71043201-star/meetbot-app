@@ -5,8 +5,16 @@ Excel 格式（單一 sheet「處方紀錄」）：
       開立診所 | 開立醫師 | 是否選課 | 選課名稱 | 選課時段 |
       執行單位 | 執行人員 | 執行處方 | 執行課程 | 執行日期 |
       處方費 | 處方執行費 | 處方處置費 | 已核銷 | 開立日期時間
+
+雙檔案模式：
+  - 開立處方紀錄 Excel：用於計算處方費 + 健康管理費
+  - 執行處方紀錄 Excel：用於計算處方執行費 + 處方處置費
+
+匯出端以「開立日期 = 申報月」篩 issuance Excel、以「執行日期 = 申報月」篩
+execution Excel，即可正確處理「2 月開立 3 月執行」等跨月情境。
 """
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
@@ -36,102 +44,129 @@ COL_EXEC_FEE = 18    # 處方執行費（每筆金額）
 COL_DATE = 21
 
 
-def read_prescription_report(filepath: str,
-                             report_year: int = 115,
-                             report_month: int = 4,
-                             min_prescriptions: int = 0) -> AllData:
-    """讀取處方紀錄 Excel 並統計所有資料"""
-
+def _load_rows(filepath: str) -> list:
+    """讀 Excel 的「處方紀錄」分頁，回傳 row 列表（每 row 是 tuple）。
+    路徑為空或檔案不存在時回傳空列表。"""
+    if not filepath or not os.path.isfile(filepath):
+        return []
     wb = openpyxl.load_workbook(filepath, read_only=True)
     ws = wb["處方紀錄"]
-
-    # 收集所有資料列
-    records = []
+    rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         if row[0] is None:
             continue
-        records.append(row)
+        rows.append(row)
     wb.close()
+    return rows
 
-    # === 1. 按醫師統計處方開立費 ===
-    # key: (診所, 醫師) → {處方類型: 開立份數}
-    doctor_prescription = defaultdict(lambda: defaultdict(int))
-    # key: (診所, 醫師) → {處方類型: 執行份數}
-    doctor_execution = defaultdict(lambda: defaultdict(int))
-    # key: (診所, 醫師) → 金額加總
-    doctor_presc_fee = defaultdict(int)
-    doctor_exec_fee = defaultdict(int)
-    # key: (診所, 醫師) → 所有該醫師開立的處方 records (用於 per-doctor 明細表)
-    doctor_records = defaultdict(list)
-    # key: 診所 → 所有記錄
-    clinic_records = defaultdict(list)
-    # key: (執行單位, 執行人員) → {處方類型: [records]}
-    executor_records = defaultdict(lambda: defaultdict(list))
 
-    for row in records:
+def read_prescription_report(issuance_path: str,
+                             execution_path: str = "",
+                             report_year: int = 115,
+                             report_month: int = 4,
+                             min_prescriptions: int = 0) -> AllData:
+    """讀取處方紀錄並統計。
+
+    - issuance_path: 開立處方紀錄 Excel（必要）— 計算處方費 + 健康管理費
+    - execution_path: 執行處方紀錄 Excel（選填）— 計算處方執行費 + 處方處置費
+                     若空，issuance_path 兼作執行紀錄（單檔舊行為）
+    """
+    issuance_records = _load_rows(issuance_path)
+    if execution_path and execution_path != issuance_path:
+        execution_records = _load_rows(execution_path)
+    else:
+        execution_records = issuance_records
+
+    # === 1. 從「開立處方紀錄」收集：處方費、健管費、醫師開立民眾 ===
+    doctor_prescription: dict = defaultdict(lambda: defaultdict(int))
+    doctor_presc_fee: dict = defaultdict(int)
+    doctor_records_issuance: dict = defaultdict(list)
+    clinic_records: dict = defaultdict(list)
+
+    for row in issuance_records:
         ptype = str(row[COL_PTYPE] or "")
         clinic = str(row[COL_CLINIC] or "")
         doctor = str(row[COL_DOCTOR] or "")
-
         if ptype not in PRESCRIPTION_TYPES:
             continue
 
-        # 處方開立
         doctor_prescription[(clinic, doctor)][ptype] += 1
-        doctor_records[(clinic, doctor)].append(row)
+        doctor_records_issuance[(clinic, doctor)].append(row)
         clinic_records[clinic].append(row)
-
-        # 累計處方費
         try:
             pf = int(row[COL_PRESC_FEE] or 0)
             doctor_presc_fee[(clinic, doctor)] += pf
         except (TypeError, ValueError):
             pass
 
-        # 處方執行（有執行日期 = 已執行）
+    # === 2. 從「執行處方紀錄」收集：執行費、處置費、執行人員 ===
+    doctor_execution: dict = defaultdict(lambda: defaultdict(int))
+    doctor_exec_fee: dict = defaultdict(int)
+    doctor_records_execution: dict = defaultdict(list)
+    executor_records: dict = defaultdict(lambda: defaultdict(list))
+
+    for row in execution_records:
+        ptype = str(row[COL_PTYPE] or "")
+        clinic = str(row[COL_CLINIC] or "")
+        doctor = str(row[COL_DOCTOR] or "")
+        if ptype not in PRESCRIPTION_TYPES:
+            continue
+
         exec_done = row[COL_EXEC_DONE]
         exec_person = row[COL_EXEC_PERSON]
         exec_unit = row[COL_EXEC_UNIT]
-        if exec_done and exec_person:
-            doctor_execution[(clinic, doctor)][ptype] += 1
-            executor_records[(str(exec_unit or ""), str(exec_person))][ptype].append(row)
-            # 累計處方執行費
-            try:
-                ef = int(row[COL_EXEC_FEE] or 0)
-                doctor_exec_fee[(clinic, doctor)] += ef
-            except (TypeError, ValueError):
-                pass
+        if not (exec_done and exec_person):
+            continue
 
-    # === 2. 建立 DoctorPrescription 列表 ===
-    PRESC_UNIT = FEE_PER_PRESCRIPTION   # 每份處方費(config)
-    EXEC_UNIT  = FEE_PER_EXECUTION      # 每份處方執行費(config)
+        doctor_execution[(clinic, doctor)][ptype] += 1
+        doctor_records_execution[(clinic, doctor)].append(row)
+        executor_records[(str(exec_unit or ""), str(exec_person))][ptype].append(row)
+        try:
+            ef = int(row[COL_EXEC_FEE] or 0)
+            doctor_exec_fee[(clinic, doctor)] += ef
+        except (TypeError, ValueError):
+            pass
+
+    # === 3. 建立 DoctorPrescription 列表（issuance ∪ execution 的醫師）===
+    PRESC_UNIT = FEE_PER_PRESCRIPTION
+    EXEC_UNIT = FEE_PER_EXECUTION
+    all_doctor_keys = set(doctor_prescription.keys()) | set(doctor_execution.keys())
     doctors = []
-    for (clinic, doctor_name), type_counts in sorted(doctor_prescription.items()):
+    for clinic, doctor_name in sorted(all_doctor_keys):
+        type_counts = doctor_prescription.get((clinic, doctor_name), {})
         exec_counts = doctor_execution.get((clinic, doctor_name), {})
         total_presc = sum(type_counts.values())
-        total_exec  = sum(exec_counts.values())
+        total_exec = sum(exec_counts.values())
 
-        # 優先用 Excel 欄位金額；若欄位為 0（未填）則依份數 × 單價計算
         presc_fee = doctor_presc_fee.get((clinic, doctor_name), 0) or (total_presc * PRESC_UNIT)
-        exec_fee  = doctor_exec_fee.get((clinic, doctor_name), 0)  or (total_exec  * EXEC_UNIT)
+        exec_fee = doctor_exec_fee.get((clinic, doctor_name), 0) or (total_exec * EXEC_UNIT)
 
-        # 此醫師的民眾明細（去重，按出現順序）
-        d_patients = []
-        seen = set()
-        for row in doctor_records.get((clinic, doctor_name), []):
-            ptype = str(row[COL_PTYPE] or "")
-            key = (row[COL_NAME], row[COL_ID], ptype)
-            if key in seen:
-                continue
-            seen.add(key)
-            d_patients.append(PatientRecord(
-                name=str(row[COL_NAME] or ""),
-                id_number=str(row[COL_ID] or ""),
-                birth_date=str(row[COL_BIRTH] or ""),
-                prescriber=doctor_name,
-                exec_date=str(row[COL_EXEC_DATE] or ""),
-                prescription_type=ptype,
-            ))
+        # 建立兩份民眾明細：
+        #   patients → 開立的民眾（處方費明細用）
+        #   execution_patients → 已執行的民眾（執行費明細用）
+        def _build_patient_list(source_rows):
+            out = []
+            seen = set()
+            for row in source_rows:
+                ptype = str(row[COL_PTYPE] or "")
+                key = (row[COL_NAME], row[COL_ID], ptype)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(PatientRecord(
+                    name=str(row[COL_NAME] or ""),
+                    id_number=str(row[COL_ID] or ""),
+                    birth_date=str(row[COL_BIRTH] or ""),
+                    prescriber=doctor_name,
+                    exec_date=str(row[COL_EXEC_DATE] or ""),
+                    prescription_type=ptype,
+                ))
+            return out
+
+        patients_issuance = _build_patient_list(
+            doctor_records_issuance.get((clinic, doctor_name), []))
+        patients_execution = _build_patient_list(
+            doctor_records_execution.get((clinic, doctor_name), []))
 
         doctors.append(DoctorPrescription(
             medical_institution=clinic,
@@ -146,7 +181,8 @@ def read_prescription_report(filepath: str,
             social_exec=exec_counts.get("社會處方", 0),
             prescription_fee=presc_fee,
             execution_fee=exec_fee,
-            patients=d_patients,
+            patients=patients_issuance,
+            execution_patients=patients_execution,
         ))
 
     # === 3. 健康管理費（按診所統計）===

@@ -89,17 +89,31 @@ class App(ctk.CTk):
                      text_color="gray50").pack(pady=(0, 15))
 
         # ── 資料來源 ──
-        self._section_label(main, "1. 匯入處方紀錄")
-        frame_src = ctk.CTkFrame(main, fg_color="transparent")
-        frame_src.pack(fill="x", pady=(0, 10))
+        self._section_label(main, "1. 匯入處方紀錄（分開立/執行兩份，以便跨月核銷）")
 
+        # 開立處方紀錄（處方費 + 健康管理費）
+        frame_src = ctk.CTkFrame(main, fg_color="transparent")
+        frame_src.pack(fill="x", pady=(0, 4))
+        ctk.CTkLabel(frame_src, text="開立", width=40).pack(side="left")
         self.var_excel = ctk.StringVar()
         ctk.CTkEntry(frame_src, textvariable=self.var_excel,
-                     placeholder_text="選擇處方紀錄 Excel 檔案...",
+                     placeholder_text="開立處方 Excel（處方費 + 健康管理費）...",
                      height=36).pack(side="left", fill="x", expand=True,
                                      padx=(0, 8))
         ctk.CTkButton(frame_src, text="選擇檔案", width=100, height=36,
                       command=self._browse_excel).pack(side="right")
+
+        # 執行處方紀錄（處方執行費 + 處方處置費）
+        frame_src2 = ctk.CTkFrame(main, fg_color="transparent")
+        frame_src2.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(frame_src2, text="執行", width=40).pack(side="left")
+        self.var_exec_excel = ctk.StringVar()
+        ctk.CTkEntry(frame_src2, textvariable=self.var_exec_excel,
+                     placeholder_text="執行處方 Excel（處方執行費 + 處方處置費；留空則用開立檔）...",
+                     height=36).pack(side="left", fill="x", expand=True,
+                                     padx=(0, 8))
+        ctk.CTkButton(frame_src2, text="選擇檔案", width=100, height=36,
+                      command=self._browse_exec_excel).pack(side="right")
 
         # ── 申報設定 ──
         self._section_label(main, "2. 申報設定")
@@ -315,10 +329,17 @@ class App(ctk.CTk):
 
     def _browse_excel(self):
         path = filedialog.askopenfilename(
-            title="選擇處方紀錄 Excel",
+            title="選擇開立處方紀錄 Excel",
             filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
         if path:
             self.var_excel.set(path)
+
+    def _browse_exec_excel(self):
+        path = filedialog.askopenfilename(
+            title="選擇執行處方紀錄 Excel",
+            filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
+        if path:
+            self.var_exec_excel.set(path)
 
     def _browse_people_db(self):
         path = filedialog.askopenfilename(
@@ -538,7 +559,8 @@ class App(ctk.CTk):
         self,
         scope_label: str,
         data,
-        raw_records,
+        raw_records_issuance,
+        raw_records_execution,
         month_dir: str,
         prefix: str,
         min_presc: int,
@@ -563,15 +585,16 @@ class App(ctk.CTk):
         TREATMENT_COMBINED_DIR = "處方處置費合併總表word"
 
         # 產生 Excel 統計檔（每個 scope 都有自己的總表）
+        # 處方費 → 開立；執行費 → 執行；健管費 → 開立
         presc_dir = subdir(COMBINED_DIR_NAME)
         try:
-            generate_prescription_fee_excel(raw_records, prefix, presc_dir)
-            generate_execution_fee_excel(raw_records, prefix, presc_dir)
+            generate_prescription_fee_excel(raw_records_issuance, prefix, presc_dir)
+            generate_execution_fee_excel(raw_records_execution, prefix, presc_dir)
         except Exception:
             pass
         hm_dir = subdir(HEALTH_COMBINED_DIR)
         try:
-            generate_health_mgmt_excel(raw_records, prefix, hm_dir)
+            generate_health_mgmt_excel(raw_records_issuance, prefix, hm_dir)
         except Exception:
             pass
         self.after(0, lambda s=scope_label: self._log(f"[{s}] Excel 統計檔"))
@@ -622,7 +645,7 @@ class App(ctk.CTk):
             }
             try:
                 xlsx_paths = generate_health_mgmt_excel_per_clinic(
-                    raw_records, prefix, per_clinic_excel_dir,
+                    raw_records_issuance, prefix, per_clinic_excel_dir,
                     clinic_to_person=clinic_to_person_map,
                 )
             except Exception:
@@ -692,7 +715,10 @@ class App(ctk.CTk):
         return all_pending_docx, health_merge_info, executor_merge_info, doctor_merge_info
 
     def _do_generate(self):
-        excel = self.var_excel.get().strip()
+        issuance_excel = self.var_excel.get().strip()
+        execution_excel = self.var_exec_excel.get().strip()
+        if not execution_excel:
+            execution_excel = issuance_excel  # 單檔相容
         year = int(self.var_year.get())
         month = int(self.var_month.get())
         region_choice = self.var_region.get()
@@ -704,6 +730,12 @@ class App(ctk.CTk):
 
         self.after(0, lambda: self._log(f"設定檔來源: {config_source()}"))
         self.after(0, lambda: self._log("讀取 Excel 中..."))
+        self.after(0, lambda p=issuance_excel: self._log(f"  開立: {os.path.basename(p)}"))
+        if execution_excel != issuance_excel:
+            self.after(0, lambda p=execution_excel:
+                       self._log(f"  執行: {os.path.basename(p)}"))
+        else:
+            self.after(0, lambda: self._log("  執行: (沿用開立檔)"))
         self.after(0, lambda: self.progress.set(0.05))
 
         # 讀取總資料（read_prescription_report 只用一次,分區時再 filter）
@@ -711,10 +743,19 @@ class App(ctk.CTk):
         any_threshold = next(
             (v for v in region_thresholds.values() if v > 0), 0)
         data = read_prescription_report(
-            excel, report_year=year, report_month=month,
+            issuance_excel,
+            execution_path=execution_excel,
+            report_year=year, report_month=month,
             min_prescriptions=any_threshold,
         )
-        raw_records = read_raw_records(excel)
+        # 兩組 raw records：處方費/健管費 用開立、執行費用執行
+        raw_records_issuance = read_raw_records(issuance_excel)
+        if execution_excel != issuance_excel:
+            raw_records_execution = read_raw_records(execution_excel)
+        else:
+            raw_records_execution = raw_records_issuance
+        # 預設 raw_records 變數供後面程式相容使用（處方費/健管費）
+        raw_records = raw_records_issuance
 
         self.after(0, lambda: self._log(
             f"  醫師: {len(data.doctors)} 位 | "
@@ -874,10 +915,14 @@ class App(ctk.CTk):
             # 過濾資料
             if scope_label == "全部":
                 data_scope = data
-                raw_scope = raw_records
+                raw_scope_issuance = raw_records_issuance
+                raw_scope_execution = raw_records_execution
             else:
                 data_scope = self._filter_data(data, allowed)
-                raw_scope = self._filter_raw_records(raw_records, allowed)
+                raw_scope_issuance = self._filter_raw_records(
+                    raw_records_issuance, allowed)
+                raw_scope_execution = self._filter_raw_records(
+                    raw_records_execution, allowed)
 
             # 該 scope 的 min_prescriptions 要重算 is_qualified
             for hm in data_scope.health_mgmts:
@@ -896,7 +941,8 @@ class App(ctk.CTk):
             pending, hi, ei, di = self._produce_for_scope(
                 scope_label=scope_label,
                 data=data_scope,
-                raw_records=raw_scope,
+                raw_records_issuance=raw_scope_issuance,
+                raw_records_execution=raw_scope_execution,
                 month_dir=month_dir,
                 prefix=prefix,
                 min_presc=threshold,
