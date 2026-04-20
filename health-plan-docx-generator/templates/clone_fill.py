@@ -12,9 +12,7 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from models import AllData, DoctorPrescription
-
-FEE_PER_PRESCRIPTION = 300
-FEE_PER_EXECUTION = 100
+from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
 
 
 def _get_all_text_runs(element):

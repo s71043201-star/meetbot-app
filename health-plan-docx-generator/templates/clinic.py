@@ -11,10 +11,9 @@ from templates.doc_utils import (
     add_signature_line, add_note, today_roc,
 )
 
+from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION, HEALTH_MGMT_FEE, PEOPLE_DIVISOR
+
 PRESCRIPTION_TYPES = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
-FEE_PER_PRESCRIPTION = 300
-FEE_PER_EXECUTION = 100
-HEALTH_MGMT_FEE = 7000
 
 # Column widths from actual document (EMU)
 DATA_COL_WIDTHS = [1496060, 3004185, 2007235, 2493010]
@@ -45,14 +44,15 @@ def generate_execution_fee_doc(data: AllData, output_path: str):
     doc.save(output_path)
 
 
-def generate_health_mgmt_doc(data: AllData, output_path: str):
+def generate_health_mgmt_doc(data: AllData, output_path: str,
+                             min_prescriptions: int = 0):
     """產生健康管理費總表"""
     doc = create_document()
 
     for i, hm in enumerate(data.health_mgmts):
         if i > 0:
             add_page_break(doc)
-        _add_health_mgmt_page(doc, data, hm)
+        _add_health_mgmt_page(doc, data, hm, min_prescriptions=min_prescriptions)
 
     doc.save(output_path)
 
@@ -123,9 +123,6 @@ def _add_prescription_fee_page(doc, data: AllData, doctor: DoctorPrescription):
         "本表不含個人資料，僅供核銷統計使用",
     ])
 
-    p = doc.add_paragraph(); compact_paragraph(p)
-    add_signature_line(doc)
-
 
 def _add_execution_fee_page(doc, data: AllData, doctor: DoctorPrescription):
     period = f"{data.report_year}年{data.report_month}月"
@@ -180,11 +177,9 @@ def _add_execution_fee_page(doc, data: AllData, doctor: DoctorPrescription):
         "本表不含個人資料，僅供核銷統計使用",
     ])
 
-    p = doc.add_paragraph(); compact_paragraph(p)
-    add_signature_line(doc)
 
-
-def _add_health_mgmt_page(doc, data: AllData, hm: HealthManagement):
+def _add_health_mgmt_page(doc, data: AllData, hm: HealthManagement,
+                          min_prescriptions: int = 0):
     period = f"{data.report_year}年{data.report_month}月"
 
     add_title(doc, "台北市醫師公會健康台灣深耕計畫")
@@ -223,13 +218,16 @@ def _add_health_mgmt_page(doc, data: AllData, hm: HealthManagement):
     set_cell_text(table.cell(2, 4), amount, bold=True)
 
     p = doc.add_paragraph(); compact_paragraph(p)
+    if min_prescriptions:
+        min_people = min_prescriptions // PEOPLE_DIVISOR
+        min_count = min_prescriptions
+    else:
+        min_people = "X"
+        min_count = "XX"
     add_note(doc, [
-        "處方執行費計算方式：每個月開立處方 X 人以上 XX 份處方，健康管理費$7,000",
+        f"處方執行費計算方式：每個月開立處方 {min_people} 人以上 {min_count} 份處方，健康管理費${HEALTH_MGMT_FEE:,}",
         "本表不含個人資料，僅供核銷統計使用",
     ])
-
-    p = doc.add_paragraph(); compact_paragraph(p)
-    add_signature_line(doc)
 
 
 def _add_patient_list_page(doc, data: AllData):
@@ -285,7 +283,7 @@ def _add_receipt_page(doc, data: AllData):
     )
 
     p = doc.add_paragraph()
-    add_run(p, f"應付新臺幣 {receipt.amount:,} 元整(阿拉伯數字)。", size=14)
+    add_run(p, f"應付新臺幣 {receipt.amount:,} 元整。", size=14)
 
     p = doc.add_paragraph(); compact_paragraph(p)
 

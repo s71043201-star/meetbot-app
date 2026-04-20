@@ -161,7 +161,6 @@ def generate_prescription_fee_excel(records: list, prefix: str,
                        f"{prefix}處方開立份數：{n}份")
         _write_summary(ws, summary_row + 1,
                        f"總申報金額（元）：{n * FEE_PRESCRIPTION:,}")
-        _write_signature(ws, summary_row + 2)
 
     path = os.path.join(output_dir, f"處方費用-處方開立費-{prefix}-總.xlsx")
     wb.save(path)
@@ -204,7 +203,6 @@ def generate_execution_fee_excel(records: list, prefix: str,
                        f"{prefix}完成執行處方份數：{n}份")
         _write_summary(ws, summary_row + 1,
                        f"處方執行費總申報金額（元）：{n * FEE_EXECUTION:,}")
-        _write_signature(ws, summary_row + 2)
 
     path = os.path.join(output_dir, f"處方費用-處方執行費-{prefix}-總.xlsx")
     wb.save(path)
@@ -245,11 +243,189 @@ def generate_health_mgmt_excel(records: list, prefix: str,
         summary_row = n + 4
         _write_summary(ws, summary_row,
                        f"健康管理費總申報金額（元）：{FEE_HEALTH_MGMT:,}")
-        _write_signature(ws, summary_row + 1)
 
     path = os.path.join(output_dir, f"健康管理費-{prefix}-總.xlsx")
     wb.save(path)
     return path
+
+
+def generate_health_mgmt_excel_per_clinic(records: list, prefix: str,
+                                           output_dir: str,
+                                           clinic_to_person: dict | None = None):
+    """健康管理費 Excel — 每間診所各自一份 xlsx（檔名用 clinic_person 或 clinic 名）
+
+    clinic_to_person: {診所名: 診所人員姓名}，若提供則用人員名作檔名
+    return: list of created xlsx paths
+    """
+    headers = ["序號", "民眾姓名", "民眾出生年月日(yyyy/mm/dd)",
+               "處方類型", "協助處方開立行政人員", "開立日期時間"]
+    col_widths = [6.86, 12.57, 17.43, 15.86, 17.43, 26.0]
+
+    by_clinic = defaultdict(list)
+    for row in records:
+        if row[COL_CLINIC]:
+            by_clinic[str(row[COL_CLINIC])].append(row)
+
+    paths = []
+    os.makedirs(output_dir, exist_ok=True)
+    for clinic, rows in sorted(by_clinic.items()):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"健康管理費-{clinic}"[:31]
+        _setup_sheet(ws, headers, col_widths, wrap_cols={0, 1, 2})
+
+        sorted_rows = _sort_by_ptype(rows)
+        for seq, row in enumerate(sorted_rows, 1):
+            _write_row(ws, seq + 3, [
+                seq,
+                row[COL_NAME],
+                str(row[COL_BIRTH] or ""),
+                str(row[COL_PTYPE] or ""),
+                str(row[COL_DOCTOR] or ""),
+                str(row[COL_DATE] or ""),
+            ], wrap_cols={0, 1})
+
+        n = len(sorted_rows)
+        summary_row = n + 4
+        _write_summary(ws, summary_row,
+                       f"健康管理費總申報金額（元）：{FEE_HEALTH_MGMT:,}")
+
+        # 檔名：優先用 person 名，否則 clinic
+        person = (clinic_to_person or {}).get(clinic, "") or clinic
+        # 清掉不能做檔名的字元
+        person_safe = person.replace("/", "-").replace("\\", "-")
+        path = os.path.join(output_dir, f"{person_safe}_健康管理費-{prefix}.xlsx")
+        wb.save(path)
+        paths.append(path)
+
+    return paths
+
+
+def _xlsx_to_pdf(xlsx_path: str) -> str | None:
+    """用 Excel COM 將 xlsx 轉為 PDF。失敗 return None
+    會自動設橫向 + 縮放到 1 頁寬。
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        return None
+    pdf_path = xlsx_path.rsplit(".", 1)[0] + ".pdf"
+    try:
+        excel = win32com.client.DispatchEx("Excel.Application")
+        try:
+            excel.Visible = False
+        except Exception:
+            pass
+        try:
+            excel.DisplayAlerts = False
+        except Exception:
+            pass
+        try:
+            wb = excel.Workbooks.Open(os.path.abspath(xlsx_path))
+            _apply_pdf_pagesetup(wb)
+            # 0 = xlTypePDF
+            wb.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+            wb.Close(SaveChanges=False)
+            return pdf_path
+        finally:
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+
+def _apply_pdf_pagesetup(wb):
+    """設定每個 sheet 的 PageSetup：橫向 + 縮放到 1 頁寬（高度不限），小邊距"""
+    for sheet_idx in range(1, wb.Sheets.Count + 1):
+        ws = wb.Sheets(sheet_idx)
+        try:
+            ps = ws.PageSetup
+            ps.Orientation = 2        # xlLandscape
+            ps.PaperSize = 9          # xlPaperA4
+            ps.Zoom = False           # 關閉 zoom 才能用 FitToPages
+            ps.FitToPagesWide = 1     # 寬度 = 1 頁
+            ps.FitToPagesTall = False # 高度不限（可多頁）
+            # 小邊距（inch）
+            ps.LeftMargin = 0.3 * 72   # 0.3 inch（Excel 用 points，1 inch = 72 pt）
+            ps.RightMargin = 0.3 * 72
+            ps.TopMargin = 0.5 * 72
+            ps.BottomMargin = 0.5 * 72
+            ps.HeaderMargin = 0.2 * 72
+            ps.FooterMargin = 0.2 * 72
+            ps.CenterHorizontally = True
+        except Exception:
+            pass
+
+
+def xlsx_list_to_pdf(xlsx_paths: list, progress_cb=None, batch_size: int = 50):
+    """批次把 xlsx 轉成 PDF。為防 Excel 累積不穩定，每 batch_size 份重啟。
+
+    輸出 PDF 會自動設為橫向 + 縮放到 1 頁寬，防止欄位被擠到下一頁。
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        return
+    total = len(xlsx_paths)
+    if total == 0:
+        return
+
+    def _new_excel():
+        last_err = None
+        for _ in range(3):
+            try:
+                e = win32com.client.DispatchEx("Excel.Application")
+                try:
+                    e.Visible = False
+                except Exception:
+                    pass
+                try:
+                    e.DisplayAlerts = False
+                except Exception:
+                    pass
+                return e
+            except Exception as err:
+                last_err = err
+                import time
+                time.sleep(1)
+        raise last_err if last_err else RuntimeError("無法啟動 Excel")
+
+    excel = _new_excel()
+    try:
+        for idx, xlsx_path in enumerate(xlsx_paths):
+            pdf_path = xlsx_path.rsplit(".", 1)[0] + ".pdf"
+            try:
+                wb = excel.Workbooks.Open(os.path.abspath(xlsx_path))
+                _apply_pdf_pagesetup(wb)
+                wb.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+                wb.Close(SaveChanges=False)
+            except Exception as e:
+                if progress_cb:
+                    try:
+                        progress_cb(idx + 1, total, f"[WARN] {os.path.basename(xlsx_path)}: {e}")
+                    except Exception:
+                        pass
+                continue
+
+            if progress_cb:
+                try:
+                    progress_cb(idx + 1, total, os.path.basename(xlsx_path))
+                except Exception:
+                    pass
+
+            if (idx + 1) % batch_size == 0 and (idx + 1) < total:
+                try:
+                    excel.Quit()
+                except Exception:
+                    pass
+                excel = _new_excel()
+    finally:
+        try:
+            excel.Quit()
+        except Exception:
+            pass
 
 
 def read_raw_records(filepath: str) -> list:

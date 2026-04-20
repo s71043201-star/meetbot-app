@@ -14,6 +14,7 @@ from typing import Optional
 import openpyxl
 
 from models import AllData, DoctorPrescription, HealthManagement, ExecutorData, PatientRecord, ReceiptInfo
+from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION, FEE_PER_TREATMENT
 
 PRESCRIPTION_TYPES = {"運動處方", "營養處方", "情緒調適處方", "社會處方"}
 
@@ -60,6 +61,8 @@ def read_prescription_report(filepath: str,
     # key: (診所, 醫師) → 金額加總
     doctor_presc_fee = defaultdict(int)
     doctor_exec_fee = defaultdict(int)
+    # key: (診所, 醫師) → 所有該醫師開立的處方 records (用於 per-doctor 明細表)
+    doctor_records = defaultdict(list)
     # key: 診所 → 所有記錄
     clinic_records = defaultdict(list)
     # key: (執行單位, 執行人員) → {處方類型: [records]}
@@ -75,6 +78,7 @@ def read_prescription_report(filepath: str,
 
         # 處方開立
         doctor_prescription[(clinic, doctor)][ptype] += 1
+        doctor_records[(clinic, doctor)].append(row)
         clinic_records[clinic].append(row)
 
         # 累計處方費
@@ -99,8 +103,8 @@ def read_prescription_report(filepath: str,
                 pass
 
     # === 2. 建立 DoctorPrescription 列表 ===
-    PRESC_UNIT = 300   # 每份處方費
-    EXEC_UNIT  = 100   # 每份處方執行費
+    PRESC_UNIT = FEE_PER_PRESCRIPTION   # 每份處方費(config)
+    EXEC_UNIT  = FEE_PER_EXECUTION      # 每份處方執行費(config)
     doctors = []
     for (clinic, doctor_name), type_counts in sorted(doctor_prescription.items()):
         exec_counts = doctor_execution.get((clinic, doctor_name), {})
@@ -110,6 +114,24 @@ def read_prescription_report(filepath: str,
         # 優先用 Excel 欄位金額；若欄位為 0（未填）則依份數 × 單價計算
         presc_fee = doctor_presc_fee.get((clinic, doctor_name), 0) or (total_presc * PRESC_UNIT)
         exec_fee  = doctor_exec_fee.get((clinic, doctor_name), 0)  or (total_exec  * EXEC_UNIT)
+
+        # 此醫師的民眾明細（去重，按出現順序）
+        d_patients = []
+        seen = set()
+        for row in doctor_records.get((clinic, doctor_name), []):
+            ptype = str(row[COL_PTYPE] or "")
+            key = (row[COL_NAME], row[COL_ID], ptype)
+            if key in seen:
+                continue
+            seen.add(key)
+            d_patients.append(PatientRecord(
+                name=str(row[COL_NAME] or ""),
+                id_number=str(row[COL_ID] or ""),
+                birth_date=str(row[COL_BIRTH] or ""),
+                prescriber=doctor_name,
+                exec_date=str(row[COL_EXEC_DATE] or ""),
+                prescription_type=ptype,
+            ))
 
         doctors.append(DoctorPrescription(
             medical_institution=clinic,
@@ -124,6 +146,7 @@ def read_prescription_report(filepath: str,
             social_exec=exec_counts.get("社會處方", 0),
             prescription_fee=presc_fee,
             execution_fee=exec_fee,
+            patients=d_patients,
         ))
 
     # === 3. 健康管理費（按診所統計）===
@@ -134,8 +157,8 @@ def read_prescription_report(filepath: str,
         for row in rows:
             unique_patients.add(row[COL_NAME])
             if not admin_person:
-                # 優先取執行人員（診所負責人），無則退回開立醫師
-                admin_person = str(row[COL_EXEC_PERSON] or row[COL_DOCTOR] or "")
+                # 診所人員：暫用開立醫師，之後由個資檔反查表覆蓋正確人名
+                admin_person = str(row[COL_DOCTOR] or "")
 
         total_count = len(rows)
         people_count = len(unique_patients)
@@ -143,12 +166,31 @@ def read_prescription_report(filepath: str,
         if min_prescriptions > 0 and total_count < min_prescriptions:
             continue
 
+        # 此診所的民眾明細（去重：name+id+ptype）
+        hm_patients = []
+        seen = set()
+        for row in rows:
+            ptype = str(row[COL_PTYPE] or "")
+            key = (row[COL_NAME], row[COL_ID], ptype)
+            if key in seen:
+                continue
+            seen.add(key)
+            hm_patients.append(PatientRecord(
+                name=str(row[COL_NAME] or ""),
+                id_number=str(row[COL_ID] or ""),
+                birth_date=str(row[COL_BIRTH] or ""),
+                prescriber=str(row[COL_DOCTOR] or ""),
+                exec_date=str(row[COL_EXEC_DATE] or ""),
+                prescription_type=ptype,
+            ))
+
         health_mgmts.append(HealthManagement(
             medical_institution=clinic,
             clinic_person=admin_person,
             prescription_people=people_count,
             prescription_count=total_count,
             is_qualified=True,
+            patients=hm_patients,
         ))
 
     # === 4. 執行人員端 ===
@@ -169,6 +211,7 @@ def read_prescription_report(filepath: str,
                         birth_date=str(row[COL_BIRTH] or ""),
                         prescriber=str(row[COL_DOCTOR] or ""),
                         exec_date=str(row[COL_EXEC_DATE] or ""),
+                        prescription_type=ptype,
                     ))
 
         # 判斷主要處方類型
@@ -177,7 +220,7 @@ def read_prescription_report(filepath: str,
 
         exec_receipt = ReceiptInfo(
             recipient_name=exec_person,
-            amount=total_service * 400,
+            amount=total_service * FEE_PER_TREATMENT,
         )
 
         executors.append(ExecutorData(
@@ -194,4 +237,5 @@ def read_prescription_report(filepath: str,
         doctors=doctors,
         health_mgmts=health_mgmts,
         executors=executors,
+        min_prescriptions=min_prescriptions,
     )

@@ -72,20 +72,38 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     if fee_type:
         _restructure_receipt_table(doc, fee_type)
 
+    # === 移除「(阿拉伯數字)」文字（來自模板，不需要出現在輸出）===
+    for t in body.iter(qn("w:t")):
+        if t.text and "(阿拉伯數字)" in t.text:
+            t.text = t.text.replace("(阿拉伯數字)", "")
+        if t.text and "（阿拉伯數字）" in t.text:
+            t.text = t.text.replace("（阿拉伯數字）", "")
+
     doc.save(output_path)
 
 
 def _fix_personal_info_indent(doc):
-    """移除個資段落前置空格 run，改用段落左縮排對齊「具領人用印」圖框右側。
+    """設個資段落的懸掛縮排，使：
+    1. 第一行整體往左 LEFT_OFFSET_CHARS 格（離圖框右側近一點）
+    2. 換行後第二行對齊「冒號後第一個字」
 
-    原本前置空格只推開第一行，換行後第二行從左邊界開始被圖框蓋住（看起來空白）。
-    改用 w:ind w:left 後，所有行（含換行）都從圖框右側開始，地址有完整 ~11cm 可用。
+    實作：
+      base_indent = indent_twips - LEFT_OFFSET_CHARS × CHAR_WIDTH  (第一行起點)
+      label_width = 冒號前字數 × CHAR_WIDTH                         (每段不同)
+      w:left     = base_indent + label_width    (所有行的左縮排，= 第二行起點)
+      w:hanging  = label_width                  (第一行比 left 往左退 label_width)
+      → 第一行：  base_indent               [label][value...]
+                                                   ↓換行
+      → 第二行：  base_indent + label_width        [value...]  對齊 value 起點
     """
     from lxml import etree
     from docx.oxml import parse_xml
     from docx.oxml.ns import nsdecls
 
     WPD = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+    MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+    CHAR_WIDTH = 360  # 標楷體 18pt 一個中文字寬（twips）
+    LEFT_OFFSET_CHARS = -1  # 第一行起點相對圖框右緣的偏移（負值 = 往右幾格）
     body = doc.element.body
 
     # 1. 從 anchor 計算「具領人用印」圖框右側位置（twips）
@@ -109,29 +127,64 @@ def _fix_personal_info_indent(doc):
             indent_twips = max(2000, int(right_emu / 635))
             break
 
-    # 2. 個資段落關鍵字
+    # 2. 往左 LEFT_OFFSET_CHARS 格（基準位置，第一行起點）
+    base_indent = max(1000, indent_twips - LEFT_OFFSET_CHARS * CHAR_WIDTH)
+
+    # 3. 個資段落關鍵字
     INFO_KWS = ("具領", "身分證", "戶籍", "聯絡電話", "戶名", "銀行", "帳號")
+    DRAWING_TAGS = {
+        qn("w:drawing"),
+        qn("w:pict"),
+        f"{{{MC_NS}}}AlternateContent",
+    }
+
+    def _in_drawing(t_elem, root_p):
+        """w:t 是否在 drawing / pict / mc:AlternateContent 內（例如文字框裡的字）"""
+        a = t_elem.getparent()
+        while a is not None and a is not root_p:
+            if a.tag in DRAWING_TAGS:
+                return True
+            a = a.getparent()
+        return False
+
+    def _body_text_before_colon(p_elem):
+        """取得段落 body 文字中冒號前的字元數（排除 drawing 內的字）"""
+        parts = []
+        for t in p_elem.iter(qn("w:t")):
+            if _in_drawing(t, p_elem):
+                continue
+            parts.append(t.text or "")
+        body_txt = "".join(parts)
+        for sep in ("：", ":"):
+            idx = body_txt.find(sep)
+            if idx >= 0:
+                return idx + 1  # 含冒號
+        return 0
 
     for p in body.findall(qn("w:p")):
         txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
         if not any(kw in txt for kw in INFO_KWS):
             continue
 
-        # 有 anchor drawing 的段落（具領人用印）跳過，不加縮排
-        WPD = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
-        if any(True for _ in p.iter(f"{{{WPD}}}anchor")):
-            continue
-
-        # 移除開頭的純空白 run（圖框旁段落有前置空格，圖框下方則無）
+        # 移除開頭的純空白 run（anchor run 保留但跳過，繼續清後面的空白）
+        WPD_NS = f"{{{WPD}}}"
         for r in list(p.findall(qn("w:r"))):
+            has_anchor = any(True for _ in r.iter(f"{WPD_NS}anchor"))
+            if has_anchor:
+                continue
             run_txt = "".join(t.text or "" for t in r.iter(qn("w:t")))
-            if run_txt and run_txt.strip() == "":
+            if not run_txt:
+                continue
+            if run_txt.strip() == "":
                 p.remove(r)
-            else:
-                break
+                continue
+            break
 
-        # 所有個資欄位統一加相同左縮排，確保對齊
-        # （圖框旁：避免被蓋住；圖框下方：視覺對齊）
+        # 計算此段 label_width
+        label_chars = _body_text_before_colon(p)
+        label_width = label_chars * CHAR_WIDTH
+
+        # 設 pPr/ind：w:left + w:hanging (移除 firstLine)
         pPr = p.find(qn("w:pPr"))
         if pPr is None:
             pPr = parse_xml(f'<w:pPr {nsdecls("w")}/>')
@@ -139,9 +192,21 @@ def _fix_personal_info_indent(doc):
         ind = pPr.find(qn("w:ind"))
         if ind is None:
             ind = etree.SubElement(pPr, qn("w:ind"))
-        # 只有在沒有 firstLine indent 時才設 left（避免破壞縮排結構）
-        if ind.get(qn("w:firstLine")) is None:
-            ind.set(qn("w:left"), str(indent_twips))
+        # 移除 firstLine/firstLineChars（跟 hanging 互斥，且是舊模板的第一行縮排）
+        for attr_name in ("w:firstLine", "w:firstLineChars"):
+            attr_q = qn(attr_name)
+            if ind.get(attr_q) is not None:
+                del ind.attrib[attr_q]
+
+        if label_width > 0:
+            ind.set(qn("w:left"), str(base_indent + label_width))
+            ind.set(qn("w:hanging"), str(label_width))
+        else:
+            # 無冒號（不應該出現），只設 left，清除 hanging
+            ind.set(qn("w:left"), str(base_indent))
+            h_q = qn("w:hanging")
+            if ind.get(h_q) is not None:
+                del ind.attrib[h_q]
 
 
 def _replace_year_month(all_texts, year: int, month: int):
@@ -341,31 +406,32 @@ def _insert_confirm_after_amount(doc):
 
 def _replace_name(all_texts, name: str):
     """替換具領人名字"""
-    for i, t in enumerate(all_texts):
-        txt = t.text or ""
-        if "：" in txt or ":" in txt:
-            continue
-        # 找「具領人」後面跟著「：」再跟著名字的模式
-        if txt == "：" or txt == ":":
-            # 下一個非空 text 可能是名字
-            # 但先確認前面是「具領人」相關
-            pass
 
-    # 更直接的方式：找到「具領人」標籤後的名字
+    def _set_next_name(start, end):
+        """從 start 往後找第一個有實際內容的 text node，替換為 name"""
+        for j in range(start, min(end, len(all_texts))):
+            next_txt = all_texts[j].text or ""
+            next_txt = next_txt.strip()
+            if next_txt and next_txt not in ("", " ", "　"):
+                all_texts[j].text = name
+                return True
+        return False
+
+    # 找到「具領人」標籤後的名字
     found_recipient = False
     for i, t in enumerate(all_texts):
         txt = t.text or ""
         if "具領" in txt:
             found_recipient = True
-            continue
-        if found_recipient and txt == "：":
-            # 下一個有實際內容的 text 就是名字
-            for j in range(i + 1, min(i + 5, len(all_texts))):
-                next_txt = all_texts[j].text or ""
-                next_txt = next_txt.strip()
-                if next_txt and next_txt not in ("", " ", "　"):
-                    all_texts[j].text = name
+            # 冒號在同一個 text node（如「具領人：」）→ 直接找下一個 name
+            if "：" in txt or ":" in txt:
+                if _set_next_name(i + 1, i + 6):
                     return
+            continue
+        if found_recipient and (txt == "：" or txt == ":"):
+            # 冒號是獨立 text node → 下一個有實際內容的 text 就是名字
+            if _set_next_name(i + 1, i + 6):
+                return
             # 如果沒找到，在冒號後面加
             if i + 1 < len(all_texts):
                 if all_texts[i + 1].text and all_texts[i + 1].text.strip():
@@ -443,32 +509,9 @@ def _fill_para_after_colon(para, value: str):
                 wt.text = txt[: colon_pos + 1] + value
                 wt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
-            # 只有「空格縮排」段落（無 firstLine indent）才縮小字體；
-            # firstLine indent 段落縮小字體會影響縮排比例（不縮）
-            has_first_line = _para_has_firstline_indent(para)
-            if not has_first_line and len(value) > 7:
-                # 自適應字體：讓填入值盡量在一行內顯示，避免換行產生空白視覺行
-                # 實測：標籤+前置空格佔去大量寬度，每行有效放約 9 字（14pt 基準）
-                # 比例縮小，最小 9pt（18 half-pt）
-                CHARS_AT_14PT = 9
-                if len(value) > CHARS_AT_14PT:
-                    max_sz = max(18, int(28 * CHARS_AT_14PT / len(value)))
-                else:
-                    max_sz = 28  # 14pt
-                for wt in wts:
-                    if (wt.text or "").strip():
-                        _shrink_run_font(wt, max_sz=max_sz)
-                # 超長文字（地址等）額外水平壓縮，整行含空白都縮
-                # >25字 → 60%；>20字 → 70%；>14字 → 80%
-                if len(value) > 14:
-                    if len(value) > 25:
-                        w_val = 60
-                    elif len(value) > 20:
-                        w_val = 70
-                    else:
-                        w_val = 80
-                    for wt in wts:
-                        _condense_run_width(wt, w_val=w_val)
+            # 不強制壓縮字體：由於段落已設 w:left（所有行皆縮排），
+            # 長文字（如地址）會自然換行到下一行，且第二行會對齊 w:left
+            # → 保留原字體大小，讓 Word 自動換行處理
             return
 
 
