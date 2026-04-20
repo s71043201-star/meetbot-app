@@ -472,10 +472,14 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
 def _add_doctor_patient_list_page(doc, data: AllData,
                                    doctor, fee_label: str = "處方費"):
     """為醫師產生民眾明細頁（單頁，仿照執行人員版）"""
-    # 執行費明細：只列「當月有執行」的民眾
+    # 執行費明細：只列「當月有執行」的民眾（即使為空也不 fallback）
     # 處方費明細：列「當月開立」的民眾
-    if "執行" in fee_label and getattr(doctor, "execution_patients", None):
-        patients = doctor.execution_patients
+    if "執行" in fee_label:
+        # 優先用 execution_patients；若屬性不存在（舊版 dataclass）才退回
+        if hasattr(doctor, "execution_patients"):
+            patients = doctor.execution_patients
+        else:
+            patients = doctor.patients
     else:
         patients = doctor.patients
     num = len(patients)

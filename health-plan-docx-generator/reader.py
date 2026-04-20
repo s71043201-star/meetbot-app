@@ -112,15 +112,24 @@ def read_prescription_report(issuance_path: str,
         if ptype not in PRESCRIPTION_TYPES:
             continue
 
-        exec_done = row[COL_EXEC_DONE]
+        exec_date = row[COL_EXEC_DATE]
         exec_person = row[COL_EXEC_PERSON]
         exec_unit = row[COL_EXEC_UNIT]
-        if not (exec_done and exec_person):
+        exec_done_flag = row[COL_EXEC_DONE]
+
+        # 「已執行」判斷：優先看「執行日期」(Q 欄) 有無值；
+        # 若 Excel 沒填日期，退回看 O 欄勾選+執行人員。
+        # 這樣避免「執行人員事前指派」導致未執行也被誤算。
+        if exec_date:
+            executed = True
+        else:
+            executed = bool(exec_done_flag) and bool(exec_person)
+        if not executed:
             continue
 
         doctor_execution[(clinic, doctor)][ptype] += 1
         doctor_records_execution[(clinic, doctor)].append(row)
-        executor_records[(str(exec_unit or ""), str(exec_person))][ptype].append(row)
+        executor_records[(str(exec_unit or ""), str(exec_person or ""))][ptype].append(row)
         try:
             ef = int(row[COL_EXEC_FEE] or 0)
             doctor_exec_fee[(clinic, doctor)] += ef
