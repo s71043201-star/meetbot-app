@@ -432,7 +432,7 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
     ], col_widths=[info_total // 4, info_total * 3 // 4], font_size=12)
     p = doc.add_paragraph(); compact_paragraph(p)
 
-    num_rows = max(num, 8) + 1
+    num_rows = max(num, 1) + 1
     table = doc.add_table(rows=num_rows, cols=6)
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -499,7 +499,7 @@ def _add_doctor_patient_list_page(doc, data: AllData,
     ], col_widths=[info_total // 4, info_total * 3 // 4], font_size=12)
     p = doc.add_paragraph(); compact_paragraph(p)
 
-    num_rows = max(num, 8) + 1
+    num_rows = max(num, 1) + 1
     table = doc.add_table(rows=num_rows, cols=6)
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -867,7 +867,7 @@ def _add_patient_list_page(doc, data: AllData, executor: ExecutorData):
               size=16)
 
     # 表格 6 欄（含執行日期）
-    num_rows = max(num, 8) + 1
+    num_rows = max(num, 1) + 1
     table = doc.add_table(rows=num_rows, cols=6)
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
