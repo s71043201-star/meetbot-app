@@ -1,113 +1,531 @@
-"""領據產生器 — 用實際 Word 檔當模板，直接替換數據
+"""領據產生器 — 用實際 Word 檔當模板，純填空（保留原 rPr/pPr）
 
-台灣扣繳規定：
-- 單次給付 >= $20,000：扣繳 10% 所得稅 + 2.11% 二代健保補充保費 → 扣稅格式
-- 單次給付 < $20,000：不扣稅格式
+模板（2026-04 重構，pivot 表結構）:
+- 領據_不扣稅_template.docx：處方費+執行費合併版，amount < 20000
+  Body: 標題 + Table 0 (5×6 pivot：費用項目/4 處方/總計 × 處方處方費/處方執行費/金額)
+        + 備註 + HR + 茲收到/此致/個資 + 中華民國
+- 領據_扣稅_template.docx：處方費+執行費合併版，amount >= 20000
+  Body: 標題 + Table 0 + 備註 + 大表格(含 nested 應付/代扣2.11%/代扣10%/實付 + 個資)
+        + 中華民國
+- 領據_處置費_template.docx：處置費，amount < 20000
+  Body: 標題 + Table 0 (4×6 pivot：處方處置費/金額) + 備註 + HR + 茲收到/此致/個資 + 中華民國
+- 領據_處置費_扣稅_template.docx：處置費，amount >= 20000
+  Body: 同扣稅但 Table 0 為處置費 4×6 pivot
+- 領據_健管費_template.docx：健管費 (5 欄表 含達標欄，不變)
+
+台灣扣繳：amount >= 20000 觸發 2.11% 二代健保 + 10% 所得稅扣繳
 """
 
-import copy
 import os
+import re
+from typing import Dict, Optional
+
 from docx import Document
-from docx.oxml.ns import qn
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls, qn
 
 from models import ReceiptInfo
 
 TAX_THRESHOLD = 20000
+NHI_RATE = 0.0211
+INCOME_TAX_RATE = 0.10
+
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "word_templates")
 TEMPLATE_NO_TAX = os.path.join(TEMPLATE_DIR, "領據_不扣稅_template.docx")
 TEMPLATE_WITH_TAX = os.path.join(TEMPLATE_DIR, "領據_扣稅_template.docx")
+TEMPLATE_TREATMENT = os.path.join(TEMPLATE_DIR, "領據_處置費_template.docx")
+TEMPLATE_TREATMENT_TAX = os.path.join(TEMPLATE_DIR, "領據_處置費_扣稅_template.docx")
+TEMPLATE_HEALTH_MGMT = os.path.join(TEMPLATE_DIR, "領據_健管費_template.docx")
+
+# pivot 表的處方類型欄順序（必須符合模板 R1 的欄位順序）
+PIVOT_COL_ORDER = ["運動處方", "營養處方", "社會處方", "情緒調適處方"]
 
 
 def needs_tax(amount: int) -> bool:
     return amount >= TAX_THRESHOLD
 
 
+def _is_treatment(fee_type: str) -> bool:
+    return bool(fee_type) and "處方處置費" in fee_type
+
+
+def _is_health_mgmt(fee_type: str) -> bool:
+    return bool(fee_type) and "健康管理" in fee_type
+
+
 def generate_receipt(receipt: ReceiptInfo, report_year: int,
                      report_month: int, output_path: str,
-                     fee_title: str = "", fee_type: str = ""):
-    """用模板產生領據，自動判斷扣稅/不扣稅"""
-    if needs_tax(receipt.amount):
-        template = TEMPLATE_WITH_TAX
+                     fee_type: str = "",
+                     # 合併版（處方費 + 執行費）所需 dict
+                     presc_counts: Optional[Dict[str, int]] = None,
+                     exec_counts: Optional[Dict[str, int]] = None,
+                     fee_per_presc: int = 300,
+                     fee_per_exec: int = 100,
+                     # 處置費
+                     treatment_counts: Optional[Dict[str, int]] = None,
+                     fee_per_treatment: int = 400,
+                     # 健管費
+                     people_count: int = 0,
+                     prescription_count: int = 0,
+                     is_qualified: bool = True):
+    """產生領據（純填空，保留模板原 rPr/pPr）
+
+    Args:
+        fee_type: 茲收到段落要塞的整段描述，會替換預設的「運動、營養、社會、情緒調適處方處方費」
+        presc_counts/exec_counts: 處方費+執行費合併版的份數 dict（key = 處方類型名）
+        treatment_counts: 處置費 pivot 的份數 dict（單筆執行人員只 1 個 key）
+        fee_per_presc/exec/treatment: 單份單價
+        people_count/prescription_count/is_qualified: 健管費 Table 0 用
+    """
+    if _is_health_mgmt(fee_type):
+        template = TEMPLATE_HEALTH_MGMT
+    elif _is_treatment(fee_type):
+        template = TEMPLATE_TREATMENT_TAX if needs_tax(receipt.amount) else TEMPLATE_TREATMENT
     else:
-        template = TEMPLATE_NO_TAX
+        template = TEMPLATE_WITH_TAX if needs_tax(receipt.amount) else TEMPLATE_NO_TAX
 
     if not os.path.exists(template):
         raise FileNotFoundError(f"找不到領據模板: {template}")
 
     doc = Document(template)
-
-    # 加費用類型文字後表格變高，清除「中華民國」前的段落間距避免溢頁
-    if fee_type:
-        for p_elem in doc.element.body.iter(qn("w:p")):
-            pPr = p_elem.find(qn("w:pPr"))
-            if pPr is not None:
-                sp = pPr.find(qn("w:spacing"))
-                if sp is not None:
-                    for attr in list(sp.attrib.keys()):
-                        if "before" in attr or "after" in attr:
-                            sp.set(attr, "0")
-
     body = doc.element.body
-
-    # 收集所有 text nodes
     all_texts = list(body.iter(qn("w:t")))
 
-    # === 替換年月 ===
     _replace_year_month(all_texts, report_year, report_month)
 
-    # === 替換金額 ===
-    _replace_amount(doc, receipt.amount)
+    if fee_type:
+        _replace_fee_sentence(all_texts, fee_type)
 
-    # === 替換具領人名字 ===
+    # 填 Table 0
+    if _is_health_mgmt(fee_type):
+        _fill_summary_table_health_mgmt(
+            doc, people_count, prescription_count,
+            is_qualified, receipt.amount)
+    elif _is_treatment(fee_type):
+        _fill_pivot_treatment(doc, treatment_counts or {}, fee_per_treatment)
+    else:
+        _fill_pivot_combined(doc, presc_counts or {}, exec_counts or {},
+                              fee_per_presc, fee_per_exec)
+
+    # 重新蒐集（cell 填值可能改了結構）
+    all_texts = list(body.iter(qn("w:t")))
+    _replace_amount_in_paragraphs(all_texts, receipt.amount)
+
+    if needs_tax(receipt.amount) and not _is_health_mgmt(fee_type):
+        _fill_tax_amounts(doc, receipt.amount)
+
     _replace_name(all_texts, receipt.recipient_name)
 
-    # === 個資段落：移除前置空格，改用 paragraph indent 對齊圖框右側 ===
     _fix_personal_info_indent(doc)
 
-    # === 填入個人資料（身分證、地址、電話、銀行資訊）===
-    _fill_personal_info(doc, receipt)
-
-    # === 重組表格：茲收到(body→cell) / fee+確認 / 金額，全 jc=both line=600 ===
-    if fee_type:
-        _restructure_receipt_table(doc, fee_type)
-
-    # === 移除「(阿拉伯數字)」文字（來自模板，不需要出現在輸出）===
-    for t in body.iter(qn("w:t")):
-        if t.text and "(阿拉伯數字)" in t.text:
-            t.text = t.text.replace("(阿拉伯數字)", "")
-        if t.text and "（阿拉伯數字）" in t.text:
-            t.text = t.text.replace("（阿拉伯數字）", "")
+    _fill_personal_info_xml(doc, receipt)
 
     doc.save(output_path)
 
 
-def _fix_personal_info_indent(doc):
-    """設個資段落的懸掛縮排，使：
-    1. 第一行整體往左 LEFT_OFFSET_CHARS 格（離圖框右側近一點）
-    2. 換行後第二行對齊「冒號後第一個字」
+# ============================================================
+#  年月、費用句、姓名等 inline 替換
+# ============================================================
 
-    實作：
-      base_indent = indent_twips - LEFT_OFFSET_CHARS × CHAR_WIDTH  (第一行起點)
-      label_width = 冒號前字數 × CHAR_WIDTH                         (每段不同)
-      w:left     = base_indent + label_width    (所有行的左縮排，= 第二行起點)
-      w:hanging  = label_width                  (第一行比 left 往左退 label_width)
-      → 第一行：  base_indent               [label][value...]
-                                                   ↓換行
-      → 第二行：  base_indent + label_width        [value...]  對齊 value 起點
+def _replace_year_month(all_texts, year: int, month: int):
+    """將「茲收到 XXX 年 YYY 月」替換為民國年 / 兩位數月份"""
+    year_str = str(year)
+    month_str = f"{month:02d}"
+    pattern = re.compile(r'茲收到\s*\d+\s*年\s*\d*\s*月')
+
+    for t in all_texts:
+        txt = t.text or ""
+        if pattern.search(txt):
+            t.text = pattern.sub(
+                f"茲收到 {year_str} 年 {month_str} 月", txt, count=1)
+            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            return
+
+
+def _replace_fee_sentence(all_texts, fee_type: str):
+    """將模板裡的「運動、營養、社會、情緒調適處方處方費」替換為 fee_type"""
+    DEFAULT = "運動、營養、社會、情緒調適處方處方費"
+    if fee_type == DEFAULT:
+        return
+
+    for t in all_texts:
+        txt = t.text or ""
+        if DEFAULT in txt:
+            t.text = txt.replace(DEFAULT, fee_type)
+            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            return
+
+    PIECES = ("運動、營養、社會、情緒調適", "處方處方", "費")
+    for i in range(len(all_texts) - 2):
+        a = all_texts[i].text or ""
+        b = all_texts[i + 1].text or ""
+        c = all_texts[i + 2].text or ""
+        if a.endswith(PIECES[0]) and b == PIECES[1] and c.startswith(PIECES[2]):
+            prefix = a[: -len(PIECES[0])]
+            tail = c[len(PIECES[2]):]
+            all_texts[i].text = prefix + fee_type + tail
+            all_texts[i].set(
+                "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            all_texts[i + 1].text = ""
+            all_texts[i + 2].text = ""
+            return
+
+
+def _replace_amount_in_paragraphs(all_texts, amount: int):
+    """將「(應付)新臺幣 ___ 元整」段落中間的空白/數字替換為實際金額。
+
+    金額塞進「中間」(i+1) 那個 placeholder 節點以保留其 run 格式（如底線）。
+    新臺幣節點 / 元整節點 不動，只清空 i+2..j-1 中間其他空白節點。
+    """
+    amount_str = f"{amount:,}"
+
+    for i, t in enumerate(all_texts):
+        txt = t.text or ""
+        if "新臺幣" not in txt:
+            continue
+        j = i
+        while j < len(all_texts):
+            jtxt = all_texts[j].text or ""
+            if "元整" in jtxt:
+                break
+            j += 1
+        if j >= len(all_texts):
+            continue
+
+        if i == j:
+            # 同一節點：直接 inline 替換
+            t.text = re.sub(
+                r'(新臺幣)([^元]*)(元整)',
+                f"\\1 {amount_str} \\3",
+                txt, count=1
+            )
+            t.set(
+                "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        else:
+            middle = list(range(i + 1, j))
+            if middle:
+                # 用「中間 placeholder」node 放金額，保留底線等格式
+                all_texts[middle[0]].text = f" {amount_str} "
+                all_texts[middle[0]].set(
+                    "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                for k in middle[1:]:
+                    all_texts[k].text = ""
+            else:
+                # i 與 j 相鄰：附加到 i 後
+                all_texts[i].text = txt + f" {amount_str} "
+                all_texts[i].set(
+                    "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        return
+
+
+def _replace_name(all_texts, name: str):
+    """填具領人姓名（在「具領人：」後）"""
+    if not name:
+        return
+    for t in all_texts:
+        txt = t.text or ""
+        if "具領人：" in txt and "用印" not in txt:
+            t.text = txt.replace("具領人：", f"具領人：{name}", 1)
+            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            return
+
+
+# ============================================================
+#  Table 0 填值
+# ============================================================
+
+def _find_pivot_table(doc):
+    """找含「處方類型」表頭、且非健管費（無「達標」）的 pivot 表"""
+    body = doc.element.body
+    for tbl in body.iter(qn("w:tbl")):
+        first_row = tbl.find(qn("w:tr"))
+        if first_row is None:
+            continue
+        ftxt = "".join(t.text or "" for t in first_row.iter(qn("w:t")))
+        if "處方類型" in ftxt and "達標" not in ftxt:
+            return tbl
+    return None
+
+
+def _fill_pivot_combined(doc, presc_counts: Dict[str, int],
+                          exec_counts: Dict[str, int],
+                          fee_per_presc: int, fee_per_exec: int):
+    """填合併版 pivot 表 (5×6)
+    R0: 空 | 處方類型(gs=5)            ← 表頭，不動
+    R1: 費用項目(元) | 4處方 | 總計     ← 表頭，不動
+    R2: 處方處方費 | 份數×4 | 處方費總額
+    R3: 處方執行費 | 份數×4 | 執行費總額
+    R4: 金額(元)  | 各類型總金額×4 | 全部總計
+    """
+    target = _find_pivot_table(doc)
+    if target is None:
+        return
+    all_rows = target.findall(qn("w:tr"))
+    if len(all_rows) < 5:
+        return
+
+    def fill_row(row_cells, values):
+        """row_cells 預期 6 個 cell（含 label cell）；values 為 5 個字串對應後 5 cell"""
+        if len(row_cells) < 6:
+            return
+        for i, v in enumerate(values):
+            if v is not None:
+                _set_cell_text(row_cells[1 + i], v)
+
+    # R2: 處方處方費
+    r2_cells = all_rows[2].findall(qn("w:tc"))
+    presc_total_count = sum(presc_counts.get(pt, 0) for pt in PIVOT_COL_ORDER)
+    presc_total_amount = presc_total_count * fee_per_presc
+    fill_row(r2_cells, [
+        str(presc_counts.get(pt, 0)) if presc_counts.get(pt, 0) > 0 else "-"
+        for pt in PIVOT_COL_ORDER
+    ] + [f"{presc_total_amount:,}" if presc_total_amount > 0 else "-"])
+
+    # R3: 處方執行費
+    r3_cells = all_rows[3].findall(qn("w:tc"))
+    exec_total_count = sum(exec_counts.get(pt, 0) for pt in PIVOT_COL_ORDER)
+    exec_total_amount = exec_total_count * fee_per_exec
+    fill_row(r3_cells, [
+        str(exec_counts.get(pt, 0)) if exec_counts.get(pt, 0) > 0 else "-"
+        for pt in PIVOT_COL_ORDER
+    ] + [f"{exec_total_amount:,}" if exec_total_amount > 0 else "-"])
+
+    # R4: 金額(元) — 各 type 的 (處方費 + 執行費) 總額
+    r4_cells = all_rows[4].findall(qn("w:tc"))
+    grand_total = 0
+    per_col_amounts = []
+    for pt in PIVOT_COL_ORDER:
+        amt = (presc_counts.get(pt, 0) * fee_per_presc
+               + exec_counts.get(pt, 0) * fee_per_exec)
+        per_col_amounts.append(f"{amt:,}" if amt > 0 else "-")
+        grand_total += amt
+    fill_row(r4_cells, per_col_amounts +
+             [f"{grand_total:,}" if grand_total > 0 else "-"])
+
+
+def _fill_pivot_treatment(doc, treatment_counts: Dict[str, int],
+                           fee_per_treatment: int):
+    """填處置費 pivot 表 (4×6)
+    R0: 空 | 處方類型(gs=5)
+    R1: 費用項目(元) | 4 處方 | 總計
+    R2: 處方處置費 | 份數×4 | 總額
+    R3: 金額(元)   | 各類型金額×4 | 全部總計
+    """
+    target = _find_pivot_table(doc)
+    if target is None:
+        return
+    all_rows = target.findall(qn("w:tr"))
+    if len(all_rows) < 4:
+        return
+
+    def fill_row(row_cells, values):
+        if len(row_cells) < 6:
+            return
+        for i, v in enumerate(values):
+            if v is not None:
+                _set_cell_text(row_cells[1 + i], v)
+
+    # R2: 處方處置費
+    r2_cells = all_rows[2].findall(qn("w:tc"))
+    total_count = sum(treatment_counts.get(pt, 0) for pt in PIVOT_COL_ORDER)
+    total_amount = total_count * fee_per_treatment
+    fill_row(r2_cells, [
+        str(treatment_counts.get(pt, 0)) if treatment_counts.get(pt, 0) > 0 else "-"
+        for pt in PIVOT_COL_ORDER
+    ] + [f"{total_amount:,}" if total_amount > 0 else "-"])
+
+    # R3: 金額(元)
+    r3_cells = all_rows[3].findall(qn("w:tc"))
+    grand = 0
+    per_col = []
+    for pt in PIVOT_COL_ORDER:
+        amt = treatment_counts.get(pt, 0) * fee_per_treatment
+        per_col.append(f"{amt:,}" if amt > 0 else "-")
+        grand += amt
+    fill_row(r3_cells, per_col +
+             [f"{grand:,}" if grand > 0 else "-"])
+
+
+def _fill_summary_table_health_mgmt(doc, people_count: int,
+                                     prescription_count: int,
+                                     is_qualified: bool, total_amount: int):
+    """健管費 5 欄表（給付項目/處方類型/開立處方人數/開立份數/達標 + 總計）"""
+    body = doc.element.body
+    target = None
+    for tbl in body.iter(qn("w:tbl")):
+        first_row = tbl.find(qn("w:tr"))
+        if first_row is None:
+            continue
+        first_text = "".join(t.text or "" for t in first_row.iter(qn("w:t")))
+        if "給付項目" in first_text and "達標" in first_text:
+            target = tbl
+            break
+    if target is None:
+        return
+
+    all_rows = target.findall(qn("w:tr"))
+    if len(all_rows) < 3:
+        return
+
+    r1_cells = all_rows[1].findall(qn("w:tc"))
+    if len(r1_cells) >= 5:
+        _set_cell_text(r1_cells[2], str(people_count) if people_count else "")
+        _set_cell_text(r1_cells[3], str(prescription_count) if prescription_count else "")
+        _set_cell_text(r1_cells[4], "是" if is_qualified else "否")
+
+    # R2 cells: [gs=2]總計 | [gs=3]$金額  → 2 個 direct cell
+    r2_cells = all_rows[2].findall(qn("w:tc"))
+    if len(r2_cells) >= 2:
+        _set_cell_text(r2_cells[1], f"${total_amount:,}" if total_amount else "")
+
+
+# ============================================================
+#  扣稅版：應付/代扣 2.11%/代扣 10%/實付 nested table
+# ============================================================
+
+def _fill_tax_amounts(doc, total_amount: int):
+    nhi = round(total_amount * NHI_RATE)
+    income_tax = round(total_amount * INCOME_TAX_RATE)
+    actual = total_amount - nhi - income_tax
+
+    body = doc.element.body
+    # 鎖定 nested table（3 直接 row，且第一列含「應付金額」+「實付金額」）
+    # 避免誤抓 outer 大表（其 text 因含 nested 內容也會匹配關鍵字）
+    for tbl in body.iter(qn("w:tbl")):
+        rows = tbl.findall(qn("w:tr"))
+        if len(rows) != 3:
+            continue
+        first_row_text = "".join(t.text or "" for t in rows[0].iter(qn("w:t")))
+        if "應付金額" not in first_row_text or "實付金額" not in first_row_text:
+            continue
+        cells = rows[2].findall(qn("w:tc"))
+        if len(cells) >= 4:
+            _set_cell_text(cells[0], f"{total_amount:,}")
+            _set_cell_text(cells[1], f"{nhi:,}")
+            _set_cell_text(cells[2], f"{income_tax:,}")
+            _set_cell_text(cells[3], f"{actual:,}")
+        return
+
+
+# ============================================================
+#  Cell 文字設定 / 個資填值（共用工具）
+# ============================================================
+
+def _set_cell_text(cell, text: str, ref_rPr_elem=None):
+    """填空式：找 cell 第一個 w:t，把它的文字替換為 text，保留原 run / rPr / pPr。
+    其他 w:t 文字清空，不刪 run（保持結構）。
+    若 cell 完全沒 w:t（罕見），就在第一個 paragraph 後追加一個 run（fallback）。
+
+    ref_rPr_elem: fallback 才會用到（建立全新 run 時）。
+    """
+    wts = list(cell.iter(qn("w:t")))
+    if wts:
+        wts[0].text = text
+        wts[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        for t in wts[1:]:
+            t.text = ""
+        return
+
+    # Fallback：cell 內完全沒有 w:t
+    import copy
+    from lxml import etree
+
+    paras = cell.findall(qn("w:p"))
+    if not paras:
+        p = parse_xml(f'<w:p {nsdecls("w")}/>')
+        cell.append(p)
+        paras = [p]
+    p = paras[0]
+
+    new_r = etree.SubElement(p, qn("w:r"))
+    if ref_rPr_elem is not None:
+        new_r.append(copy.deepcopy(ref_rPr_elem))
+    else:
+        rPr = etree.SubElement(new_r, qn("w:rPr"))
+        rFonts = etree.SubElement(rPr, qn("w:rFonts"))
+        rFonts.set(qn("w:ascii"), "標楷體")
+        rFonts.set(qn("w:eastAsia"), "標楷體")
+    new_t = etree.SubElement(new_r, qn("w:t"))
+    new_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    new_t.text = text
+
+
+def _get_ref_rpr(cell):
+    """取 cell 內第一個 run 的 rPr element（呼叫端會自行 deepcopy）"""
+    for p in cell.findall(qn("w:p")):
+        for r in p.findall(qn("w:r")):
+            rPr = r.find(qn("w:rPr"))
+            if rPr is not None:
+                return rPr
+    return None
+
+
+def _fill_personal_info_xml(doc, receipt):
+    """填身分證/地址/電話/銀行 等個資（掃所有層級的 paragraphs）"""
+    body = doc.element.body
+    FILL_MAP = [
+        ("身分證",     receipt.id_number),
+        ("戶籍",       receipt.address),
+        ("聯絡電話",   receipt.phone),
+        ("戶名",       receipt.account_name),
+        ("銀行及分行", receipt.bank_branch),
+        ("銀行代碼",   receipt.bank_code),
+        ("帳號",       receipt.account_number),
+    ]
+    all_paras = list(body.iter(qn("w:p")))
+    for keyword, value in FILL_MAP:
+        if not value:
+            continue
+        for p in all_paras:
+            txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
+            if keyword in txt:
+                _fill_para_after_colon_xml(p, value)
+                break
+
+
+def _fill_para_after_colon_xml(p_elem, value: str):
+    """段落內找「：」，把值塞在後面"""
+    wts = list(p_elem.iter(qn("w:t")))
+    for i, wt in enumerate(wts):
+        txt = wt.text or ""
+        for sep in ("：", ":"):
+            if sep not in txt:
+                continue
+            colon_pos = txt.index(sep)
+            existing_after = txt[colon_pos + 1:].strip()
+            if existing_after:
+                wt.text = txt[: colon_pos + 1] + value
+                wt.set(
+                    "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            elif i + 1 < len(wts):
+                wts[i + 1].text = value
+                wts[i + 1].set(
+                    "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            else:
+                wt.text = txt[: colon_pos + 1] + value
+                wt.set(
+                    "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            return
+
+
+# ============================================================
+#  個資縮排（沿用舊邏輯，只作用於 body 段落）
+# ============================================================
+
+def _fix_personal_info_indent(doc):
+    """設個資段落的懸掛縮排，使每段第一行對齊「具領人用印」圖框右側、
+    換行後對齊冒號後第一個字。
     """
     from lxml import etree
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
 
     WPD = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
     MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
-    CHAR_WIDTH = 360  # 標楷體 18pt 一個中文字寬（twips）
-    LEFT_OFFSET_CHARS = -1  # 第一行起點相對圖框右緣的偏移（負值 = 往右幾格）
+    CHAR_WIDTH = 360
+    LEFT_OFFSET_CHARS = -1
     body = doc.element.body
 
-    # 1. 從 anchor 計算「具領人用印」圖框右側位置（twips）
-    indent_twips = 3240  # 預設 ~5.7cm（6.03cm anchor - 0.31cm offset）
+    indent_twips = 3240
     for p in body.findall(qn("w:p")):
         for anchor in p.iter(f"{{{WPD}}}anchor"):
             pos_h = anchor.find(f"{{{WPD}}}positionH")
@@ -118,28 +536,22 @@ def _fix_personal_info_indent(doc):
             if pos_off is None:
                 continue
             h_off_emu = int(pos_off.text or "0")
-            # 只處理左側 anchor（offset 接近 0 或負值）
             if h_off_emu > 1_000_000:
                 continue
             cx_emu = int(extent.get("cx", 0))
             right_emu = h_off_emu + cx_emu
-            # EMU → twips（1 twip = 635 EMU）
             indent_twips = max(2000, int(right_emu / 635))
             break
 
-    # 2. 往左 LEFT_OFFSET_CHARS 格（基準位置，第一行起點）
     base_indent = max(1000, indent_twips - LEFT_OFFSET_CHARS * CHAR_WIDTH)
 
-    # 3. 個資段落關鍵字
     INFO_KWS = ("具領", "身分證", "戶籍", "聯絡電話", "戶名", "銀行", "帳號")
     DRAWING_TAGS = {
-        qn("w:drawing"),
-        qn("w:pict"),
+        qn("w:drawing"), qn("w:pict"),
         f"{{{MC_NS}}}AlternateContent",
     }
 
     def _in_drawing(t_elem, root_p):
-        """w:t 是否在 drawing / pict / mc:AlternateContent 內（例如文字框裡的字）"""
         a = t_elem.getparent()
         while a is not None and a is not root_p:
             if a.tag in DRAWING_TAGS:
@@ -148,7 +560,6 @@ def _fix_personal_info_indent(doc):
         return False
 
     def _body_text_before_colon(p_elem):
-        """取得段落 body 文字中冒號前的字元數（排除 drawing 內的字）"""
         parts = []
         for t in p_elem.iter(qn("w:t")):
             if _in_drawing(t, p_elem):
@@ -158,15 +569,13 @@ def _fix_personal_info_indent(doc):
         for sep in ("：", ":"):
             idx = body_txt.find(sep)
             if idx >= 0:
-                return idx + 1  # 含冒號
+                return idx + 1
         return 0
 
     for p in body.findall(qn("w:p")):
         txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
         if not any(kw in txt for kw in INFO_KWS):
             continue
-
-        # 移除開頭的純空白 run（anchor run 保留但跳過，繼續清後面的空白）
         WPD_NS = f"{{{WPD}}}"
         for r in list(p.findall(qn("w:r"))):
             has_anchor = any(True for _ in r.iter(f"{WPD_NS}anchor"))
@@ -180,11 +589,9 @@ def _fix_personal_info_indent(doc):
                 continue
             break
 
-        # 計算此段 label_width
         label_chars = _body_text_before_colon(p)
         label_width = label_chars * CHAR_WIDTH
 
-        # 設 pPr/ind：w:left + w:hanging (移除 firstLine)
         pPr = p.find(qn("w:pPr"))
         if pPr is None:
             pPr = parse_xml(f'<w:pPr {nsdecls("w")}/>')
@@ -192,7 +599,6 @@ def _fix_personal_info_indent(doc):
         ind = pPr.find(qn("w:ind"))
         if ind is None:
             ind = etree.SubElement(pPr, qn("w:ind"))
-        # 移除 firstLine/firstLineChars（跟 hanging 互斥，且是舊模板的第一行縮排）
         for attr_name in ("w:firstLine", "w:firstLineChars"):
             attr_q = qn(attr_name)
             if ind.get(attr_q) is not None:
@@ -202,508 +608,7 @@ def _fix_personal_info_indent(doc):
             ind.set(qn("w:left"), str(base_indent + label_width))
             ind.set(qn("w:hanging"), str(label_width))
         else:
-            # 無冒號（不應該出現），只設 left，清除 hanging
             ind.set(qn("w:left"), str(base_indent))
             h_q = qn("w:hanging")
             if ind.get(h_q) is not None:
                 del ind.attrib[h_q]
-
-
-def _replace_year_month(all_texts, year: int, month: int):
-    """替換年月數字
-
-    原始結構：'茲收到' + '11' + '5' + '年' + '0' + '3' + '月' + ...
-    或：'茲收到' + '115' + '年' + '3' + '月' + ...
-    """
-    year_str = str(year)
-    month_str = f"{month:02d}"
-
-    i = 0
-    while i < len(all_texts):
-        t = all_texts[i]
-        if t.text and "茲收到" in t.text:
-            # 找到起始點，接下來找年和月
-            # 收集到「月」為止的所有 text nodes
-            j = i + 1
-            found_year = False
-            found_month = False
-            year_nodes = []
-            month_nodes = []
-
-            while j < len(all_texts) and not found_month:
-                txt = all_texts[j].text or ""
-                if "年" in txt:
-                    found_year = True
-                    # 年的數字在之前的 nodes
-                    all_texts[j].text = "年"
-                elif "月" in txt:
-                    found_month = True
-                    all_texts[j].text = "月"
-                elif not found_year:
-                    year_nodes.append(all_texts[j])
-                elif found_year and not found_month:
-                    month_nodes.append(all_texts[j])
-                j += 1
-
-            # 填入年份
-            if year_nodes:
-                year_nodes[0].text = year_str
-                for node in year_nodes[1:]:
-                    node.text = ""
-
-            # 填入月份
-            if month_nodes:
-                month_nodes[0].text = month_str
-                for node in month_nodes[1:]:
-                    node.text = ""
-
-            break
-        i += 1
-
-
-def _replace_amount(doc, amount: int):
-    """替換金額（在表格 cell 中）"""
-    amount_str = f"{amount:,}"
-
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                cell_text = cell.text
-                if "元整" in cell_text or "新臺幣" in cell_text:
-                    # 找到金額 cell，替換數字部分
-                    texts = list(cell._tc.iter(qn("w:t")))
-                    _replace_amount_in_texts(texts, amount_str)
-                    return
-
-
-def _replace_amount_in_texts(texts, amount_str: str):
-    """在 text nodes 中替換金額數字
-
-    原始結構可能是：'應付' + '新臺幣' + '6,0' + '00' + '元整' + ...
-    或：'新臺幣' + '     122,400        ' + '元整'
-    """
-    # 找到「新臺幣」和「元整」之間的所有 nodes
-    start_idx = None
-    end_idx = None
-
-    for i, t in enumerate(texts):
-        txt = t.text or ""
-        if "新臺幣" in txt:
-            start_idx = i
-        if "元整" in txt:
-            end_idx = i
-            break
-
-    if start_idx is None or end_idx is None:
-        return
-
-    # 「新臺幣」和「元整」之間的 nodes 是金額
-    if start_idx == end_idx:
-        # 同一個 node 裡
-        t = texts[start_idx]
-        # Replace amount between 新臺幣 and 元整
-        txt = t.text
-        before = txt[:txt.index("新臺幣") + 3]
-        after = txt[txt.index("元整"):]
-        t.text = f"{before}{amount_str}{after}"
-    else:
-        amount_nodes = texts[start_idx + 1:end_idx]
-        if amount_nodes:
-            amount_nodes[0].text = amount_str
-            for node in amount_nodes[1:]:
-                node.text = ""
-        else:
-            # 新臺幣 node 和 元整 node 之間沒有 node
-            # 把金額附加到新臺幣 node
-            texts[start_idx].text = texts[start_idx].text + amount_str
-
-
-def _append_confirm_after_amount_table(doc, fee_type: str):
-    """把費用類型+確認文字用逗號接在「應付新臺幣」前，同一行，固定行距"""
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if "元整" not in cell.text:
-                    continue
-                # 找含「應付」或「新臺幣」的第一個 text node
-                for t in cell._tc.iter(qn("w:t")):
-                    txt = t.text or ""
-                    if "應付" in txt or "新臺幣" in txt:
-                        # 把確認文字加在金額前面，用逗號相連
-                        prefix = f"{fee_type}，確認金額明細如附件所示無誤請簽名，"
-                        t.text = prefix + txt
-                        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-                        break
-
-                # 設定含「元整」段落的固定行距（避免多行時行距不一致）
-                for p in cell.paragraphs:
-                    if "元整" in p.text or "應付" in p.text:
-                        pPr = p._element.find(qn("w:pPr"))
-                        if pPr is None:
-                            pPr = parse_xml(f'<w:pPr {nsdecls("w")}/>')
-                            p._element.insert(0, pPr)
-                        # 移除舊 spacing，加固定行距
-                        old_sp = pPr.find(qn("w:spacing"))
-                        if old_sp is not None:
-                            pPr.remove(old_sp)
-                        pPr.append(parse_xml(
-                            f'<w:spacing {nsdecls("w")} '
-                            'w:line="480" w:lineRule="exact" '
-                            'w:before="0" w:after="0"/>'
-                        ))
-                return
-
-
-def _insert_fee_type(all_texts, fee_type: str):
-    """在「照護計畫」文字後面接上費用類型 + 確認簽名文字，並縮小整段字體"""
-    for t in all_texts:
-        txt = t.text or ""
-        if "照護計畫" in txt:
-            t.text = txt + fee_type + "，確認金額明細如附件所示無誤請簽名"
-            return
-
-
-def _insert_confirm_after_amount(doc):
-    """在金額表格後面插入「確認金額明細如附件所示無誤請簽名」"""
-    from docx.shared import Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from lxml import etree
-
-    # 找到金額表格（含「元整」的表格）
-    target_tbl = None
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if "元整" in cell.text:
-                    target_tbl = table._tbl
-                    break
-            if target_tbl is not None:
-                break
-        if target_tbl is not None:
-            break
-
-    if target_tbl is None:
-        return
-
-    # 在表格後面建立新段落
-    new_p = doc.add_paragraph()
-    new_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    new_p.paragraph_format.space_before = Pt(6)
-    new_p.paragraph_format.space_after = Pt(0)
-    new_p.paragraph_format.line_spacing = 1.0
-    run = new_p.add_run("確認金額明細如附件所示無誤請簽名")
-    run.bold = True
-    run.font.size = Pt(14)
-    run.font.name = "標楷體"
-    run.element.rPr.rFonts.set(qn("w:eastAsia"), "標楷體")
-
-    # 把段落移到表格正後方
-    target_tbl.addnext(new_p._element)
-
-
-def _replace_name(all_texts, name: str):
-    """替換具領人名字"""
-
-    def _set_next_name(start, end):
-        """從 start 往後找第一個有實際內容的 text node，替換為 name"""
-        for j in range(start, min(end, len(all_texts))):
-            next_txt = all_texts[j].text or ""
-            next_txt = next_txt.strip()
-            if next_txt and next_txt not in ("", " ", "　"):
-                all_texts[j].text = name
-                return True
-        return False
-
-    # 找到「具領人」標籤後的名字
-    found_recipient = False
-    for i, t in enumerate(all_texts):
-        txt = t.text or ""
-        if "具領" in txt:
-            found_recipient = True
-            # 冒號在同一個 text node（如「具領人：」）→ 直接找下一個 name
-            if "：" in txt or ":" in txt:
-                if _set_next_name(i + 1, i + 6):
-                    return
-            continue
-        if found_recipient and (txt == "：" or txt == ":"):
-            # 冒號是獨立 text node → 下一個有實際內容的 text 就是名字
-            if _set_next_name(i + 1, i + 6):
-                return
-            # 如果沒找到，在冒號後面加
-            if i + 1 < len(all_texts):
-                if all_texts[i + 1].text and all_texts[i + 1].text.strip():
-                    all_texts[i + 1].text = " " + name
-                elif i + 2 < len(all_texts):
-                    all_texts[i + 2].text = name
-            return
-
-
-def _fill_personal_info(doc, receipt):
-    """填入個人資料（身分證、地址、電話、銀行資訊）
-
-    兩種模板結構都支援：
-    - 不扣稅：欄位在 body 段落（「身分證字號：」獨立段落）
-    - 扣稅：欄位在表格 cell 內段落
-    以段落為單位：找到含關鍵字的段落，在「：」後填入值。
-    """
-    FILL_MAP = [
-        ("身分證",    receipt.id_number),
-        ("戶籍",      receipt.address),
-        ("聯絡電話",  receipt.phone),
-        ("戶名",      receipt.account_name),
-        ("銀行及分行", receipt.bank_branch),
-        ("銀行代碼",  receipt.bank_code),
-        ("帳號",      receipt.account_number),
-    ]
-
-    # 收集所有段落：body + 表格 cell 內
-    all_paras = list(doc.paragraphs)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                all_paras.extend(cell.paragraphs)
-
-    for keyword, value in FILL_MAP:
-        if not value:
-            continue
-        for para in all_paras:
-            if keyword in para.text:
-                _fill_para_after_colon(para, value)
-                break  # 每個 keyword 只填第一個匹配的段落
-
-
-def _fill_para_after_colon(para, value: str):
-    """在段落的 w:t 串中找到「：」，將值填入冒號後面
-
-    規則：
-    - 若冒號後同一段落有下一個 w:t → 覆蓋那個節點
-    - 若冒號是段落最後一個 w:t → 直接在冒號節點後附加值
-    值填入後，若原 run 字體 > 14pt 且值較長，縮小至 14pt 防止換行。
-    """
-    wts = list(para._element.iter(qn("w:t")))
-    for i, wt in enumerate(wts):
-        txt = wt.text or ""
-        for sep in ("：", ":"):
-            if sep not in txt:
-                continue
-            colon_pos = txt.index(sep)
-            existing_after = txt[colon_pos + 1:].strip()
-            if existing_after:
-                # 冒號後已有值，直接覆蓋
-                target_wt = wt
-                wt.text = txt[: colon_pos + 1] + value
-                wt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            elif i + 1 < len(wts):
-                # 冒號後有下一個 w:t，填入那裡
-                target_wt = wts[i + 1]
-                wts[i + 1].text = value
-                wts[i + 1].set(
-                    "{http://www.w3.org/XML/1998/namespace}space", "preserve"
-                )
-            else:
-                # 冒號是最後一個 w:t，直接附加
-                target_wt = wt
-                wt.text = txt[: colon_pos + 1] + value
-                wt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-
-            # 不強制壓縮字體：由於段落已設 w:left（所有行皆縮排），
-            # 長文字（如地址）會自然換行到下一行，且第二行會對齊 w:left
-            # → 保留原字體大小，讓 Word 自動換行處理
-            return
-
-
-def _condense_run_width(wt_elem, w_val: int = 75):
-    """水平縮放字元寬度（w:w），讓超長文字在同行顯示。
-    w_val=75 表示 75% 寬度；含前置空白 run 也壓縮以釋放更多空間。
-    """
-    from lxml import etree
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-    run = wt_elem.getparent()
-    if run is None:
-        return
-    rPr = run.find(qn("w:rPr"))
-    if rPr is None:
-        rPr = parse_xml(f'<w:rPr {nsdecls("w")}/>')
-        run.insert(0, rPr)
-    w_elem = rPr.find(qn("w:w"))
-    if w_elem is None:
-        w_elem = etree.SubElement(rPr, qn("w:w"))
-    w_elem.set(qn("w:val"), str(w_val))
-
-
-def _shrink_run_font(wt_elem, max_sz: int = 28):
-    """將 w:t 的父 run 字體設為 max_sz（half-pt）
-    若 run 或 rPr 不存在則建立；若無明確 w:sz 則直接新增（預設繼承樣式通常 > 14pt）。
-    """
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-    run = wt_elem.getparent()
-    if run is None:
-        return
-    rPr = run.find(qn("w:rPr"))
-    if rPr is None:
-        rPr = parse_xml(f'<w:rPr {nsdecls("w")}/>')
-        run.insert(0, rPr)
-    for tag in (qn("w:sz"), qn("w:szCs")):
-        sz_el = rPr.find(tag)
-        if sz_el is None:
-            # 無明確字體設定，直接新增 max_sz
-            from lxml import etree
-            sz_el = etree.SubElement(rPr, tag)
-            sz_el.set(qn("w:val"), str(max_sz))
-        else:
-            try:
-                val = int(sz_el.get(qn("w:val"), "0"))
-                if val > max_sz or val == 0:
-                    sz_el.set(qn("w:val"), str(max_sz))
-            except ValueError:
-                sz_el.set(qn("w:val"), str(max_sz))
-
-
-def _para_has_firstline_indent(para) -> bool:
-    """段落是否用 firstLine indent（而非 leading spaces）做縮排"""
-    pPr = para._element.find(qn("w:pPr"))
-    if pPr is None:
-        return False
-    ind = pPr.find(qn("w:ind"))
-    if ind is None:
-        return False
-    return ind.get(qn("w:firstLine")) is not None
-
-
-def _hide_table_borders(table):
-    """把表格所有框線設為 none（隱藏）"""
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-    tbl = table._tbl
-    tblPr = tbl.find(qn("w:tblPr"))
-    if tblPr is None:
-        tblPr = parse_xml(f'<w:tblPr {nsdecls("w")}/>')
-        tbl.insert(0, tblPr)
-    # 移除舊 borders
-    old = tblPr.find(qn("w:tblBorders"))
-    if old is not None:
-        tblPr.remove(old)
-    # 加全 none 框線
-    tblPr.append(parse_xml(
-        f'<w:tblBorders {nsdecls("w")}>'
-        '<w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '<w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '<w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '<w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '</w:tblBorders>'
-    ))
-
-
-def _scale_paragraph_fonts(doc, keyword: str, scale: float):
-    """找到含 keyword 的段落，把該段落所有 run 字體等比縮放"""
-    body = doc.element.body
-    for para in body.findall(qn("w:p")):
-        # 收集此段落所有文字
-        texts = "".join(
-            t.text or "" for t in para.iter(qn("w:t"))
-        )
-        if keyword not in texts:
-            continue
-        for r in para.findall(qn("w:r")):
-            rPr = r.find(qn("w:rPr"))
-            if rPr is None:
-                continue
-            for tag in (qn("w:sz"), qn("w:szCs")):
-                sz_el = rPr.find(tag)
-                if sz_el is not None:
-                    try:
-                        val = int(sz_el.get(qn("w:val"), "0"))
-                        if val > 0:
-                            sz_el.set(qn("w:val"), str(max(16, int(val * scale))))
-                    except ValueError:
-                        pass
-        break  # 只處理找到的第一個
-
-
-def _restructure_receipt_table(doc, fee_type: str):
-    """將茲收到/費用類型/金額改為純文字段落，刪除原表格（避免邊框）
-
-    輸出：body 中插入三個純段落（無表格），格式 jc=both line=600 exact sz=40
-        [茲收到...-]
-        [{fee_type}處方處置費。]
-        [應付新臺幣 X 元整(阿拉伯數字)。]
-    """
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-
-    PARA_XML_TMPL = (
-        f'<w:p {nsdecls("w")}>'
-        f'<w:pPr>'
-        f'<w:spacing w:line="600" w:lineRule="exact" w:before="0" w:after="0"/>'
-        f'<w:jc w:val="both"/>'
-        f'</w:pPr>'
-        f'<w:r>'
-        f'<w:rPr>'
-        f'<w:rFonts w:ascii="標楷體" w:eastAsia="標楷體"/>'
-        f'<w:sz w:val="40"/><w:szCs w:val="40"/>'
-        f'</w:rPr>'
-        f'<w:t xml:space="preserve">{{text}}</w:t>'
-        f'</w:r>'
-        f'</w:p>'
-    )
-
-    def make_para(text: str):
-        return parse_xml(PARA_XML_TMPL.format(text=text))
-
-    # 1. 找「茲收到」body 段落
-    zi_text = ""
-    zi_para = None
-    for p in doc.paragraphs:
-        if "茲收到" in p.text:
-            zi_text = p.text.strip()
-            zi_para = p
-            break
-    if zi_para is None:
-        return
-
-    # 2. 找含「元整」的表格，提取金額文字
-    amount_text = ""
-    target_tbl = None
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if "元整" not in cell.text:
-                    continue
-                for p in cell.paragraphs:
-                    if "元整" in p.text or "應付" in p.text:
-                        amount_text = p.text.strip()
-                        break
-                if amount_text:
-                    target_tbl = table._tbl
-                    break
-            if target_tbl is not None:
-                break
-        if target_tbl is not None:
-            break
-
-    if not amount_text or target_tbl is None:
-        return
-
-    # 3. 在表格位置插入三個純文字段落（zi → fee → amount）
-    tbl_parent = target_tbl.getparent()
-    amount_p = make_para(amount_text)
-    fee_p    = make_para(f"{fee_type}。")
-    zi_p     = make_para(zi_text + "-")
-
-    # addprevious 每次都插在 table 正前方，所以按 zi→fee→amount 順序插
-    target_tbl.addprevious(zi_p)
-    target_tbl.addprevious(fee_p)
-    target_tbl.addprevious(amount_p)
-
-    # 4. 刪除表格
-    tbl_parent.remove(target_tbl)
-
-    # 5. 刪除原本 body 的「茲收到」段落
-    zi_para._element.getparent().remove(zi_para._element)

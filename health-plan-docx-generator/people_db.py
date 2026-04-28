@@ -24,6 +24,7 @@ FIELD_MAP = {
     "戶名":     "account_name",
     "銀行及分行": "bank_branch",
     "銀行代碼":  "bank_code",
+    "分行代號":  "bank_code",   # 別名：7 碼銀行+分行代號 (XXX-XXXX)
     "帳號":     "account_number",
     "Email":    "email",
 }

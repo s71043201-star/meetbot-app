@@ -19,7 +19,7 @@ from templates.doc_utils import (
     add_signature_line, add_note, today_roc,
 )
 from templates.receipt import generate_receipt
-from config import FEE_PER_TREATMENT
+from config import FEE_PER_TREATMENT, FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
 # 直式 A4 邊距 1.5cm，可用寬度約 18cm ≈ 6,480,000 EMU
 DATA_COL_WIDTHS = [950000, 2100000, 1400000, 1750000]
 PATIENT_COL_WIDTHS = [450000, 950000, 1200000, 1500000, 1100000, 1280000]
@@ -120,8 +120,40 @@ def generate_doctor_receipts(data: AllData,
                 account_number=prev.account_number,
             )
 
-        # === 處方費 ===
-        if doc_data.prescription_fee > 0:
+        has_presc = doc_data.prescription_fee > 0
+        has_exec = doc_data.execution_fee > 0
+
+        # === 合併領據（處方費 + 執行費）— 1 份 per 醫師 ===
+        # 領據 amount 與 pivot 表都涵蓋兩種費用；放在處方費領據資料夾，
+        # 處方費 / 執行費 兩個 docx_info 共用此檔，PDF 合併時會各自帶入此領據。
+        merged_receipt_docx = None
+        if has_presc or has_exec:
+            total_amount = doc_data.prescription_fee + doc_data.execution_fee
+            receipt = replace(base_receipt, amount=total_amount)
+            merged_receipt_docx = os.path.join(
+                presc_receipt_dir, f"{name}_領據.docx")
+            generate_receipt(
+                receipt, data.report_year, data.report_month,
+                merged_receipt_docx,
+                fee_type="運動、營養、社會、情緒調適處方處方費",
+                presc_counts={
+                    "運動處方":     doc_data.exercise,
+                    "營養處方":     doc_data.nutrition,
+                    "社會處方":     doc_data.social,
+                    "情緒調適處方": doc_data.emotion,
+                },
+                exec_counts={
+                    "運動處方":     doc_data.exercise_exec,
+                    "營養處方":     doc_data.nutrition_exec,
+                    "社會處方":     doc_data.social_exec,
+                    "情緒調適處方": doc_data.emotion_exec,
+                },
+                fee_per_presc=FEE_PER_PRESCRIPTION,
+                fee_per_exec=FEE_PER_EXECUTION,
+            )
+
+        # === 處方費 (總表 + 明細，領據用合併版) ===
+        if has_presc:
             # 核銷總表（單人單頁，橫向 — 配合既有的 4 欄寬度設計）
             total_docx = os.path.join(presc_total_dir, f"{name}_核銷總表.docx")
             doc = create_document()
@@ -137,22 +169,15 @@ def generate_doctor_receipts(data: AllData,
             _add_doctor_patient_list_page(doc, data, doc_data, fee_label="處方費")
             doc.save(detail_docx)
 
-            # 領據
-            receipt = replace(base_receipt, amount=doc_data.prescription_fee)
-            receipt_docx = os.path.join(presc_receipt_dir, f"{name}_處方費領據.docx")
-            generate_receipt(receipt, data.report_year, data.report_month,
-                             receipt_docx,
-                             fee_type="運動、營養、社會、情緒調適處方處方費")
-
             docx_info.append((
                 "presc", name,
                 os.path.abspath(total_docx),
                 os.path.abspath(detail_docx),
-                os.path.abspath(receipt_docx),
+                os.path.abspath(merged_receipt_docx),
                 presc_receipt_dir,
             ))
 
-        # === 處方執行費 ===
+        # === 處方執行費 (總表 + 明細，領據用合併版) ===
         if doc_data.execution_fee > 0:
             total_docx = os.path.join(exec_total_dir, f"{name}_核銷總表.docx")
             doc = create_document()
@@ -167,17 +192,11 @@ def generate_doctor_receipts(data: AllData,
             _add_doctor_patient_list_page(doc, data, doc_data, fee_label="處方執行費")
             doc.save(detail_docx)
 
-            receipt = replace(base_receipt, amount=doc_data.execution_fee)
-            receipt_docx = os.path.join(exec_receipt_dir, f"{name}_處方執行費領據.docx")
-            generate_receipt(receipt, data.report_year, data.report_month,
-                             receipt_docx,
-                             fee_type="運動、營養、社會、情緒調適處方處方執行費")
-
             docx_info.append((
                 "exec", name,
                 os.path.abspath(total_docx),
                 os.path.abspath(detail_docx),
-                os.path.abspath(receipt_docx),
+                os.path.abspath(merged_receipt_docx),
                 exec_receipt_dir,
             ))
 
@@ -352,8 +371,13 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
         # 領據
         receipt_docx = os.path.join(receipt_dir, f"{person}_領據.docx")
-        generate_receipt(base_receipt, data.report_year, data.report_month,
-                         receipt_docx, fee_type="健康管理費")
+        generate_receipt(
+            base_receipt, data.report_year, data.report_month,
+            receipt_docx, fee_type="健康管理費",
+            people_count=hm.prescription_people,
+            prescription_count=hm.prescription_count,
+            is_qualified=hm.is_qualified,
+        )
 
         docx_info.append((
             person,
@@ -440,7 +464,7 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
 
     fs = 12
     headers = ["序號", "民眾姓名", "出生日期",
-               "處方類型", "處方人員", "開立日期"]
+               "處方類型", "行政人員", "開立日期"]
     for i, h in enumerate(headers):
         set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
 
@@ -449,8 +473,8 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
         set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
         set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
         set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), pat.prescriber, font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(pat.exec_date or ""), font_size=fs)
+        set_cell_text(table.cell(i + 1, 4), hm.clinic_person or "", font_size=fs)
+        set_cell_text(table.cell(i + 1, 5), str(pat.issue_date or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -681,6 +705,8 @@ def generate_executor_receipts(data: AllData, output_dir: str,
         generate_receipt(
             receipt, data.report_year, data.report_month,
             out_path, fee_type=executor.prescription_type + "處方處置費",
+            treatment_counts={executor.prescription_type: executor.service_count},
+            fee_per_treatment=FEE_PER_TREATMENT,
         )
 
 
@@ -758,6 +784,8 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
         generate_receipt(
             receipt, data.report_year, data.report_month,
             receipt_docx, fee_type=executor.prescription_type + "處方處置費",
+            treatment_counts={executor.prescription_type: executor.service_count},
+            fee_per_treatment=FEE_PER_TREATMENT,
         )
 
         docx_info.append((name, ptype,

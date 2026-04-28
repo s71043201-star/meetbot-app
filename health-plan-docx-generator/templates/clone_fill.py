@@ -9,10 +9,22 @@
 import copy
 import os
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from models import AllData, DoctorPrescription
 from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
+
+
+def _make_page_break_paragraph():
+    """產生一個只含分頁符的段落 (<w:p><w:r><w:br w:type='page'/></w:r></w:p>)"""
+    p = OxmlElement("w:p")
+    r = OxmlElement("w:r")
+    br = OxmlElement("w:br")
+    br.set(qn("w:type"), "page")
+    r.append(br)
+    p.append(r)
+    return p
 
 
 def _get_all_text_runs(element):
@@ -142,6 +154,10 @@ def generate_from_template(template_path: str, data: AllData,
 
     # 為每位醫師產生一個 section
     for i, doctor in enumerate(doctors):
+        # 第二位醫師起，先插入分頁符
+        if i > 0:
+            new_body.append(_make_page_break_paragraph())
+
         # 深複製模板元素
         for elem in template_elements:
             elem_copy = copy.deepcopy(elem)
