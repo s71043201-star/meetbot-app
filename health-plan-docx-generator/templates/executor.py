@@ -84,22 +84,17 @@ def generate_doctor_receipts(data: AllData,
       處方執行費領據/PDF/{醫師}.pdf                    (合併：總表+明細+領據)
     """
     from templates.receipt import generate_receipt
-    from templates.clinic import _add_prescription_fee_page, _add_execution_fee_page
     from dataclasses import replace
 
-    # 子資料夾
-    presc_total_dir   = os.path.join(month_dir, "處方費核銷總表")
+    # 子資料夾（不再產生個別核銷總表與合併 PDF；領據合併到單一資料夾）
     presc_detail_dir  = os.path.join(month_dir, "處方費民眾明細")
-    presc_receipt_dir = os.path.join(month_dir, "處方費領據")
-    exec_total_dir    = os.path.join(month_dir, "處方執行費核銷總表")
     exec_detail_dir   = os.path.join(month_dir, "處方執行費民眾明細")
-    exec_receipt_dir  = os.path.join(month_dir, "處方執行費領據")
-    for d in [presc_total_dir, presc_detail_dir, presc_receipt_dir,
-              exec_total_dir, exec_detail_dir, exec_receipt_dir]:
+    receipt_dir       = os.path.join(month_dir, "處方處方費與處方執行費領據")
+    for d in [presc_detail_dir, exec_detail_dir, receipt_dir]:
         os.makedirs(d, exist_ok=True)
 
     # 蒐集每位醫師的 docx 路徑（kind: "presc" / "exec"）
-    # list of (kind, name, total_docx, detail_docx, receipt_docx, receipt_dir)
+    # list of (kind, name, detail_docx, receipt_docx, receipt_dir)
     docx_info = []
 
     for doc_data in data.doctors:
@@ -131,7 +126,7 @@ def generate_doctor_receipts(data: AllData,
             total_amount = doc_data.prescription_fee + doc_data.execution_fee
             receipt = replace(base_receipt, amount=total_amount)
             merged_receipt_docx = os.path.join(
-                presc_receipt_dir, f"{name}_領據.docx")
+                receipt_dir, f"{name}_領據.docx")
             generate_receipt(
                 receipt, data.report_year, data.report_month,
                 merged_receipt_docx,
@@ -152,15 +147,8 @@ def generate_doctor_receipts(data: AllData,
                 fee_per_exec=FEE_PER_EXECUTION,
             )
 
-        # === 處方費 (總表 + 明細，領據用合併版) ===
+        # === 處方費民眾明細 ===
         if has_presc:
-            # 核銷總表（單人單頁，橫向 — 配合既有的 4 欄寬度設計）
-            total_docx = os.path.join(presc_total_dir, f"{name}_核銷總表.docx")
-            doc = create_document()
-            _add_prescription_fee_page(doc, data, doc_data)
-            doc.save(total_docx)
-
-            # 民眾明細（單人，直式 + 縮邊距 — 配合 PATIENT_COL_WIDTHS）
             detail_docx = os.path.join(presc_detail_dir, f"{name}_民眾明細.docx")
             doc = create_document(landscape=False)
             for section in doc.sections:
@@ -171,19 +159,13 @@ def generate_doctor_receipts(data: AllData,
 
             docx_info.append((
                 "presc", name,
-                os.path.abspath(total_docx),
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx),
-                presc_receipt_dir,
+                receipt_dir,
             ))
 
-        # === 處方執行費 (總表 + 明細，領據用合併版) ===
-        if doc_data.execution_fee > 0:
-            total_docx = os.path.join(exec_total_dir, f"{name}_核銷總表.docx")
-            doc = create_document()
-            _add_execution_fee_page(doc, data, doc_data)
-            doc.save(total_docx)
-
+        # === 處方執行費民眾明細 ===
+        if has_exec:
             detail_docx = os.path.join(exec_detail_dir, f"{name}_民眾明細.docx")
             doc = create_document(landscape=False)
             for section in doc.sections:
@@ -194,28 +176,29 @@ def generate_doctor_receipts(data: AllData,
 
             docx_info.append((
                 "exec", name,
-                os.path.abspath(total_docx),
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx),
-                exec_receipt_dir,
+                receipt_dir,
             ))
 
     if not also_pdf or not docx_info:
         return docx_info
 
-    # === 批次轉 PDF（共用 Word session，每 50 份重啟一次）===
+    # === 批次轉 PDF（明細 + 領據；不再合併 PDF）===
+    # 領據是 處方費 / 執行費 兩 docx_info 共用，去重避免重複轉換
     all_docx = []
-    for _, _, t, d, r, _ in docx_info:
-        all_docx.extend([t, d, r])
+    seen = set()
+    for _, _, d, r, _ in docx_info:
+        for path in (d, r):
+            if path and path not in seen:
+                all_docx.append(path)
+                seen.add(path)
     if progress_cb:
         progress_cb(f"開始轉換 {len(all_docx)} 份 Word → PDF")
     def _log_progress(done, total, name):
         if progress_cb and (done % 10 == 0 or done == total):
             progress_cb(f"  [{done}/{total}] 已轉換 {name}")
     _convert_docx_list_to_pdf(all_docx, progress_cb=_log_progress)
-
-    # === 每位醫師合併 3 份 PDF 成一份 (PDF/{醫師}.pdf) ===
-    merge_doctor_receipt_pdfs(docx_info, progress_cb)
 
     return docx_info
 
@@ -770,15 +753,6 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
                 account_number=receipt.account_number or prev.account_number,
             )
 
-        # === 核銷總表（單頁，直式，縮小邊距）===
-        total_docx = os.path.join(total_dir, f"{name}_核銷總表.docx")
-        doc = create_document(landscape=False)
-        for section in doc.sections:
-            section.left_margin = Cm(1.5)
-            section.right_margin = Cm(1.5)
-        _add_treatment_fee_page(doc, data, executor)
-        doc.save(total_docx)
-
         # === 民眾明細表（單頁，直式，縮小邊距）===
         detail_docx = os.path.join(detail_dir, f"{name}_民眾明細.docx")
         doc = create_document(landscape=False)
@@ -802,21 +776,17 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
         )
 
         docx_info.append((name, ptype,
-                         os.path.abspath(total_docx),
                          os.path.abspath(detail_docx),
                          os.path.abspath(receipt_docx)))
 
     if not also_pdf or not docx_info:
         return docx_info, receipt_dir
 
-    # === 批次轉 PDF（同一個 Word session）===
+    # === 批次轉 PDF（明細 + 領據；不再合併 PDF）===
     all_docx = []
-    for _, _, t, d, r in docx_info:
-        all_docx.extend([t, d, r])
+    for _, _, d, r in docx_info:
+        all_docx.extend([d, r])
     _convert_docx_list_to_pdf(all_docx)
-
-    # === 每人合併 3 份 PDF 成一份 (PDF/{ptype}/{name}.pdf) ===
-    merge_executor_pdfs(docx_info, receipt_dir)
 
     return docx_info, receipt_dir
 

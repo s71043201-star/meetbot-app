@@ -658,8 +658,8 @@ class App(ctk.CTk):
             if hm_result:
                 hm_docx_info, hm_receipt_dir = hm_result
                 health_merge_info = (hm_docx_info, hm_receipt_dir)
-                for _, t, dd, r in hm_docx_info:
-                    all_pending_docx.extend([t, dd, r])
+                for _, dd, r in hm_docx_info:
+                    all_pending_docx.extend([dd, r])
 
             hm_count = sum(1 for hm in data.health_mgmts if hm.is_qualified)
             self.after(0, lambda s=scope_label, c=hm_count, x=len(xlsx_paths):
@@ -689,8 +689,8 @@ class App(ctk.CTk):
             if ex_result:
                 ex_docx_info, ex_receipt_dir = ex_result
                 executor_merge_info = (ex_docx_info, ex_receipt_dir)
-                for _, _, t, dd, r in ex_docx_info:
-                    all_pending_docx.extend([t, dd, r])
+                for _, _, dd, r in ex_docx_info:
+                    all_pending_docx.extend([dd, r])
             count = sum(1 for ex in data.executors
                         if ex.receipt and ex.receipt.amount > 0)
             self.after(0, lambda s=scope_label, c=count:
@@ -704,8 +704,13 @@ class App(ctk.CTk):
                 also_pdf=False)
             if dr_info:
                 doctor_merge_info = dr_info
-                for _, _, t, dd, r, _ in dr_info:
-                    all_pending_docx.extend([t, dd, r])
+                # 領據是 處方費/執行費 共用，去重避免重複加入
+                seen = set()
+                for _, _, dd, r, _ in dr_info:
+                    for path in (dd, r):
+                        if path and path not in seen:
+                            all_pending_docx.append(path)
+                            seen.add(path)
             count = sum(1 for doc in data.doctors
                         if doc.prescription_fee > 0 or doc.execution_fee > 0)
             self.after(0, lambda s=scope_label, c=count:
@@ -967,14 +972,7 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(
                 f"[OK] {total_pdf} 份 PDF 轉換完成"))
 
-        # ── 合併每人的 PDF ──
-        for health_merge_info, executor_merge_info, doctor_merge_info in merge_bundles:
-            if health_merge_info:
-                merge_health_mgmt_pdfs(*health_merge_info)
-            if executor_merge_info:
-                merge_executor_pdfs(*executor_merge_info)
-            if doctor_merge_info:
-                merge_doctor_receipt_pdfs(doctor_merge_info)
+        # ── 不再合併個人的 PDF（明細與領據各自獨立輸出）──
 
         # 記住本次輸出根（Email 掃描用 month_dir_root，glob 會吸收子分區）
         month_dir = month_dir_root
