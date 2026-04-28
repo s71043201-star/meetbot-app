@@ -436,9 +436,21 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
                 progress_cb(f"  [WARN] {person} 健康管理費 PDF 合併失敗: {e}")
 
 
+_PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "社會處方", "情緒調適處方"]
+
+
+def _group_by_prescription(patients):
+    """按處方類型分組排序（運動 → 營養 → 社會 → 情緒調適），同類別內保留原順序。
+    未知類型排在最後。
+    """
+    order_map = {pt: i for i, pt in enumerate(_PRESCRIPTION_GROUP_ORDER)}
+    return sorted(patients, key=lambda p: order_map.get(
+        getattr(p, "prescription_type", ""), 99))
+
+
 def _add_clinic_patient_list_page(doc, data: AllData, hm):
     """診所的民眾明細頁（直式，仿照 _add_doctor_patient_list_page）"""
-    patients = hm.patients
+    patients = _group_by_prescription(hm.patients)
     num = len(patients)
     prefix = f"{data.report_year}年{data.report_month:02d}月"
 
@@ -506,6 +518,7 @@ def _add_doctor_patient_list_page(doc, data: AllData,
             patients = doctor.patients
     else:
         patients = doctor.patients
+    patients = _group_by_prescription(patients)
     num = len(patients)
     prefix = f"{data.report_year}年{data.report_month:02d}月"
 
