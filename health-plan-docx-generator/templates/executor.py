@@ -252,10 +252,9 @@ def generate_health_mgmt_individual_docs(data: AllData,
     from templates.clinic import _add_health_mgmt_page, HEALTH_MGMT_FEE
     from dataclasses import replace
 
-    total_dir   = os.path.join(month_dir, "健康管理費核銷總表")
     detail_dir  = os.path.join(month_dir, "健康管理費民眾明細")
     receipt_dir = os.path.join(month_dir, "健康管理費領據")
-    for d in [total_dir, detail_dir, receipt_dir]:
+    for d in [detail_dir, receipt_dir]:
         os.makedirs(d, exist_ok=True)
 
     def _find_clinic_person(clinic_name: str):
@@ -337,12 +336,6 @@ def generate_health_mgmt_individual_docs(data: AllData,
                 account_number=prev.account_number,
             )
 
-        # 核銷總表（單頁，橫向 — 配合 clinic.py 現有欄寬設計）
-        total_docx = os.path.join(total_dir, f"{person}_核銷總表.docx")
-        doc = create_document()
-        _add_health_mgmt_page(doc, data, hm, min_prescriptions=data.min_prescriptions)
-        doc.save(total_docx)
-
         # 民眾明細（直式 + 縮邊距）
         detail_docx = os.path.join(detail_dir, f"{person}_民眾明細.docx")
         doc = create_document(landscape=False)
@@ -364,7 +357,6 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
         docx_info.append((
             person,
-            os.path.abspath(total_docx),
             os.path.abspath(detail_docx),
             os.path.abspath(receipt_docx),
         ))
@@ -372,19 +364,16 @@ def generate_health_mgmt_individual_docs(data: AllData,
     if not also_pdf or not docx_info:
         return docx_info, receipt_dir
 
-    # 批次轉 PDF
+    # 批次轉 PDF（明細 + 領據；不再合併 PDF）
     all_docx = []
-    for _, t, d, r in docx_info:
-        all_docx.extend([t, d, r])
+    for _, d, r in docx_info:
+        all_docx.extend([d, r])
     if progress_cb:
         progress_cb(f"開始轉換健康管理費 {len(all_docx)} 份 Word → PDF")
     def _log_p(done, total, name):
         if progress_cb and (done % 10 == 0 or done == total):
             progress_cb(f"  [{done}/{total}] {name}")
     _convert_docx_list_to_pdf(all_docx, progress_cb=_log_p)
-
-    # 合併 PDF
-    merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb)
 
     return docx_info, receipt_dir
 
