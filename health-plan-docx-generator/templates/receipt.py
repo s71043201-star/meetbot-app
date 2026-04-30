@@ -524,12 +524,19 @@ def _fill_para_after_colon_xml(p_elem, value: str):
 
 
 # ============================================================
-#  個資縮排（沿用舊邏輯，只作用於 body 段落）
+#  個資縮排：處理 body 段落 + 所有 nested table cell 段落
 # ============================================================
 
 def _fix_personal_info_indent(doc):
-    """設個資段落的懸掛縮排，使每段第一行對齊「具領人用印」圖框右側、
-    換行後對齊冒號後第一個字。
+    """確保個資段落（具領人/身分證/戶籍/聯絡電話/戶名/銀行/帳號）長行換行
+    時不會跑回頁面/cell 左邊。
+
+    處理兩種模板情況：
+    1. 舊版（個資在 body 段落，旁有 anchored image）：依圖框右緣計算 base_indent，
+       設 w:left + w:hanging 形成懸掛縮排。
+    2. 新版扣稅模板（個資在 table cell 內，pPr 已有 w:firstLine 指向圖框右側）：
+       只是首行縮排，地址超長換行會跑到 cell 左緣。改成 w:left（所有行同位置）
+       讓換行也保持在右側。
     """
     from lxml import etree
 
@@ -538,7 +545,9 @@ def _fix_personal_info_indent(doc):
     CHAR_WIDTH = 360
     LEFT_OFFSET_CHARS = -1
     body = doc.element.body
+    INFO_KWS = ("具領", "身分證", "戶籍", "聯絡電話", "戶名", "銀行", "帳號")
 
+    # ---- (1) 舊版：body 段落 + anchored image ----
     indent_twips = 3240
     for p in body.findall(qn("w:p")):
         for anchor in p.iter(f"{{{WPD}}}anchor"):
@@ -559,7 +568,6 @@ def _fix_personal_info_indent(doc):
 
     base_indent = max(1000, indent_twips - LEFT_OFFSET_CHARS * CHAR_WIDTH)
 
-    INFO_KWS = ("具領", "身分證", "戶籍", "聯絡電話", "戶名", "銀行", "帳號")
     DRAWING_TAGS = {
         qn("w:drawing"), qn("w:pict"),
         f"{{{MC_NS}}}AlternateContent",
@@ -626,3 +634,28 @@ def _fix_personal_info_indent(doc):
             h_q = qn("w:hanging")
             if ind.get(h_q) is not None:
                 del ind.attrib[h_q]
+
+    # ---- (2) 新版：所有段落（含 nested cell）— firstLine 升級成 left ----
+    # 模板原本只設 w:firstLine（首行縮排），地址過長換行會跑到頁面左緣。
+    # 把 firstLine 改成 left（所有行同位置），讓換行保持在右側。
+    # 上面 (1) 設過的 body 段落已有 w:left，會被 `not left` 排除掉。
+    for p in body.iter(qn("w:p")):
+        txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
+        if not any(kw in txt for kw in INFO_KWS):
+            continue
+        pPr = p.find(qn("w:pPr"))
+        if pPr is None:
+            continue
+        ind = pPr.find(qn("w:ind"))
+        if ind is None:
+            continue
+        first_line = ind.get(qn("w:firstLine"))
+        first_line_chars = ind.get(qn("w:firstLineChars"))
+        left = ind.get(qn("w:left"))
+        if first_line and not left:
+            # firstLine → left；所有換行也維持縮排
+            ind.set(qn("w:left"), first_line)
+            del ind.attrib[qn("w:firstLine")]
+            if first_line_chars is not None:
+                ind.set(qn("w:leftChars"), first_line_chars)
+                del ind.attrib[qn("w:firstLineChars")]
