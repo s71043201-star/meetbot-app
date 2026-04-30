@@ -32,9 +32,8 @@ INCOME_TAX_RATE = 0.10
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "word_templates")
-TEMPLATE_NO_TAX = os.path.join(TEMPLATE_DIR, "領據_不扣稅_template.docx")
+# 統一使用扣稅版型；金額 < 20000 時於應付/代扣/實付區寫「不需扣稅」。
 TEMPLATE_WITH_TAX = os.path.join(TEMPLATE_DIR, "領據_扣稅_template.docx")
-TEMPLATE_TREATMENT = os.path.join(TEMPLATE_DIR, "領據_處置費_template.docx")
 TEMPLATE_TREATMENT_TAX = os.path.join(TEMPLATE_DIR, "領據_處置費_扣稅_template.docx")
 TEMPLATE_HEALTH_MGMT = os.path.join(TEMPLATE_DIR, "領據_健管費_template.docx")
 
@@ -78,12 +77,14 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
         fee_per_presc/exec/treatment: 單份單價
         people_count/prescription_count/is_qualified: 健管費 Table 0 用
     """
+    # 統一使用扣稅版型（含應付/代扣/實付區）；金額 < 20000 時 _fill_tax_amounts
+    # 會寫「不需扣稅」、實付 = 應付
     if _is_health_mgmt(fee_type):
         template = TEMPLATE_HEALTH_MGMT
     elif _is_treatment(fee_type):
-        template = TEMPLATE_TREATMENT_TAX if needs_tax(receipt.amount) else TEMPLATE_TREATMENT
+        template = TEMPLATE_TREATMENT_TAX
     else:
-        template = TEMPLATE_WITH_TAX if needs_tax(receipt.amount) else TEMPLATE_NO_TAX
+        template = TEMPLATE_WITH_TAX
 
     if not os.path.exists(template):
         raise FileNotFoundError(f"找不到領據模板: {template}")
@@ -112,7 +113,7 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     all_texts = list(body.iter(qn("w:t")))
     _replace_amount_in_paragraphs(all_texts, receipt.amount)
 
-    if needs_tax(receipt.amount) and not _is_health_mgmt(fee_type):
+    if not _is_health_mgmt(fee_type):
         _fill_tax_amounts(doc, receipt.amount)
 
     _replace_name(all_texts, receipt.recipient_name)
@@ -385,13 +386,26 @@ def _fill_summary_table_health_mgmt(doc, people_count: int,
 # ============================================================
 
 def _fill_tax_amounts(doc, total_amount: int):
-    nhi = round(total_amount * NHI_RATE)
-    income_tax = round(total_amount * INCOME_TAX_RATE)
-    actual = total_amount - nhi - income_tax
+    """填扣稅版 nested table 的「應付/代扣2.11%/代扣10%/實付」4 cells。
+    - amount >= 20000: 正常計算扣繳
+    - amount <  20000: 代扣兩格寫「不需扣稅」，實付 = 應付
+    """
+    if needs_tax(total_amount):
+        nhi = round(total_amount * NHI_RATE)
+        income_tax = round(total_amount * INCOME_TAX_RATE)
+        actual = total_amount - nhi - income_tax
+        v_payable = f"{total_amount:,}"
+        v_nhi = f"{nhi:,}"
+        v_tax = f"{income_tax:,}"
+        v_actual = f"{actual:,}"
+    else:
+        v_payable = f"{total_amount:,}"
+        v_nhi = "不需扣稅"
+        v_tax = "不需扣稅"
+        v_actual = f"{total_amount:,}"
 
     body = doc.element.body
     # 鎖定 nested table（3 直接 row，且第一列含「應付金額」+「實付金額」）
-    # 避免誤抓 outer 大表（其 text 因含 nested 內容也會匹配關鍵字）
     for tbl in body.iter(qn("w:tbl")):
         rows = tbl.findall(qn("w:tr"))
         if len(rows) != 3:
@@ -401,10 +415,10 @@ def _fill_tax_amounts(doc, total_amount: int):
             continue
         cells = rows[2].findall(qn("w:tc"))
         if len(cells) >= 4:
-            _set_cell_text(cells[0], f"{total_amount:,}")
-            _set_cell_text(cells[1], f"{nhi:,}")
-            _set_cell_text(cells[2], f"{income_tax:,}")
-            _set_cell_text(cells[3], f"{actual:,}")
+            _set_cell_text(cells[0], v_payable)
+            _set_cell_text(cells[1], v_nhi)
+            _set_cell_text(cells[2], v_tax)
+            _set_cell_text(cells[3], v_actual)
         return
 
 
