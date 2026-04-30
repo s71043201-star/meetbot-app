@@ -653,9 +653,10 @@ def _fix_personal_info_indent(doc):
         first_line_chars = ind.get(qn("w:firstLineChars"))
         left = ind.get(qn("w:left"))
         if first_line and not left:
-            # firstLine → left；所有換行也維持縮排
+            # firstLine → left；所有換行也維持縮排。
+            # 不保留 leftChars：chars 單位會依「平均字寬」算，含中英數混排時
+            # 會比 twips 值小，造成首字被「具領人用印」圖框右緣蓋住。
             ind.set(qn("w:left"), first_line)
             del ind.attrib[qn("w:firstLine")]
             if first_line_chars is not None:
-                ind.set(qn("w:leftChars"), first_line_chars)
                 del ind.attrib[qn("w:firstLineChars")]

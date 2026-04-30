@@ -71,6 +71,8 @@ def set_cell_text(cell, text: str, bold: bool = False, align: str = "center",
         p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     else:
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # 緊湊段落間距：避免每列因預設行距浪費垂直空間（民眾明細 32+ 列才能同頁）
+    compact_paragraph(p)
     run = p.add_run(str(text))
     run.bold = bold
     run.font.size = Pt(font_size)

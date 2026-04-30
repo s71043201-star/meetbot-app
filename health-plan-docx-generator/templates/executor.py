@@ -22,7 +22,7 @@ from templates.receipt import generate_receipt
 from config import FEE_PER_TREATMENT, FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
 # 直式 A4 邊距 1.5cm，可用寬度約 18cm ≈ 6,480,000 EMU
 DATA_COL_WIDTHS = [950000, 2100000, 1400000, 1750000]
-PATIENT_COL_WIDTHS = [450000, 950000, 1200000, 1500000, 1100000, 1280000]
+PATIENT_COL_WIDTHS = [550000, 950000, 1200000, 1500000, 1100000, 1180000]
 
 
 def generate_treatment_fee_doc(data: AllData, output_path: str):
@@ -154,6 +154,8 @@ def generate_doctor_receipts(data: AllData,
             for section in doc.sections:
                 section.left_margin = Cm(1.5)
                 section.right_margin = Cm(1.5)
+                section.top_margin = Cm(1.5)
+                section.bottom_margin = Cm(1.5)
             _add_doctor_patient_list_page(doc, data, doc_data, fee_label="處方費")
             doc.save(detail_docx)
 
@@ -171,6 +173,8 @@ def generate_doctor_receipts(data: AllData,
             for section in doc.sections:
                 section.left_margin = Cm(1.5)
                 section.right_margin = Cm(1.5)
+                section.top_margin = Cm(1.5)
+                section.bottom_margin = Cm(1.5)
             _add_doctor_patient_list_page(doc, data, doc_data, fee_label="處方執行費")
             doc.save(detail_docx)
 
@@ -358,6 +362,8 @@ def generate_health_mgmt_individual_docs(data: AllData,
         for section in doc.sections:
             section.left_margin = Cm(1.5)
             section.right_margin = Cm(1.5)
+            section.top_margin = Cm(1.5)
+            section.bottom_margin = Cm(1.5)
         _add_clinic_patient_list_page(doc, data, hm)
         doc.save(detail_docx)
 
@@ -423,7 +429,7 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
                 progress_cb(f"  [WARN] {person} 健康管理費 PDF 合併失敗: {e}")
 
 
-_PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "社會處方", "情緒調適處方"]
+_PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
 
 
 def _group_by_prescription(patients):
@@ -762,6 +768,8 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
         for section in doc.sections:
             section.left_margin = Cm(1.5)
             section.right_margin = Cm(1.5)
+            section.top_margin = Cm(1.5)
+            section.bottom_margin = Cm(1.5)
         _add_patient_list_page(doc, data, executor)
         doc.save(detail_docx)
 
