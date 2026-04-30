@@ -639,19 +639,26 @@ class App(ctk.CTk):
             os.makedirs(d, exist_ok=True)
             return d
 
+        OTHER_DIR = "其他內容"
+        def agg_subdir(name):
+            """彙整檔資料夾 — 統一放在 其他內容/ 下"""
+            d = os.path.join(month_dir, OTHER_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            return d
+
         COMBINED_DIR_NAME = "處方費、處方執行費總表明細表合併檔與Excel"
         HEALTH_COMBINED_DIR = "健康管理費合併總表與個人excel"
         TREATMENT_COMBINED_DIR = "處方處置費合併總表word"
 
         # 產生 Excel 統計檔（每個 scope 都有自己的總表）
         # 處方費 → 開立；執行費 → 執行；健管費 → 開立
-        presc_dir = subdir(COMBINED_DIR_NAME)
+        presc_dir = agg_subdir(COMBINED_DIR_NAME)
         try:
             generate_prescription_fee_excel(raw_records_issuance, prefix, presc_dir)
             generate_execution_fee_excel(raw_records_execution, prefix, presc_dir)
         except Exception:
             pass
-        hm_dir = subdir(HEALTH_COMBINED_DIR)
+        hm_dir = agg_subdir(HEALTH_COMBINED_DIR)
         try:
             generate_health_mgmt_excel(raw_records_issuance, prefix, hm_dir)
         except Exception:
@@ -664,7 +671,7 @@ class App(ctk.CTk):
         doctor_merge_info = None
 
         if self.var_gen_presc.get() and data.doctors:
-            d = subdir(COMBINED_DIR_NAME)
+            d = agg_subdir(COMBINED_DIR_NAME)
             path = os.path.join(
                 d, f"健康台灣深耕計畫_處方費-總表-{prefix}.docx")
             tmpl = DEFAULT_TEMPLATES["prescription"]
@@ -677,7 +684,7 @@ class App(ctk.CTk):
             step_cb()
 
         if self.var_gen_exec.get() and data.doctors:
-            d = subdir(COMBINED_DIR_NAME)
+            d = agg_subdir(COMBINED_DIR_NAME)
             path = os.path.join(
                 d, f"健康台灣深耕計畫_處方執行費核銷總表-{prefix}.docx")
             tmpl = DEFAULT_TEMPLATES["execution"]
@@ -690,7 +697,7 @@ class App(ctk.CTk):
             step_cb()
 
         if self.var_gen_health.get() and data.health_mgmts:
-            d = subdir(HEALTH_COMBINED_DIR)
+            d = agg_subdir(HEALTH_COMBINED_DIR)
             path = os.path.join(
                 d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
             generate_health_mgmt_doc(data, path, min_prescriptions=min_presc)
@@ -726,7 +733,7 @@ class App(ctk.CTk):
             step_cb()
 
         if produce_executor and self.var_gen_treatment.get() and data.executors:
-            d = subdir(TREATMENT_COMBINED_DIR)
+            d = agg_subdir(TREATMENT_COMBINED_DIR)
             path = os.path.join(
                 d, f"健康台灣深耕計畫_處方處置費核銷總表-{prefix}.docx")
             generate_treatment_fee_doc(data, path)
@@ -734,7 +741,7 @@ class App(ctk.CTk):
             step_cb()
 
         if produce_executor and self.var_gen_patient.get() and data.executors:
-            d = subdir(TREATMENT_COMBINED_DIR)
+            d = agg_subdir(TREATMENT_COMBINED_DIR)
             path = os.path.join(
                 d, f"健康台灣深耕計畫_執行人員民眾明細表-{prefix}.docx")
             generate_executor_patient_list_doc(data, path)

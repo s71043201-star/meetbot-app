@@ -87,7 +87,7 @@ def generate_doctor_receipts(data: AllData,
     from dataclasses import replace
 
     # 子資料夾（不再產生個別核銷總表與合併 PDF；領據合併到單一資料夾）
-    presc_detail_dir  = os.path.join(month_dir, "處方費民眾明細")
+    presc_detail_dir  = os.path.join(month_dir, "處方處方費民眾明細")
     exec_detail_dir   = os.path.join(month_dir, "處方執行費民眾明細")
     receipt_dir       = os.path.join(month_dir, "處方處方費與處方執行費領據")
     for d in [presc_detail_dir, exec_detail_dir, receipt_dir]:
