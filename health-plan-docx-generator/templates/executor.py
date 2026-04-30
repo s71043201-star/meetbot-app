@@ -204,35 +204,51 @@ def generate_doctor_receipts(data: AllData,
 
 
 def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
-    """合併醫師處方費/處方執行費的 3 份 PDF（總表+明細+領據）"""
+    """合併醫師「明細(處方費+執行費可能各一) + 領據」每人 1 份 PDF。
+    docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir)
+    """
     try:
         from PyPDF2 import PdfMerger
     except ImportError:
         return
 
     if progress_cb:
-        progress_cb("合併 PDF...")
-    for kind, name, total_docx, detail_docx, receipt_docx, receipt_dir in docx_info:
-        pdfs = [
-            total_docx.replace(".docx", ".pdf"),
-            detail_docx.replace(".docx", ".pdf"),
-            receipt_docx.replace(".docx", ".pdf"),
-        ]
-        if not all(os.path.exists(p) for p in pdfs):
-            continue
+        progress_cb("合併 明細+領據 PDF...")
 
-        pdf_dir = os.path.join(receipt_dir, "PDF")
-        os.makedirs(pdf_dir, exist_ok=True)
-        final_pdf = os.path.join(pdf_dir, f"{name}.pdf")
+    # 把同醫師的 entries 收成一組
+    by_doctor = {}
+    for kind, name, detail_docx, receipt_docx, receipt_dir in docx_info:
+        bucket = by_doctor.setdefault(name, {
+            "presc_detail": None, "exec_detail": None,
+            "receipt": receipt_docx, "receipt_dir": receipt_dir,
+        })
+        if kind == "presc":
+            bucket["presc_detail"] = detail_docx
+        elif kind == "exec":
+            bucket["exec_detail"] = detail_docx
+
+    for name, b in by_doctor.items():
+        ordered = []
+        for key in ("presc_detail", "exec_detail", "receipt"):
+            p = b.get(key)
+            if not p:
+                continue
+            pdf = p.replace(".docx", ".pdf")
+            if os.path.exists(pdf) and pdf not in ordered:
+                ordered.append(pdf)
+        if not ordered:
+            continue
+        receipt_dir = b["receipt_dir"]
+        final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
         try:
             merger = PdfMerger()
-            for p in pdfs:
+            for p in ordered:
                 merger.append(p)
             merger.write(final_pdf)
             merger.close()
         except Exception as e:
             if progress_cb:
-                progress_cb(f"  [WARN] {name} {kind} PDF 合併失敗: {e}")
+                progress_cb(f"  [WARN] {name} PDF 合併失敗: {e}")
 
 
 def generate_health_mgmt_individual_docs(data: AllData,
@@ -379,24 +395,23 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
 
 def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
-    """合併健康管理費的 3 份 PDF（總表+明細+領據）"""
+    """合併健康管理費「明細 + 領據」每人 1 份 PDF。
+    docx_info tuple: (person, detail_docx, receipt_docx)
+    """
     try:
         from PyPDF2 import PdfMerger
     except ImportError:
         return
 
-    for person, total_docx, detail_docx, receipt_docx in docx_info:
+    for person, detail_docx, receipt_docx in docx_info:
         pdfs = [
-            total_docx.replace(".docx", ".pdf"),
             detail_docx.replace(".docx", ".pdf"),
             receipt_docx.replace(".docx", ".pdf"),
         ]
         if not all(os.path.exists(p) for p in pdfs):
             continue
 
-        pdf_dir = os.path.join(receipt_dir, "PDF")
-        os.makedirs(pdf_dir, exist_ok=True)
-        final_pdf = os.path.join(pdf_dir, f"{person}.pdf")
+        final_pdf = os.path.join(receipt_dir, f"{person}_明細領據.pdf")
         try:
             merger = PdfMerger()
             for p in pdfs:
@@ -781,24 +796,23 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
 
 
 def merge_executor_pdfs(docx_info, receipt_dir):
-    """合併處方處置費的 3 份 PDF（總表+明細+領據）"""
+    """合併處方處置費「明細 + 領據」每人 1 份 PDF。
+    docx_info tuple: (name, ptype, detail_docx, receipt_docx)
+    """
     try:
         from PyPDF2 import PdfMerger
     except ImportError:
         return
 
-    for name, ptype, total_docx, detail_docx, receipt_docx in docx_info:
+    for name, ptype, detail_docx, receipt_docx in docx_info:
         pdfs = [
-            total_docx.replace(".docx", ".pdf"),
             detail_docx.replace(".docx", ".pdf"),
             receipt_docx.replace(".docx", ".pdf"),
         ]
         if not all(os.path.exists(p) for p in pdfs):
             continue
 
-        pdf_dir = os.path.join(receipt_dir, "PDF", ptype)
-        os.makedirs(pdf_dir, exist_ok=True)
-        final_pdf = os.path.join(pdf_dir, f"{name}.pdf")
+        final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
         try:
             merger = PdfMerger()
             for p in pdfs:

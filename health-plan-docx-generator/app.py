@@ -498,6 +498,65 @@ class App(ctk.CTk):
         self.log.insert("end", text + "\n")
         self.log.see("end")
 
+    def _log_incomplete_recipients(self, data, receipt_lookup):
+        """掃描所有要產領據的人，列出個資不完整的（缺欄位需手動補齊）"""
+        REQUIRED_FIELDS = [
+            ("id_number",      "身分證字號"),
+            ("address",        "戶籍地址"),
+            ("phone",          "聯絡電話"),
+            ("account_name",   "戶名"),
+            ("bank_branch",    "銀行及分行"),
+            ("bank_code",      "銀行代碼"),
+            ("account_number", "帳號"),
+        ]
+
+        # 收集所有要產領據的人 (name, role)
+        targets = []
+        seen = set()
+
+        for d in data.doctors:
+            if d.prescription_fee > 0 or d.execution_fee > 0:
+                if d.doctor_name not in seen:
+                    targets.append((d.doctor_name, "醫師"))
+                    seen.add(d.doctor_name)
+        for hm in data.health_mgmts:
+            if hm.is_qualified:
+                person = hm.clinic_person or hm.medical_institution
+                if person and person not in seen:
+                    targets.append((person, "健管費"))
+                    seen.add(person)
+        for ex in data.executors:
+            if ex.receipt and ex.receipt.amount > 0:
+                if ex.executor_name not in seen:
+                    targets.append((ex.executor_name, "處置費"))
+                    seen.add(ex.executor_name)
+
+        # 檢查每人個資
+        missing_report = []
+        for name, role in targets:
+            info = receipt_lookup.get(name) if receipt_lookup else None
+            if info is None:
+                missing_report.append((name, role, ["所有個資（個資檔查無此人）"]))
+                continue
+            missing = []
+            for fld, label in REQUIRED_FIELDS:
+                val = getattr(info, fld, None)
+                if not val or not str(val).strip():
+                    missing.append(label)
+            if missing:
+                missing_report.append((name, role, missing))
+
+        if not missing_report:
+            self._log("\n========== 個資檢查 ==========")
+            self._log("✓ 所有領據對應的人員個資完整")
+            return
+
+        self._log("\n========== 個資不完整需手動補齊 ==========")
+        self._log(f"以下 {len(missing_report)} 人領據需手動補欄位：")
+        for name, role, fields in missing_report:
+            self._log(f"  • [{role}] {name} → 缺：{', '.join(fields)}")
+        self._log("=" * 36)
+
     def _on_generate(self):
         excel = self.var_excel.get().strip()
         if not excel or not os.path.exists(excel):
@@ -972,7 +1031,17 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(
                 f"[OK] {total_pdf} 份 PDF 轉換完成"))
 
-        # ── 不再合併個人的 PDF（明細與領據各自獨立輸出）──
+        # ── 合併每人的「明細 + 領據」PDF（不含總表）──
+        for health_merge_info, executor_merge_info, doctor_merge_info in merge_bundles:
+            if health_merge_info:
+                merge_health_mgmt_pdfs(*health_merge_info)
+            if executor_merge_info:
+                merge_executor_pdfs(*executor_merge_info)
+            if doctor_merge_info:
+                merge_doctor_receipt_pdfs(doctor_merge_info)
+
+        # ── 列出個資不完整的人員（領據缺欄位的）──
+        self._log_incomplete_recipients(data, receipt_lookup)
 
         # 記住本次輸出根（Email 掃描用 month_dir_root，glob 會吸收子分區）
         month_dir = month_dir_root
