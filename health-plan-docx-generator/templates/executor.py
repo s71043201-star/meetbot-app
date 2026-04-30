@@ -725,10 +725,9 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
     """
     from dataclasses import replace
 
-    total_dir   = os.path.join(month_dir, "處方處置費核銷總表")
     detail_dir  = os.path.join(month_dir, "處方處置費民眾明細")
     receipt_dir = os.path.join(month_dir, "處方處置費領據")
-    for d in [total_dir, detail_dir, receipt_dir]:
+    for d in [detail_dir, receipt_dir]:
         os.makedirs(d, exist_ok=True)
 
     # 蒐集每人的 3 份 docx 路徑，供稍後批次轉 PDF + 合併
