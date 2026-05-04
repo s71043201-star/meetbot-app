@@ -213,8 +213,15 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
                 for k in middle[1:]:
                     all_texts[k].text = ""
             else:
-                # i 與 j 相鄰：附加到 i 後
-                all_texts[i].text = txt + f" {amount_str} "
+                # i 與 j 相鄰：把「新臺幣」後面的空白佔位符替換成金額
+                # 模板可能在 i 節點末尾留了多個空白做 placeholder，附加會讓
+                # 「新臺幣」與金額之間出現過大空隙。改成 regex 替換尾部空白。
+                new_txt = re.sub(
+                    r'(新臺幣)\s*$', f"\\1 {amount_str} ", txt)
+                if new_txt == txt:
+                    # 沒有尾端空白可替換時，才退回附加
+                    new_txt = txt + f" {amount_str} "
+                all_texts[i].text = new_txt
                 all_texts[i].set(
                     "{http://www.w3.org/XML/1998/namespace}space", "preserve")
         return
@@ -635,10 +642,12 @@ def _fix_personal_info_indent(doc):
             if ind.get(h_q) is not None:
                 del ind.attrib[h_q]
 
-    # ---- (2) 新版：所有段落（含 nested cell）— firstLine 升級成 left ----
+    # ---- (2) 新版：所有段落（含 nested cell）— 設懸掛縮排 ----
     # 模板原本只設 w:firstLine（首行縮排），地址過長換行會跑到頁面左緣。
-    # 把 firstLine 改成 left（所有行同位置），讓換行保持在右側。
-    # 上面 (1) 設過的 body 段落已有 w:left，會被 `not left` 排除掉。
+    # 改成懸掛縮排：第一行對齊 firstLine 位置（圖框右側），換行對齊「冒號後第一字」。
+    #   w:left   = base + label_width（換行位置）
+    #   w:hanging= label_width（首行往左退 label_width，回到 base）
+    CELL_CHAR_WIDTH = 320  # 中文字寬：16pt 標楷體 = 320 twips（個資段落實際字級）
     for p in body.iter(qn("w:p")):
         txt = "".join(t.text or "" for t in p.iter(qn("w:t")))
         if not any(kw in txt for kw in INFO_KWS):
@@ -651,12 +660,34 @@ def _fix_personal_info_indent(doc):
             continue
         first_line = ind.get(qn("w:firstLine"))
         first_line_chars = ind.get(qn("w:firstLineChars"))
-        left = ind.get(qn("w:left"))
-        if first_line and not left:
-            # firstLine → left；所有換行也維持縮排。
-            # 不保留 leftChars：chars 單位會依「平均字寬」算，含中英數混排時
-            # 會比 twips 值小，造成首字被「具領人用印」圖框右緣蓋住。
-            ind.set(qn("w:left"), first_line)
-            del ind.attrib[qn("w:firstLine")]
-            if first_line_chars is not None:
-                del ind.attrib[qn("w:firstLineChars")]
+        left_attr = ind.get(qn("w:left"))
+        if not (first_line and not left_attr):
+            continue
+        # 算 label 寬度（冒號前的字數，含冒號）— 不算 drawing 內的文字
+        # （例如「具領人用印」的 alt-content 文字被 anchor 包住，會誤計）
+        body_txt_parts = []
+        for tt in p.iter(qn("w:t")):
+            if _in_drawing(tt, p):
+                continue
+            body_txt_parts.append(tt.text or "")
+        body_only_txt = "".join(body_txt_parts)
+        label_chars = 0
+        for sep in ("：", ":"):
+            idx = body_only_txt.find(sep)
+            if idx >= 0:
+                label_chars = idx + 1
+                break
+        label_width = label_chars * CELL_CHAR_WIDTH
+        base_indent = int(first_line)
+
+        # 不保留 leftChars / firstLineChars：chars 單位會依「平均字寬」算，
+        # 含中英數混排時會比 twips 值小，造成首字被「具領人用印」圖框蓋住。
+        del ind.attrib[qn("w:firstLine")]
+        if first_line_chars is not None:
+            del ind.attrib[qn("w:firstLineChars")]
+
+        if label_width > 0:
+            ind.set(qn("w:left"), str(base_indent + label_width))
+            ind.set(qn("w:hanging"), str(label_width))
+        else:
+            ind.set(qn("w:left"), str(base_indent))
