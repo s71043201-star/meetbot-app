@@ -178,6 +178,8 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
 
     金額塞進「中間」(i+1) 那個 placeholder 節點以保留其 run 格式（如底線）。
     新臺幣節點 / 元整節點 不動，只清空 i+2..j-1 中間其他空白節點。
+    填值後移除整段「新臺幣 … 元整。」runs 的底線（模板原本「元整」run
+    上有 w:u="single" 形成底線，目前不需要）。
     """
     amount_str = f"{amount:,}"
 
@@ -193,6 +195,18 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
             j += 1
         if j >= len(all_texts):
             continue
+
+        # 移除整段「新臺幣 ... 元整。」相關 runs 的底線
+        for k in range(i, j + 1):
+            r = all_texts[k].getparent()  # w:r
+            if r is None:
+                continue
+            rPr = r.find(qn("w:rPr"))
+            if rPr is None:
+                continue
+            u = rPr.find(qn("w:u"))
+            if u is not None:
+                rPr.remove(u)
 
         if i == j:
             # 同一節點：直接 inline 替換
