@@ -178,8 +178,8 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
 
     金額塞進「中間」(i+1) 那個 placeholder 節點以保留其 run 格式（如底線）。
     新臺幣節點 / 元整節點 不動，只清空 i+2..j-1 中間其他空白節點。
-    填值後移除整段「新臺幣 … 元整。」runs 的底線（模板原本「元整」run
-    上有 w:u="single" 形成底線，目前不需要）。
+    模板「元整」run 帶 w:u="single" 底線；當 i 與 j 相鄰時，需另行插入
+    一個帶底線的 run 給金額，讓「金額 + 元整」連成一條底線。
     """
     amount_str = f"{amount:,}"
 
@@ -195,18 +195,6 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
             j += 1
         if j >= len(all_texts):
             continue
-
-        # 移除整段「新臺幣 ... 元整。」相關 runs 的底線
-        for k in range(i, j + 1):
-            r = all_texts[k].getparent()  # w:r
-            if r is None:
-                continue
-            rPr = r.find(qn("w:rPr"))
-            if rPr is None:
-                continue
-            u = rPr.find(qn("w:u"))
-            if u is not None:
-                rPr.remove(u)
 
         if i == j:
             # 同一節點：直接 inline 替換
@@ -227,17 +215,28 @@ def _replace_amount_in_paragraphs(all_texts, amount: int):
                 for k in middle[1:]:
                     all_texts[k].text = ""
             else:
-                # i 與 j 相鄰：把「新臺幣」後面的空白佔位符替換成金額
-                # 模板可能在 i 節點末尾留了多個空白做 placeholder，附加會讓
-                # 「新臺幣」與金額之間出現過大空隙。改成 regex 替換尾部空白。
-                new_txt = re.sub(
-                    r'(新臺幣)\s*$', f"\\1 {amount_str} ", txt)
-                if new_txt == txt:
-                    # 沒有尾端空白可替換時，才退回附加
-                    new_txt = txt + f" {amount_str} "
-                all_texts[i].text = new_txt
+                # i 與 j 相鄰：把「新臺幣」後面的空白佔位符替換成金額。
+                # 模板「元整」run 帶底線，要讓金額也帶同樣底線才能連成一條，
+                # 因此在 i 與 j 之間「插入新 run」承載金額（rPr 沿用 j run）。
+                #
+                # 1. 先把 i 節點末尾多餘空白清掉，「新臺幣」後留 1 格
+                all_texts[i].text = re.sub(r'(新臺幣)\s*$', r"\1 ", txt)
                 all_texts[i].set(
                     "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                # 2. 在 j 對應的 run 之前插入一個新 run（包含金額 + 帶底線 rPr）
+                import copy
+                from lxml import etree
+                j_run = all_texts[j].getparent()  # w:r
+                if j_run is not None:
+                    j_rPr = j_run.find(qn("w:rPr"))
+                    new_r = etree.Element(qn("w:r"))
+                    if j_rPr is not None:
+                        new_r.append(copy.deepcopy(j_rPr))
+                    new_t = etree.SubElement(new_r, qn("w:t"))
+                    new_t.set(
+                        "{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                    new_t.text = f"{amount_str} "
+                    j_run.addprevious(new_r)
         return
 
 
