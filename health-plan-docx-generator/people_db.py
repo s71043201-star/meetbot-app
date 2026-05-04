@@ -151,7 +151,18 @@ def load_people_db(path: str) -> dict[str, ReceiptInfo]:
         if name_idx >= len(row):
             continue
         name = str(row[name_idx]).strip() if row[name_idx] else ""
-        if not name or name == "None":
+        if name == "None":
+            name = ""
+
+        # 取所屬診所（用來支援「姓名空白但有診所」的列）
+        clinic_val = ""
+        if "所屬診所" in headers:
+            cidx = headers["所屬診所"]
+            if cidx < len(row) and row[cidx]:
+                clinic_val = str(row[cidx]).strip()
+
+        # 完全空白（連所屬診所都沒）才跳過
+        if not name and not clinic_val:
             continue
 
         info = ReceiptInfo(recipient_name=name)
@@ -162,6 +173,11 @@ def load_people_db(path: str) -> dict[str, ReceiptInfo]:
             if idx < len(row) and row[idx] is not None:
                 setattr(info, field, str(row[idx]).strip())
 
-        lookup[name] = info
+        if name:
+            lookup[name] = info
+        else:
+            # 「姓名空白但有所屬診所」：用特殊 key 存放，
+            # 健管費領據查找時會以 clinic_name 匹配，姓名留空白。
+            lookup[f"__clinic_only:{clinic_val}"] = info
 
     return lookup

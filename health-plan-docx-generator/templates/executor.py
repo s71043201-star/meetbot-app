@@ -279,22 +279,21 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
     def _find_clinic_person(clinic_name: str):
         """在 receipt_lookup 裡找 所屬診所(clinic_name) 匹配的人
-        優先順序：醫師 > 其他角色
+        優先順序：醫師 > 其他角色 > 姓名空白（佔位列）
         比對方式：精確 → 子字串雙向 → 最長共同前綴 ≥3
-        回傳 (person_name, ReceiptInfo) 或 (None, None)
+        回傳 (recipient_name, ReceiptInfo) 或 ("", None)
+        recipient_name 可能是空字串（個資 Excel 該列姓名留空）
         """
         if not receipt_lookup or not clinic_name:
-            return None, None
+            return "", None
 
         def _matches(cn):
-            """cn 是否匹配 clinic_name"""
             if not cn:
                 return False
             if cn == clinic_name or clinic_name == cn:
                 return True
             if cn in clinic_name or clinic_name in cn:
                 return True
-            # 最長共同前綴 ≥3
             n = 0
             for a, b in zip(clinic_name, cn):
                 if a == b:
@@ -303,19 +302,25 @@ def generate_health_mgmt_individual_docs(data: AllData,
                     break
             return n >= 3
 
-        # 收集所有匹配的人
-        matches = []
+        matches = []  # (info,)
         for pname, info in receipt_lookup.items():
             if _matches(info.clinic_name):
-                matches.append((pname, info))
+                matches.append(info)
 
         if not matches:
-            return None, None
+            return "", None
 
-        # 優先選 醫師，再選其他
-        ROLE_PRIORITY = {"醫師": 0}
-        matches.sort(key=lambda x: ROLE_PRIORITY.get(x[1].role, 99))
-        return matches[0]
+        # 優先：醫師 > 其他角色 > 姓名空白
+        def _prio(info):
+            if info.role == "醫師":
+                return 0
+            if info.recipient_name:
+                return 1
+            return 2  # 姓名空白佔位列（最後選）
+
+        matches.sort(key=_prio)
+        best = matches[0]
+        return best.recipient_name or "", best
 
     docx_info = []  # (name, total_docx, detail_docx, receipt_docx)
 
@@ -325,25 +330,16 @@ def generate_health_mgmt_individual_docs(data: AllData,
             continue
 
         # 決定領據具領人：
-        # (1) 用 receipt_lookup 的「所屬診所」匹配（醫師優先）
-        # (2) 退回用 hm.clinic_person
-        # (3) 最後才用 medical_institution
-        matched_name, matched_info = _find_clinic_person(hm.medical_institution)
-        if matched_name:
-            person = matched_name
-            prev = matched_info
-        elif hm.clinic_person and receipt_lookup and hm.clinic_person in receipt_lookup:
-            person = hm.clinic_person
-            prev = receipt_lookup[person]
-        else:
-            person = hm.clinic_person or hm.medical_institution
-            prev = receipt_lookup.get(person) if receipt_lookup else None
-
-        if not person:
-            continue
+        # 個資 Excel 有對應這家診所的列 → 用該列姓名（可能是空白）
+        # 個資 Excel 完全沒對應 → 姓名留空白（不再 fallback 用醫師名）
+        recipient_name, prev = _find_clinic_person(hm.medical_institution)
+        # 檔名用具領人；若空就用診所名（避免檔名為「_領據.docx」）
+        person = recipient_name or hm.medical_institution
 
         # 領據個資帶入
-        base_receipt = ReceiptInfo(recipient_name=person, amount=amount)
+        # 領據具領人：用個資 Excel 找到的姓名（找不到則空白）
+        # ─ person 變數只用於檔名 / 訊息，不會寫進領據
+        base_receipt = ReceiptInfo(recipient_name=recipient_name, amount=amount)
         if prev is not None:
             base_receipt = replace(
                 base_receipt,
