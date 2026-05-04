@@ -207,7 +207,8 @@ def read_prescription_report(issuance_path: str,
         unique_patients = set()
         admin_person = ""
         for row in rows:
-            unique_patients.add(row[COL_NAME])
+            # 用 (姓名, 身分證) 識別不同民眾；只用姓名會把同名不同人併成一個
+            unique_patients.add((row[COL_NAME], row[COL_ID]))
             if not admin_person:
                 # 診所人員：暫用開立醫師，之後由個資檔反查表覆蓋正確人名
                 admin_person = str(row[COL_DOCTOR] or "")
