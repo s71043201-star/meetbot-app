@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -65,9 +65,10 @@ class ReceiptInfo:
 class ExecutorData:
     """執行人員端資料"""
     executor_name: str
-    prescription_type: str  # 處方類型（如「運動處方」）
-    service_count: int = 0  # 服務人次
-    patients: List[PatientRecord] = field(default_factory=list)
+    prescription_type: str  # 處方類型（多類型時為主要類型,僅作備註用）
+    service_count: int = 0  # 全類型合計服務人次
+    type_counts: Dict[str, int] = field(default_factory=dict)  # {運動處方: N, ...}
+    patients: List[PatientRecord] = field(default_factory=list)  # 已按類型排序
     receipt: Optional[ReceiptInfo] = None
 
 

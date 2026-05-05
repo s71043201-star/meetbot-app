@@ -207,11 +207,10 @@ def read_prescription_report(issuance_path: str,
         unique_patients = set()
         admin_person = ""
         for row in rows:
-            # 用 (姓名, 身分證) 識別不同民眾；只用姓名會把同名不同人併成一個
+            # 用 (姓名, 身分證) 識別不同民眾;只用姓名會把同名不同人併成一個
             unique_patients.add((row[COL_NAME], row[COL_ID]))
-            if not admin_person:
-                # 診所人員：暫用開立醫師，之後由個資檔反查表覆蓋正確人名
-                admin_person = str(row[COL_DOCTOR] or "")
+            # 診所人員(行政)留空,等 app.py 從個資檔反查;
+            # 不再用「開立醫師」當佔位 — 個資檔無對應時會誤把醫師名印到明細表。
 
         total_count = len(rows)
         people_count = len(unique_patients)
@@ -254,29 +253,42 @@ def read_prescription_report(issuance_path: str,
         ))
 
     # === 4. 執行人員端 ===
+    # 同一位執行人員若兼任多種處方類型(例:運動處方 + 情緒調適處方),
+    # 仍合成一筆 ExecutorData:領據用 4×6 pivot 表一次列出各類份數與金額,
+    # 民眾明細表也合成一份,但依「運動 → 營養 → 情緒調適 → 社會」順序排列。
     executors = []
+    PTYPE_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
+    PTYPE_INDEX = {p: i for i, p in enumerate(PTYPE_ORDER)}
+
     for (exec_unit, exec_person), type_records in sorted(executor_records.items()):
-        total_service = sum(len(recs) for recs in type_records.values())
-        # 取得這位執行人員的民眾明細
+        type_counts = {pt: len(recs) for pt, recs in type_records.items() if recs}
+        total_service = sum(type_counts.values())
+
+        # 民眾明細:依固定類型順序,(姓名+身分證+類型) 去重
         patients = []
         seen = set()
-        for ptype, recs in type_records.items():
-            for row in recs:
+        for ptype in sorted(type_records.keys(),
+                            key=lambda t: PTYPE_INDEX.get(t, 99)):
+            for row in type_records[ptype]:
                 key = (row[COL_NAME], row[COL_ID], ptype)
-                if key not in seen:
-                    seen.add(key)
-                    patients.append(PatientRecord(
-                        name=str(row[COL_NAME] or ""),
-                        id_number=str(row[COL_ID] or ""),
-                        birth_date=str(row[COL_BIRTH] or ""),
-                        prescriber=str(row[COL_DOCTOR] or ""),
-                        exec_date=str(row[COL_EXEC_DATE] or ""),
-                        prescription_type=ptype,
-                    ))
+                if key in seen:
+                    continue
+                seen.add(key)
+                patients.append(PatientRecord(
+                    name=str(row[COL_NAME] or ""),
+                    id_number=str(row[COL_ID] or ""),
+                    birth_date=str(row[COL_BIRTH] or ""),
+                    prescriber=str(row[COL_DOCTOR] or ""),
+                    exec_date=str(row[COL_EXEC_DATE] or ""),
+                    prescription_type=ptype,
+                ))
 
-        # 判斷主要處方類型
-        main_type = max(type_records.keys(),
-                        key=lambda t: len(type_records[t]))
+        # 主要類型(僅供標題等備註,實際金額/份數以 type_counts 為準)
+        main_type = (
+            max(type_counts, key=lambda t: (type_counts[t],
+                                             -PTYPE_INDEX.get(t, 99)))
+            if type_counts else ""
+        )
 
         exec_receipt = ReceiptInfo(
             recipient_name=exec_person,
@@ -287,6 +299,7 @@ def read_prescription_report(issuance_path: str,
             executor_name=exec_person,
             prescription_type=main_type,
             service_count=total_service,
+            type_counts=type_counts,
             patients=patients,
             receipt=exec_receipt,
         ))

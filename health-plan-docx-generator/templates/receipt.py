@@ -37,8 +37,9 @@ TEMPLATE_WITH_TAX = os.path.join(TEMPLATE_DIR, "領據_扣稅_template.docx")
 TEMPLATE_TREATMENT_TAX = os.path.join(TEMPLATE_DIR, "領據_處置費_扣稅_template.docx")
 TEMPLATE_HEALTH_MGMT = os.path.join(TEMPLATE_DIR, "領據_健管費_template.docx")
 
-# pivot 表的處方類型欄順序（必須符合模板 R1 的欄位順序）
-PIVOT_COL_ORDER = ["運動處方", "營養處方", "社會處方", "情緒調適處方"]
+# pivot 表的處方類型欄順序(必須符合模板 R1 的欄位順序)
+# 跟民眾明細表一致:運動 → 營養 → 情緒調適 → 社會
+PIVOT_COL_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
 
 
 def needs_tax(amount: int) -> bool:
@@ -145,11 +146,16 @@ def _replace_year_month(all_texts, year: int, month: int):
 
 
 def _replace_fee_sentence(all_texts, fee_type: str):
-    """將模板裡的「運動、營養、社會、情緒調適處方處方費」替換為 fee_type"""
-    DEFAULT = "運動、營養、社會、情緒調適處方處方費"
+    """將模板裡的「運動、營養、情緒調適、社會處方處方費」替換為 fee_type。
+
+    Word 常把同一段中文切到多個 <w:t> run(因為部份字套了不同字型/底線),
+    所以這裡先把整份 run 串連起來找位置,再跨 run 重寫。
+    """
+    DEFAULT = "運動、營養、情緒調適、社會處方處方費"
     if fee_type == DEFAULT:
         return
 
+    # 1) DEFAULT 完整在同一個 run
     for t in all_texts:
         txt = t.text or ""
         if DEFAULT in txt:
@@ -157,20 +163,46 @@ def _replace_fee_sentence(all_texts, fee_type: str):
             t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
             return
 
-    PIECES = ("運動、營養、社會、情緒調適", "處方處方", "費")
-    for i in range(len(all_texts) - 2):
-        a = all_texts[i].text or ""
-        b = all_texts[i + 1].text or ""
-        c = all_texts[i + 2].text or ""
-        if a.endswith(PIECES[0]) and b == PIECES[1] and c.startswith(PIECES[2]):
-            prefix = a[: -len(PIECES[0])]
-            tail = c[len(PIECES[2]):]
-            all_texts[i].text = prefix + fee_type + tail
-            all_texts[i].set(
-                "{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            all_texts[i + 1].text = ""
-            all_texts[i + 2].text = ""
-            return
+    # 2) DEFAULT 跨多個 run:把所有 run 串接起來找位置,再依序覆寫
+    concat = ""
+    spans: list[tuple[int, int, int]] = []  # (start, run_idx, length)
+    for idx, t in enumerate(all_texts):
+        txt = t.text or ""
+        spans.append((len(concat), idx, len(txt)))
+        concat += txt
+
+    pos = concat.find(DEFAULT)
+    if pos < 0:
+        return
+    end = pos + len(DEFAULT)
+
+    first = next(
+        ((s, i, l) for s, i, l in spans if s <= pos < s + l),
+        None,
+    )
+    last = next(
+        ((s, i, l) for s, i, l in spans if s < end <= s + l),
+        None,
+    )
+    if first is None or last is None:
+        return
+
+    f_start, f_idx, _ = first
+    l_start, l_idx, _ = last
+    prefix = (all_texts[f_idx].text or "")[: pos - f_start]
+    suffix = (all_texts[l_idx].text or "")[end - l_start:]
+
+    preserve = "{http://www.w3.org/XML/1998/namespace}space"
+    if f_idx == l_idx:
+        all_texts[f_idx].text = prefix + fee_type + suffix
+        all_texts[f_idx].set(preserve, "preserve")
+    else:
+        all_texts[f_idx].text = prefix + fee_type
+        all_texts[f_idx].set(preserve, "preserve")
+        for i in range(f_idx + 1, l_idx):
+            all_texts[i].text = ""
+        all_texts[l_idx].text = suffix
+        all_texts[l_idx].set(preserve, "preserve")
 
 
 def _replace_amount_in_paragraphs(all_texts, amount: int):

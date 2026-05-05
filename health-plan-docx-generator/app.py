@@ -38,12 +38,8 @@ from templates.executor import (
 )
 from receipt_reader import load_receipts_from_dir
 from people_db import load_people_db, create_template, export_to_db
-from email_sender import (
-    build_email_jobs,
-    send_via_gmail_smtp,
-    EmailJob,
-    SmtpAuthError,
-)
+from email_sender import build_email_jobs
+from email_preview import EmailPreviewWindow
 import regions as regions_mod
 
 
@@ -63,30 +59,57 @@ DEFAULT_TEMPLATES = {
     "health_mgmt": os.path.join(TEMPLATE_DIR, "健康管理費_template.docx"),
 }
 
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
+# 全域字型:Windows 下中文友善 + 較清晰的字級
+try:
+    ctk.ThemeManager.theme["CTkFont"]["family"] = "Microsoft JhengHei UI"
+    ctk.ThemeManager.theme["CTkFont"]["size"] = 13
+    ctk.ThemeManager.theme["CTkFont"]["weight"] = "normal"
+except Exception:
+    pass
+
+UI_FONT = "Microsoft JhengHei UI"
+MONO_FONT = "Cascadia Mono"  # Windows 11 內建,比 Consolas 清晰
 
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("健康台灣深耕計畫 — 核銷文件產生器")
-        self.geometry("780x720")
-        self.minsize(700, 600)
+        self.title("⚡ 健康台灣深耕計畫 — 核銷文件產生器")
+        self.geometry("820x820")
+        self.minsize(740, 640)
+        self.configure(fg_color="#0f1419")  # 深色背景
+
+        # 進階篩選:勾選要產生的診所(None = 全部,維持預設行為)
+        self._selected_clinics: set[str] | None = None
 
         self._build_ui()
 
     def _build_ui(self):
-        # Scrollable main frame
-        main = ctk.CTkScrollableFrame(self)
-        main.pack(fill="both", expand=True, padx=20, pady=20)
+        # Scrollable main frame(深色科技風)
+        main = ctk.CTkScrollableFrame(
+            self, fg_color="#0f1419",
+            scrollbar_button_color="#1f2933",
+            scrollbar_button_hover_color="#2c3e50")
+        main.pack(fill="both", expand=True, padx=18, pady=18)
 
-        # ── Title ──
-        ctk.CTkLabel(main, text="核銷文件產生器",
-                     font=ctk.CTkFont(size=24, weight="bold")).pack(pady=(0, 5))
-        ctk.CTkLabel(main, text="台北市醫師公會 健康台灣深耕計畫",
-                     font=ctk.CTkFont(size=13),
-                     text_color="gray50").pack(pady=(0, 15))
+        # ── 頂部標題 Banner ──
+        banner = ctk.CTkFrame(main, fg_color="#1a2332", corner_radius=12,
+                              border_width=1, border_color="#2c3e50")
+        banner.pack(fill="x", pady=(0, 15))
+        title_inner = ctk.CTkFrame(banner, fg_color="transparent")
+        title_inner.pack(padx=20, pady=14)
+        ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
+                     font=ctk.CTkFont(size=26, weight="bold"),
+                     text_color="#3498db").pack(side="left")
+        ctk.CTkLabel(title_inner, text="  v33",
+                     font=ctk.CTkFont(family=MONO_FONT, size=13),
+                     text_color="#52b3e2").pack(side="left", padx=(10, 0))
+        ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
+                     font=ctk.CTkFont(size=12),
+                     text_color="#a0aec0").pack(pady=(0, 12))
 
         # ── 資料來源 ──
         self._section_label(main, "1. 匯入處方紀錄（分開立/執行兩份，以便跨月核銷）")
@@ -172,40 +195,123 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             row2,
             text="(皆需為 4 的倍數;0 代表不過濾、顯示 X/XX)",
-            text_color="gray50", font=ctk.CTkFont(size=12)
+            text_color="#a0aec0", font=ctk.CTkFont(size=12)
         ).pack(side="left", padx=12)
 
         # ── 產出選項 ──
-        self._section_label(main, "3. 選擇要產生的文件")
+        self._section_label(main, "3. 選擇要產生的文件 (勾選 = 該資料夾才會產出)")
         frame_opts = ctk.CTkFrame(main, corner_radius=10)
         frame_opts.pack(fill="x", pady=(0, 10))
 
         opts_inner = ctk.CTkFrame(frame_opts, fg_color="transparent")
-        opts_inner.pack(padx=15, pady=10)
+        opts_inner.pack(padx=15, pady=10, fill="x")
 
-        self.var_gen_presc = ctk.BooleanVar(value=True)
-        self.var_gen_exec = ctk.BooleanVar(value=True)
-        self.var_gen_health = ctk.BooleanVar(value=True)
-        self.var_gen_treatment = ctk.BooleanVar(value=True)
-        self.var_gen_patient = ctk.BooleanVar(value=True)
-        self.var_gen_receipt = ctk.BooleanVar(value=True)
+        # ── 子變數(後端用) ──
+        # 醫師類
+        self.var_gen_doctor_presc_detail = ctk.BooleanVar(value=True)
+        self.var_gen_doctor_exec_detail = ctk.BooleanVar(value=True)
         self.var_gen_doctor_receipt = ctk.BooleanVar(value=True)
+        self.var_gen_doctor_summary = ctk.BooleanVar(value=True)
+        # 診所類(健康管理費)
+        self.var_gen_health_detail = ctk.BooleanVar(value=True)
+        self.var_gen_health_receipt = ctk.BooleanVar(value=True)
+        self.var_gen_health_summary = ctk.BooleanVar(value=True)
+        # 課程老師類(處方處置費)
+        self.var_gen_treatment_detail = ctk.BooleanVar(value=True)
+        self.var_gen_treatment_receipt = ctk.BooleanVar(value=True)
+        self.var_gen_treatment_summary = ctk.BooleanVar(value=True)
 
-        checks = [
-            ("處方費核銷總表", self.var_gen_presc),
-            ("處方執行費核銷總表", self.var_gen_exec),
-            ("健康管理費總表", self.var_gen_health),
-            ("處方處置費核銷總表", self.var_gen_treatment),
-            ("執行人員民眾明細表", self.var_gen_patient),
-            ("執行人員領據", self.var_gen_receipt),
-            ("醫師處方費/執行費領據", self.var_gen_doctor_receipt),
+        # ── 三大群組設定(主 toggle + 詳情視窗) ──
+        # items: (BooleanVar, 資料夾名稱, 簡短描述)
+        self._gen_groups = [
+            {
+                "key": "doctor",
+                "title": "【醫師】處方費 / 處方執行費",
+                "items": [
+                    (self.var_gen_doctor_presc_detail,
+                     "處方處方費民眾明細/",
+                     "每位醫師的處方費民眾明細表"),
+                    (self.var_gen_doctor_exec_detail,
+                     "處方執行費民眾明細/",
+                     "每位醫師的處方執行費民眾明細表"),
+                    (self.var_gen_doctor_receipt,
+                     "處方處方費與處方執行費領據/",
+                     "每位醫師合併的領據(處方費 + 執行費)"),
+                    (self.var_gen_doctor_summary,
+                     "其他內容/處方費、處方執行費總表明細表合併檔與Excel/",
+                     "醫師彙整總表(全部合併) + Excel 統計檔"),
+                ],
+            },
+            {
+                "key": "health",
+                "title": "【診所】健康管理費",
+                "items": [
+                    (self.var_gen_health_detail,
+                     "健康管理費民眾明細/",
+                     "每間診所的民眾明細表"),
+                    (self.var_gen_health_receipt,
+                     "健康管理費領據/",
+                     "每間診所的領據(對應診所行政人員)"),
+                    (self.var_gen_health_summary,
+                     "其他內容/健康管理費合併總表與個人excel/",
+                     "健管費彙整總表 + 各診所個別 Excel"),
+                ],
+            },
+            {
+                "key": "treatment",
+                "title": "【課程老師】處方處置費",
+                "items": [
+                    (self.var_gen_treatment_detail,
+                     "處方處置費民眾明細/",
+                     "每位老師的民眾明細表"),
+                    (self.var_gen_treatment_receipt,
+                     "處方處置費領據/",
+                     "每位老師的領據"),
+                    (self.var_gen_treatment_summary,
+                     "其他內容/處方處置費合併總表word/",
+                     "處方處置費核銷總表 + 執行人員民眾明細表(合併版)"),
+                ],
+            },
         ]
 
-        for i, (label, var) in enumerate(checks):
-            r, c = divmod(i, 3)
-            ctk.CTkCheckBox(opts_inner, text=label, variable=var,
-                            font=ctk.CTkFont(size=13)).grid(
-                                row=r, column=c, padx=10, pady=4, sticky="w")
+        self._gen_group_main_vars: dict = {}
+        self._gen_group_status_lbls: dict = {}
+        self._suppress_group_sync = False
+
+        for g in self._gen_groups:
+            block = ctk.CTkFrame(opts_inner, corner_radius=8,
+                                 fg_color=("gray92", "gray22"))
+            block.pack(fill="x", pady=4)
+
+            row = ctk.CTkFrame(block, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=8)
+
+            main_var = ctk.BooleanVar(value=True)
+            self._gen_group_main_vars[g["key"]] = main_var
+
+            chk = ctk.CTkCheckBox(
+                row, text=g["title"], variable=main_var,
+                font=ctk.CTkFont(size=13, weight="bold"),
+                command=lambda gk=g["key"]: self._on_group_main_clicked(gk))
+            chk.pack(side="left")
+
+            status_lbl = ctk.CTkLabel(row, text="", text_color="#a0aec0",
+                                       font=ctk.CTkFont(size=11))
+            status_lbl.pack(side="left", padx=(15, 0))
+            self._gen_group_status_lbls[g["key"]] = status_lbl
+
+            ctk.CTkButton(row, text="詳情 ▼", width=80, height=28,
+                          fg_color="#2980b9", hover_color="#1f618d",
+                          font=ctk.CTkFont(size=11),
+                          command=lambda gk=g["key"]:
+                              self._open_group_detail(gk)
+                          ).pack(side="right")
+
+            for sub_var, _, _ in g["items"]:
+                sub_var.trace_add(
+                    "write",
+                    lambda *a, gk=g["key"]: self._update_group_status(gk))
+            self._update_group_status(g["key"])
 
         # ── 人員個資檔 ──
         self._section_label(main, "4. 人員個資檔（選填，新增/修改人員資料）")
@@ -233,7 +339,7 @@ class App(ctk.CTk):
                       command=self._import_from_receipts).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(frame_db2,
                      text="  每人一行填寫：姓名、身分證、地址、電話、銀行資訊",
-                     text_color="gray50", font=ctk.CTkFont(size=12)).pack(
+                     text_color="#a0aec0", font=ctk.CTkFont(size=12)).pack(
                          side="left", padx=8)
 
         # ── 診所分區名單 ──
@@ -259,8 +365,23 @@ class App(ctk.CTk):
                       command=self._open_regions).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(frame_rg2,
                      text="  每分頁 A 欄列出該區診所名稱;新增診所直接新增一列即可",
-                     text_color="gray50", font=ctk.CTkFont(size=12)).pack(
+                     text_color="#a0aec0", font=ctk.CTkFont(size=12)).pack(
                          side="left", padx=8)
+
+        # 進階篩選:選擇要產生的診所
+        frame_rg3 = ctk.CTkFrame(main, fg_color="transparent")
+        frame_rg3.pack(fill="x", pady=(0, 10))
+        ctk.CTkButton(frame_rg3, text="📋 選擇要產生的診所", width=170, height=32,
+                      fg_color="#2980b9", hover_color="#1f618d",
+                      command=self._open_clinic_selector).pack(side="left")
+        self.lbl_clinic_filter = ctk.CTkLabel(
+            frame_rg3, text="目前: 全部診所 (預設)",
+            text_color="#a0aec0", font=ctk.CTkFont(size=12))
+        self.lbl_clinic_filter.pack(side="left", padx=12)
+        ctk.CTkButton(frame_rg3, text="重設", width=60, height=28,
+                      fg_color="gray60", hover_color="gray50",
+                      font=ctk.CTkFont(size=11),
+                      command=self._reset_clinic_filter).pack(side="right")
 
         # ── 輸出目錄 ──
         self._section_label(main, "6. 輸出位置")
@@ -288,7 +409,7 @@ class App(ctk.CTk):
                                      padx=(8, 8))
         ctk.CTkLabel(frame_mail,
                      text="App Password 於寄送時輸入",
-                     text_color="gray50",
+                     text_color="#a0aec0",
                      font=ctk.CTkFont(size=11)).pack(side="right")
 
         # ── 產生按鈕 ──
@@ -319,13 +440,20 @@ class App(ctk.CTk):
 
         # ── 日誌 ──
         self.log = ctk.CTkTextbox(main, height=150,
-                                  font=ctk.CTkFont(family="Consolas", size=11))
+                                  font=ctk.CTkFont(family=MONO_FONT, size=11))
         self.log.pack(fill="both", expand=True)
 
     def _section_label(self, parent, text):
-        ctk.CTkLabel(parent, text=text,
+        # 加上前綴裝飾線、強調色文字
+        wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        wrap.pack(fill="x", pady=(14, 4))
+        ctk.CTkLabel(wrap, text="┃", text_color="#3498db",
+                     font=ctk.CTkFont(size=18, weight="bold")
+                     ).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(wrap, text=text,
                      font=ctk.CTkFont(size=14, weight="bold"),
-                     anchor="w").pack(fill="x", pady=(10, 4))
+                     text_color="#dde6ed",
+                     anchor="w").pack(side="left", fill="x", expand=True)
 
     def _browse_excel(self):
         path = filedialog.askopenfilename(
@@ -455,6 +583,10 @@ class App(ctk.CTk):
             filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
         if path:
             self.var_regions_db.set(path)
+            # 換檔可能造成清單變動,重設診所篩選
+            self._selected_clinics = None
+            if hasattr(self, "lbl_clinic_filter"):
+                self._update_clinic_filter_label()
 
     def _create_regions_template(self):
         path = self.var_regions_db.get().strip()
@@ -475,6 +607,135 @@ class App(ctk.CTk):
                 "請先選擇或建立診所分區檔\n(點「建立空白範本」可自動建立)")
             return
         os.startfile(path)
+
+    # ── 進階:選擇診所 ──
+    def _open_clinic_selector(self):
+        regions_path = self.var_regions_db.get().strip()
+        regions_map = regions_mod.load_regions(regions_path)
+        if not regions_map or not any(regions_map.values()):
+            messagebox.showwarning(
+                "找不到診所清單",
+                "診所分區檔不存在或為空白,請先設定。")
+            return
+        # 嘗試從處方 Excel 取「未分區」的診所(歸「其他」群組)
+        extra_clinics: list[str] = []
+        excel_path = self.var_excel.get().strip()
+        if excel_path and os.path.exists(excel_path):
+            try:
+                raw = read_raw_records(excel_path)
+                clinics_in_excel = {
+                    str(r[7]).strip() for r in raw
+                    if len(r) > 7 and r[7] and str(r[7]).strip()
+                }
+                listed = set()
+                for cs in regions_map.values():
+                    listed.update(cs)
+                # 沒被分區檔列到 + 不能 fuzzy match 的,才視為「其他」
+                for c in sorted(clinics_in_excel):
+                    if regions_mod.find_region(c, regions_map) is None \
+                            and c not in listed:
+                        extra_clinics.append(c)
+            except Exception:
+                pass
+
+        ClinicSelectorWindow(self, regions_map, extra_clinics)
+
+    def _update_clinic_filter_label(self):
+        if not hasattr(self, "lbl_clinic_filter"):
+            return
+        sel = self._selected_clinics
+        if sel is None:
+            self.lbl_clinic_filter.configure(
+                text="目前: 全部診所 (預設)", text_color="#a0aec0")
+        elif not sel:
+            self.lbl_clinic_filter.configure(
+                text="目前: 未勾選任何診所 (不會產出)", text_color="#c0392b")
+        else:
+            n = len(sel)
+            preview = ", ".join(list(sel)[:3])
+            if n > 3:
+                preview += f" 等 {n} 間"
+            else:
+                preview = f"已選 {n} 間: {preview}"
+            self.lbl_clinic_filter.configure(
+                text=f"目前: {preview}", text_color="#2980b9")
+
+    def _reset_clinic_filter(self):
+        self._selected_clinics = None
+        self._update_clinic_filter_label()
+
+    # ── 產出選項群組:主 toggle / 狀態 / 詳情視窗 ──
+    def _get_group(self, group_key: str):
+        for g in self._gen_groups:
+            if g["key"] == group_key:
+                return g
+        raise KeyError(group_key)
+
+    def _on_group_main_clicked(self, group_key: str):
+        """user 點主 checkbox 時:同步全部子勾選為 main_var 的值。"""
+        main_var = self._gen_group_main_vars[group_key]
+        target = main_var.get()
+        g = self._get_group(group_key)
+        self._suppress_group_sync = True
+        try:
+            for sub_var, _, _ in g["items"]:
+                sub_var.set(target)
+        finally:
+            self._suppress_group_sync = False
+        self._update_group_status(group_key)
+
+    def _update_group_status(self, group_key: str):
+        """子變動時:更新狀態 label 並同步主 checkbox 顯示。"""
+        if self._suppress_group_sync:
+            return
+        g = self._get_group(group_key)
+        n = sum(1 for sub_var, _, _ in g["items"] if sub_var.get())
+        total = len(g["items"])
+        lbl = self._gen_group_status_lbls[group_key]
+        main_var = self._gen_group_main_vars[group_key]
+
+        # 同步主 checkbox 視覺狀態(主 var 沒被 trace,不會循環)
+        if n == total:
+            if not main_var.get():
+                main_var.set(True)
+            lbl.configure(text=f"{total}/{total} 項全部產出",
+                          text_color="#1e8449")
+        elif n == 0:
+            if main_var.get():
+                main_var.set(False)
+            lbl.configure(text="整組不產出", text_color="#c0392b")
+        else:
+            if main_var.get():
+                main_var.set(False)
+            lbl.configure(text=f"部分產出 ({n}/{total} 項)",
+                          text_color="#d68910")
+
+    def _open_group_detail(self, group_key: str):
+        g = self._get_group(group_key)
+        GroupDetailWindow(self, g)
+
+    @staticmethod
+    def _clinic_matches_selection(institution: str, selected: set[str]) -> bool:
+        """institution 是否對應到 selected 中任一診所(精確/子字串/前綴 ≥3)。"""
+        if not institution:
+            return False
+        if institution in selected:
+            return True
+        for s in selected:
+            if s and (s in institution or institution in s):
+                return True
+        for s in selected:
+            if not s:
+                continue
+            plen = 0
+            for a, b in zip(institution, s):
+                if a == b:
+                    plen += 1
+                else:
+                    break
+            if plen >= 3:
+                return True
+        return False
 
     def _region_thresholds(self) -> dict[str, int]:
         """回傳 {region: 最低份數}。驗證失敗時丟出 ValueError。"""
@@ -650,59 +911,93 @@ class App(ctk.CTk):
         HEALTH_COMBINED_DIR = "健康管理費合併總表與個人excel"
         TREATMENT_COMBINED_DIR = "處方處置費合併總表word"
 
-        # 產生 Excel 統計檔（每個 scope 都有自己的總表）
-        # 處方費 → 開立；執行費 → 執行；健管費 → 開立
-        presc_dir = agg_subdir(COMBINED_DIR_NAME)
-        try:
-            generate_prescription_fee_excel(raw_records_issuance, prefix, presc_dir)
-            generate_execution_fee_excel(raw_records_execution, prefix, presc_dir)
-        except Exception:
-            pass
-        hm_dir = agg_subdir(HEALTH_COMBINED_DIR)
-        try:
-            generate_health_mgmt_excel(raw_records_issuance, prefix, hm_dir)
-        except Exception:
-            pass
-        self.after(0, lambda s=scope_label: self._log(f"[{s}] Excel 統計檔"))
-
         all_pending_docx: list[str] = []
         health_merge_info = None
         executor_merge_info = None
         doctor_merge_info = None
 
-        if self.var_gen_presc.get() and data.doctors:
+        # ───────────── 醫師類:彙整總表(其他內容/處方費...合併檔與Excel/) ─────────────
+        if self.var_gen_doctor_summary.get() and data.doctors:
             d = agg_subdir(COMBINED_DIR_NAME)
-            path = os.path.join(
+            # Excel 統計檔
+            try:
+                generate_prescription_fee_excel(
+                    raw_records_issuance, prefix, d)
+                generate_execution_fee_excel(
+                    raw_records_execution, prefix, d)
+            except Exception:
+                pass
+            # 處方費總表 docx
+            path1 = os.path.join(
                 d, f"健康台灣深耕計畫_處方費-總表-{prefix}.docx")
-            tmpl = DEFAULT_TEMPLATES["prescription"]
-            if os.path.exists(tmpl):
-                generate_prescription_fee_from_template(tmpl, data, path)
+            tmpl1 = DEFAULT_TEMPLATES["prescription"]
+            if os.path.exists(tmpl1):
+                generate_prescription_fee_from_template(tmpl1, data, path1)
             else:
-                generate_prescription_fee_doc(data, path)
-            all_pending_docx.append(os.path.abspath(path))
-            self.after(0, lambda s=scope_label: self._log(f"[{s}] 處方費核銷總表"))
-            step_cb()
-
-        if self.var_gen_exec.get() and data.doctors:
-            d = agg_subdir(COMBINED_DIR_NAME)
-            path = os.path.join(
+                generate_prescription_fee_doc(data, path1)
+            all_pending_docx.append(os.path.abspath(path1))
+            # 處方執行費總表 docx
+            path2 = os.path.join(
                 d, f"健康台灣深耕計畫_處方執行費核銷總表-{prefix}.docx")
-            tmpl = DEFAULT_TEMPLATES["execution"]
-            if os.path.exists(tmpl):
-                generate_execution_fee_from_template(tmpl, data, path)
+            tmpl2 = DEFAULT_TEMPLATES["execution"]
+            if os.path.exists(tmpl2):
+                generate_execution_fee_from_template(tmpl2, data, path2)
             else:
-                generate_execution_fee_doc(data, path)
-            all_pending_docx.append(os.path.abspath(path))
-            self.after(0, lambda s=scope_label: self._log(f"[{s}] 處方執行費核銷總表"))
+                generate_execution_fee_doc(data, path2)
+            all_pending_docx.append(os.path.abspath(path2))
+            self.after(0, lambda s=scope_label: self._log(
+                f"[{s}] 處方費、處方執行費總表明細表合併檔與Excel"))
             step_cb()
 
-        if self.var_gen_health.get() and data.health_mgmts:
+        # ───────── 醫師類:每醫師個別 民眾明細 + 領據 ─────────
+        emit_dpd = self.var_gen_doctor_presc_detail.get()
+        emit_ded = self.var_gen_doctor_exec_detail.get()
+        emit_dr = self.var_gen_doctor_receipt.get()
+        if (emit_dpd or emit_ded or emit_dr) and data.doctors:
+            dr_info = generate_doctor_receipts(
+                data, month_dir,
+                receipt_lookup=receipt_lookup,
+                also_pdf=False,
+                emit_presc_detail=emit_dpd,
+                emit_exec_detail=emit_ded,
+                emit_receipt=emit_dr,
+            )
+            if dr_info:
+                doctor_merge_info = dr_info
+                seen = set()
+                for _, _, dd, r, _ in dr_info:
+                    for p in (dd, r):
+                        if p and p not in seen:
+                            all_pending_docx.append(p)
+                            seen.add(p)
+            count = sum(1 for doc in data.doctors
+                        if doc.prescription_fee > 0 or doc.execution_fee > 0)
+            parts = []
+            if emit_dpd:
+                parts.append("處方處方費民眾明細")
+            if emit_ded:
+                parts.append("處方執行費民眾明細")
+            if emit_dr:
+                parts.append("處方處方費與處方執行費領據")
+            self.after(0, lambda s=scope_label, c=count,
+                       p="、".join(parts):
+                       self._log(f"[{s}] {p} ({c} 位醫師)"))
+            step_cb()
+
+        # ───────── 診所類:彙整總表(其他內容/健康管理費合併總表與個人excel/) ─────────
+        if self.var_gen_health_summary.get() and data.health_mgmts:
             d = agg_subdir(HEALTH_COMBINED_DIR)
+            # Excel 統計檔
+            try:
+                generate_health_mgmt_excel(raw_records_issuance, prefix, d)
+            except Exception:
+                pass
+            # 健管費總表 docx
             path = os.path.join(
                 d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
             generate_health_mgmt_doc(data, path, min_prescriptions=min_presc)
             all_pending_docx.append(os.path.abspath(path))
-
+            # 個別 Excel
             per_clinic_excel_dir = os.path.join(d, "個別Excel")
             os.makedirs(per_clinic_excel_dir, exist_ok=True)
             clinic_to_person_map = {
@@ -716,71 +1011,80 @@ class App(ctk.CTk):
                 )
             except Exception:
                 xlsx_paths = []
+            self.after(0, lambda s=scope_label, x=len(xlsx_paths): self._log(
+                f"[{s}] 健康管理費合併總表與個人excel (個別Excel×{x})"))
+            step_cb()
 
+        # ───────── 診所類:每診所個別 民眾明細 + 領據 ─────────
+        emit_hd = self.var_gen_health_detail.get()
+        emit_hr = self.var_gen_health_receipt.get()
+        if (emit_hd or emit_hr) and data.health_mgmts:
             hm_result = generate_health_mgmt_individual_docs(
                 data, month_dir,
                 receipt_lookup=receipt_lookup, also_pdf=False,
+                emit_detail=emit_hd, emit_receipt=emit_hr,
             )
             if hm_result:
                 hm_docx_info, hm_receipt_dir = hm_result
                 health_merge_info = (hm_docx_info, hm_receipt_dir)
                 for _, dd, r in hm_docx_info:
-                    all_pending_docx.extend([dd, r])
-
+                    for p in (dd, r):
+                        if p:
+                            all_pending_docx.append(p)
             hm_count = sum(1 for hm in data.health_mgmts if hm.is_qualified)
-            self.after(0, lambda s=scope_label, c=hm_count, x=len(xlsx_paths):
-                       self._log(f"[{s}] 健康管理費 ({c} 間診所, 個別Excel×{x})"))
+            parts = []
+            if emit_hd:
+                parts.append("健康管理費民眾明細")
+            if emit_hr:
+                parts.append("健康管理費領據")
+            self.after(0, lambda s=scope_label, c=hm_count,
+                       p="、".join(parts):
+                       self._log(f"[{s}] {p} ({c} 間診所)"))
             step_cb()
 
-        if produce_executor and self.var_gen_treatment.get() and data.executors:
+        # ───────── 課程老師類:彙整總表(其他內容/處方處置費合併總表word/) ─────────
+        if produce_executor and self.var_gen_treatment_summary.get() \
+                and data.executors:
             d = agg_subdir(TREATMENT_COMBINED_DIR)
-            path = os.path.join(
+            # 核銷總表
+            p1 = os.path.join(
                 d, f"健康台灣深耕計畫_處方處置費核銷總表-{prefix}.docx")
-            generate_treatment_fee_doc(data, path)
-            self.after(0, lambda s=scope_label: self._log(f"[{s}] 處方處置費核銷總表"))
-            step_cb()
-
-        if produce_executor and self.var_gen_patient.get() and data.executors:
-            d = agg_subdir(TREATMENT_COMBINED_DIR)
-            path = os.path.join(
+            generate_treatment_fee_doc(data, p1)
+            # 執行人員民眾明細表(合併版)
+            p2 = os.path.join(
                 d, f"健康台灣深耕計畫_執行人員民眾明細表-{prefix}.docx")
-            generate_executor_patient_list_doc(data, path)
-            self.after(0, lambda s=scope_label: self._log(f"[{s}] 執行人員民眾明細表"))
+            generate_executor_patient_list_doc(data, p2)
+            self.after(0, lambda s=scope_label: self._log(
+                f"[{s}] 處方處置費合併總表word"))
             step_cb()
 
-        if produce_executor and self.var_gen_receipt.get() and data.executors:
+        # ───────── 課程老師類:每老師個別 民眾明細 + 領據 ─────────
+        emit_td = self.var_gen_treatment_detail.get()
+        emit_tr = self.var_gen_treatment_receipt.get()
+        if produce_executor and (emit_td or emit_tr) and data.executors:
             ex_result = generate_executor_merged_docs(
                 data, month_dir, also_pdf=False,
-                receipt_lookup=receipt_lookup)
+                receipt_lookup=receipt_lookup,
+                emit_detail=emit_td, emit_receipt=emit_tr,
+            )
             if ex_result:
                 ex_docx_info, ex_receipt_dir = ex_result
                 executor_merge_info = (ex_docx_info, ex_receipt_dir)
                 for _, _, dd, r in ex_docx_info:
-                    all_pending_docx.extend([dd, r])
-            count = sum(1 for ex in data.executors
-                        if ex.receipt and ex.receipt.amount > 0)
-            self.after(0, lambda s=scope_label, c=count:
-                       self._log(f"[{s}] 處方處置費 ({c} 人)"))
-            step_cb()
-
-        if self.var_gen_doctor_receipt.get() and data.doctors:
-            dr_info = generate_doctor_receipts(
-                data, month_dir,
-                receipt_lookup=receipt_lookup,
-                also_pdf=False)
-            if dr_info:
-                doctor_merge_info = dr_info
-                # 領據是 處方費/執行費 共用，去重避免重複加入
-                seen = set()
-                for _, _, dd, r, _ in dr_info:
-                    for path in (dd, r):
-                        if path and path not in seen:
-                            all_pending_docx.append(path)
-                            seen.add(path)
-            count = sum(1 for doc in data.doctors
-                        if doc.prescription_fee > 0 or doc.execution_fee > 0)
-            self.after(0, lambda s=scope_label, c=count:
-                       self._log(f"[{s}] 醫師處方費/處方執行費 ({c} 位)"))
+                    for p in (dd, r):
+                        if p:
+                            all_pending_docx.append(p)
+            # 同一人多處方類型會拆成多筆 ExecutorData,計數時依姓名去重
+            count = len({ex.executor_name for ex in data.executors
+                         if ex.receipt and ex.receipt.amount > 0})
+            parts = []
+            if emit_td:
+                parts.append("處方處置費民眾明細")
+            if emit_tr:
+                parts.append("處方處置費領據")
+            self.after(0, lambda s=scope_label, c=count,
+                       p="、".join(parts):
+                       self._log(f"[{s}] {p} ({c} 位老師)"))
             step_cb()
 
         return all_pending_docx, health_merge_info, executor_merge_info, doctor_merge_info
@@ -809,15 +1113,17 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log("  執行: (沿用開立檔)"))
         self.after(0, lambda: self.progress.set(0.05))
 
-        # 讀取總資料（read_prescription_report 只用一次,分區時再 filter）
-        # min_prescriptions 先傳任一閾值,實際會在每個 scope 重算
-        any_threshold = next(
-            (v for v in region_thresholds.values() if v > 0), 0)
+        # 讀取總資料(read_prescription_report 只用一次,分區時再 filter)
+        # min_prescriptions 統一傳 0,reader 不過濾任何診所;
+        # 各區門檻在下方 per-scope 迴圈以 is_qualified 控制是否產出。
+        # (舊版:傳 any_threshold 會用任一區的門檻砍掉所有診所,
+        #  導致低門檻區(如 中山/士林=20)在高門檻區(如 北投=30) 存在時
+        #  被誤判成「未達門檻」,只有大量資料的診所才會留下。)
         data = read_prescription_report(
             issuance_excel,
             execution_path=execution_excel,
             report_year=year, report_month=month,
-            min_prescriptions=any_threshold,
+            min_prescriptions=0,
         )
         # 兩組 raw records：處方費/健管費 用開立、執行費用執行
         raw_records_issuance = read_raw_records(issuance_excel)
@@ -831,7 +1137,7 @@ class App(ctk.CTk):
         self.after(0, lambda: self._log(
             f"  醫師: {len(data.doctors)} 位 | "
             f"診所: {len(data.health_mgmts)} 間 | "
-            f"執行人員: {len(data.executors)} 位\n"
+            f"執行人員: {len({ex.executor_name for ex in data.executors})} 位\n"
         ))
 
         # 人員個資
@@ -841,10 +1147,13 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log("讀取人員個資檔..."))
             receipt_lookup = load_people_db(db_path)
 
-        # 診所名 → 人名（用於健管費 clinic_person 修正）
+        # 診所名 → 人名(用於健管費 clinic_person 修正)
+        # 修正:value 用 info.recipient_name 而非 dict key,避免取到
+        # people_db 的內部佔位 key(如 "__clinic_only:診所名")。
+        # 個資該列有姓名 → 填姓名;姓名空白 → "" (明確留空,不亂寫)
         clinic_to_person = {
-            info.clinic_name: person_name
-            for person_name, info in receipt_lookup.items()
+            info.clinic_name: (info.recipient_name or "")
+            for info in receipt_lookup.values()
             if info.role == "診所行政人員" and info.clinic_name
         }
 
@@ -901,6 +1210,23 @@ class App(ctk.CTk):
             clinic_region[c] = r
             region_to_clinics.setdefault(r, set()).add(c)
 
+        # ── 套用「進階:選擇要產生的診所」過濾 ──
+        sel = self._selected_clinics
+        if sel is not None:
+            if not sel:
+                self.after(0, lambda: self._log(
+                    "⚠ 進階篩選:未勾選任何診所,將不會產出診所相關文件"))
+                kept: set[str] = set()
+            else:
+                kept = {c for c in all_clinics
+                        if self._clinic_matches_selection(c, sel)}
+                self.after(0, lambda n=len(kept), t=len(all_clinics):
+                           self._log(
+                    f"\n[診所篩選] 鎖定 {n} 間 (共 {t} 間出現在處方 Excel)"))
+            for r in list(region_to_clinics.keys()):
+                region_to_clinics[r] = region_to_clinics[r] & kept
+            all_clinics = kept
+
         unclassified = region_to_clinics.get("其他", set())
         if unclassified:
             self.after(0, lambda n=len(unclassified), cs=sorted(unclassified):
@@ -920,27 +1246,30 @@ class App(ctk.CTk):
         month_dir_root = os.path.join(output, prefix)
         os.makedirs(month_dir_root, exist_ok=True)
 
-        scopes: list[tuple[str, set[str], int, str]] = []
-        # (scope_label, allowed_clinics, min_presc_for_scope, month_dir)
+        # scope tuple: (label, allowed_clinics, min_presc, month_dir, produce_executor)
+        scopes: list[tuple[str, set[str], int, str, bool]] = []
         if region_choice == "全部":
-            # 全部 scope：所有診所，閾值取「最常用」（取最大）
-            all_min = max(region_thresholds.values()) if region_thresholds else 0
-            scopes.append(
-                ("全部", all_clinics,
-                 all_min,
-                 os.path.join(month_dir_root, "全部")))
-            # 再加上每個有診所的分區
+            # 改:不再產出「全部/」資料夾(內容跟北投+士林+中山+其他重複)
+            # 改:處方處置費(課程老師)跨區共用,獨立放「課程老師/」資料夾
             for r in regions_mod.REGION_NAMES:
                 clinics = region_to_clinics.get(r, set())
                 if clinics:
                     scopes.append((
                         r, clinics,
                         region_thresholds.get(r, 0),
-                        os.path.join(month_dir_root, r)))
+                        os.path.join(month_dir_root, r),
+                        False))
             if unclassified:
                 scopes.append((
                     "其他", unclassified, 0,
-                    os.path.join(month_dir_root, "其他")))
+                    os.path.join(month_dir_root, "其他"),
+                    False))
+            # 處方處置費獨立 scope(只產 executor 相關文件)
+            if data.executors:
+                scopes.append((
+                    "課程老師", set(), 0,
+                    os.path.join(month_dir_root, "課程老師"),
+                    True))
         else:
             clinics = region_to_clinics.get(region_choice, set())
             if not clinics:
@@ -949,23 +1278,38 @@ class App(ctk.CTk):
             scopes.append((
                 region_choice, clinics,
                 region_thresholds.get(region_choice, 0),
-                os.path.join(month_dir_root, region_choice)))
+                os.path.join(month_dir_root, region_choice),
+                True))  # 單區也產 executor
 
-        self.after(0, lambda: self._log(f"\n產生範圍：{len(scopes)} 個 scope"))
+        self.after(0, lambda: self._log(
+            f"\n產生範圍:{len(scopes)} 個 scope (不再產出『全部/』,可省 ~50% 時間)"))
 
         # ── 進度 ──
+        any_doctor_per_person = (
+            self.var_gen_doctor_presc_detail.get()
+            or self.var_gen_doctor_exec_detail.get()
+            or self.var_gen_doctor_receipt.get())
+        any_health_per_person = (
+            self.var_gen_health_detail.get()
+            or self.var_gen_health_receipt.get())
         per_scope_steps = sum([
-            self.var_gen_presc.get(),
-            self.var_gen_exec.get(),
-            self.var_gen_health.get(),
-            self.var_gen_doctor_receipt.get(),
+            self.var_gen_doctor_summary.get(),
+            any_doctor_per_person,
+            self.var_gen_health_summary.get(),
+            any_health_per_person,
         ])
-        executor_steps = sum([
-            self.var_gen_treatment.get(),
-            self.var_gen_patient.get(),
-            self.var_gen_receipt.get(),
+        any_treatment_per_person = (
+            self.var_gen_treatment_detail.get()
+            or self.var_gen_treatment_receipt.get())
+        executor_steps_per = sum([
+            self.var_gen_treatment_summary.get(),
+            any_treatment_per_person,
         ])
-        total_steps = per_scope_steps * len(scopes) + executor_steps
+        # 含 clinics 的 scope × per_scope_steps + 執行 executor 的 scope × executor_steps
+        clinic_scope_count = sum(1 for _, allowed, _, _, _ in scopes if allowed)
+        executor_scope_count = sum(1 for _, _, _, _, pe in scopes if pe)
+        total_steps = (per_scope_steps * clinic_scope_count
+                       + executor_steps_per * executor_scope_count)
         if total_steps == 0:
             total_steps = 1
 
@@ -981,19 +1325,15 @@ class App(ctk.CTk):
         all_pending_docx: list[str] = []
         merge_bundles: list[tuple] = []  # (health, executor, doctor)
 
-        for i, (scope_label, allowed, threshold, month_dir) in enumerate(scopes):
-            produce_exec = (i == 0)  # 處方處置費只在第一個 scope 產
-            # 過濾資料
-            if scope_label == "全部":
-                data_scope = data
-                raw_scope_issuance = raw_records_issuance
-                raw_scope_execution = raw_records_execution
-            else:
-                data_scope = self._filter_data(data, allowed)
-                raw_scope_issuance = self._filter_raw_records(
-                    raw_records_issuance, allowed)
-                raw_scope_execution = self._filter_raw_records(
-                    raw_records_execution, allowed)
+        for i, (scope_label, allowed, threshold, month_dir,
+                produce_exec) in enumerate(scopes):
+            # 過濾資料(每個 scope 都按該 scope 的 allowed_clinics 過濾;
+            # executor 資料不受 clinic 過濾影響,_filter_data 中保留全部 executors)
+            data_scope = self._filter_data(data, allowed)
+            raw_scope_issuance = self._filter_raw_records(
+                raw_records_issuance, allowed)
+            raw_scope_execution = self._filter_raw_records(
+                raw_records_execution, allowed)
 
             # 該 scope 的 min_prescriptions 要重算 is_qualified
             for hm in data_scope.health_mgmts:
@@ -1130,327 +1470,260 @@ class App(ctk.CTk):
 
 
 # ──────────────────────────────────────────────────────────
-# 寄送預覽視窗
+# 產出選項群組詳情視窗
 # ──────────────────────────────────────────────────────────
-class EmailPreviewWindow(ctk.CTkToplevel):
-    """列出所有 EmailJob，可勾選、預覽、批次寄送。"""
+class GroupDetailWindow(ctk.CTkToplevel):
+    """單一群組(醫師/診所/課程老師)的詳細產出選項視窗。
 
-    COL_WIDTHS = [(36, "☑"), (110, "姓名"), (110, "角色"),
-                  (200, "診所"), (220, "Email"), (60, "附件"),
-                  (120, "狀態")]
+    顯示該群組可產出的所有資料夾,每個對應一個獨立 checkbox。
+    """
 
-    def __init__(self, master, jobs: list[EmailJob], sender_email: str):
+    def __init__(self, master, group: dict):
         super().__init__(master)
-        self.title("Gmail 寄送預覽")
-        self.geometry("980x640")
-        self.minsize(900, 500)
+        self.title(f"產出細項 — {group['title']}")
+        self.geometry("720x520")
+        self.minsize(580, 380)
+        self.configure(fg_color=("gray95", "gray12"))
 
-        self.jobs = jobs
-        self.sender_email = sender_email
-        self._row_widgets: list[dict] = []  # 每列 UI 元件參照
-
+        self.group = group
         self._build_ui()
-        self._refresh_rows()
-
-        # 顯示後置前
+        self.transient(master)
         self.after(100, self.lift)
         self.after(150, self.focus_force)
 
     def _build_ui(self):
-        # 頂部資訊
+        # 頂部標題列
         top = ctk.CTkFrame(self, fg_color="transparent")
-        top.pack(fill="x", padx=15, pady=(15, 8))
+        top.pack(fill="x", padx=22, pady=(22, 4))
+        ctk.CTkLabel(top, text="◢ " + self.group["title"],
+                     font=ctk.CTkFont(size=16, weight="bold"),
+                     text_color="#3498db").pack(side="left")
 
-        ctk.CTkLabel(top, text=f"寄件者： {self.sender_email}",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        ctk.CTkLabel(top, text=f"  |  共 {len(self.jobs)} 位人員",
-                     text_color="gray50").pack(side="left")
+        ctk.CTkLabel(
+            self,
+            text="勾選 = 該資料夾才會產出。每個資料夾獨立控制。",
+            text_color="#a0aec0", font=ctk.CTkFont(size=11),
+            anchor="w").pack(fill="x", padx=22, pady=(0, 8))
 
         # 操作列
         ops = ctk.CTkFrame(self, fg_color="transparent")
-        ops.pack(fill="x", padx=15, pady=(0, 8))
-
-        ctk.CTkButton(ops, text="全選", width=80, height=30,
-                      fg_color="gray60", hover_color="gray50",
+        ops.pack(fill="x", padx=22, pady=(0, 10))
+        ctk.CTkButton(ops, text="✓ 全選", width=80, height=30,
+                      fg_color="#2980b9", hover_color="#1f618d",
+                      font=ctk.CTkFont(size=12),
                       command=self._select_all).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(ops, text="全不選", width=80, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._select_none).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(ops, text="僅選可寄送", width=100, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._select_sendable).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(ops, text="✕ 全不選", width=80, height=30,
+                      fg_color="gray45", hover_color="gray35",
+                      font=ctk.CTkFont(size=12),
+                      command=self._select_none).pack(side="left")
 
-        self.btn_send = ctk.CTkButton(
-            ops, text="✉ 確認寄送勾選項目", width=180, height=32,
+        # 子項清單
+        scroll = ctk.CTkScrollableFrame(
+            self, fg_color=("gray97", "gray16"))
+        scroll.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+
+        for sub_var, folder, desc in self.group["items"]:
+            row = ctk.CTkFrame(scroll, fg_color=("white", "gray22"),
+                               corner_radius=8, border_width=1,
+                               border_color=("gray80", "gray30"))
+            row.pack(fill="x", pady=5, padx=2)
+
+            inner = ctk.CTkFrame(row, fg_color="transparent")
+            inner.pack(fill="x", padx=14, pady=10)
+
+            ctk.CTkCheckBox(inner, text="", variable=sub_var,
+                            width=22, checkbox_width=20,
+                            checkbox_height=20).pack(
+                                side="left", padx=(0, 12))
+
+            text_frame = ctk.CTkFrame(inner, fg_color="transparent")
+            text_frame.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(
+                text_frame, text="📁  " + folder,
+                font=ctk.CTkFont(family=MONO_FONT, size=13,
+                                 weight="bold"),
+                text_color="#2980b9", anchor="w").pack(fill="x")
+            ctk.CTkLabel(
+                text_frame, text="    " + desc,
+                font=ctk.CTkFont(size=11),
+                text_color=("gray35", "gray70"), anchor="w").pack(fill="x")
+
+        # 底部
+        bot = ctk.CTkFrame(self, fg_color="transparent")
+        bot.pack(fill="x", padx=22, pady=(0, 18))
+        ctk.CTkButton(
+            bot, text="完成", width=100, height=34,
             fg_color="#1e8449", hover_color="#196f3d",
             font=ctk.CTkFont(size=13, weight="bold"),
-            command=self._on_send_clicked)
-        self.btn_send.pack(side="right")
-
-        # 表格標題列
-        hdr = ctk.CTkFrame(self, height=30)
-        hdr.pack(fill="x", padx=15)
-        for i, (w, title) in enumerate(self.COL_WIDTHS):
-            lbl = ctk.CTkLabel(hdr, text=title, width=w,
-                               font=ctk.CTkFont(size=12, weight="bold"),
-                               anchor="w")
-            lbl.grid(row=0, column=i, padx=4, sticky="w")
-
-        # 可滾動表格
-        self.table = ctk.CTkScrollableFrame(self, height=420)
-        self.table.pack(fill="both", expand=True, padx=15, pady=(4, 10))
-
-        # 底部狀態列
-        self.status_lbl = ctk.CTkLabel(self, text="",
-                                       text_color="gray40",
-                                       font=ctk.CTkFont(size=11),
-                                       anchor="w")
-        self.status_lbl.pack(fill="x", padx=15, pady=(0, 10))
-
-    def _refresh_rows(self):
-        # 清掉舊列
-        for w in self.table.winfo_children():
-            w.destroy()
-        self._row_widgets.clear()
-
-        for idx, job in enumerate(self.jobs):
-            row = ctk.CTkFrame(self.table,
-                               fg_color=("gray92", "gray20") if idx % 2 else "transparent")
-            row.pack(fill="x", pady=1)
-
-            # 勾選框
-            var = ctk.BooleanVar(value=job.selected)
-            chk = ctk.CTkCheckBox(row, text="", variable=var, width=24,
-                                  command=lambda j=job, v=var: self._toggle(j, v))
-            chk.grid(row=0, column=0, padx=4, pady=4)
-
-            # 其他欄位
-            values = [
-                (110, job.person_name),
-                (110, job.role or "—"),
-                (200, job.clinic_name or "—"),
-                (220, job.to_email or "—"),
-                (60, str(len(job.attachments))),
-            ]
-            for col_i, (w, text) in enumerate(values, start=1):
-                lbl = ctk.CTkLabel(row, text=text, width=w, anchor="w",
-                                   font=ctk.CTkFont(size=12))
-                lbl.grid(row=0, column=col_i, padx=4, sticky="w")
-
-            status_lbl = ctk.CTkLabel(row, text=self._status_text(job),
-                                      text_color=self._status_color(job),
-                                      width=120, anchor="w",
-                                      font=ctk.CTkFont(size=12))
-            status_lbl.grid(row=0, column=6, padx=4, sticky="w")
-
-            # 預覽按鈕
-            btn_preview = ctk.CTkButton(
-                row, text="預覽", width=56, height=24,
-                font=ctk.CTkFont(size=11),
-                fg_color="gray55", hover_color="gray45",
-                command=lambda j=job: self._preview_job(j))
-            btn_preview.grid(row=0, column=7, padx=(8, 4))
-
-            # 禁用不可寄送的勾選框
-            if job.status == "skipped":
-                chk.configure(state="disabled")
-
-            self._row_widgets.append({
-                "job": job, "chk_var": var, "chk": chk,
-                "status_lbl": status_lbl, "btn_preview": btn_preview,
-            })
-
-        self._update_status_bar()
-
-    def _status_text(self, job: EmailJob) -> str:
-        m = {
-            "pending": "待寄送",
-            "sent": "✓ 已寄出",
-            "failed": "✗ 失敗",
-            "skipped": f"跳過（{job.error}）" if job.error else "跳過",
-        }
-        return m.get(job.status, job.status)
-
-    def _status_color(self, job: EmailJob) -> str:
-        return {
-            "pending": "gray40",
-            "sent": "#1e8449",
-            "failed": "#c0392b",
-            "skipped": "#b7950b",
-        }.get(job.status, "gray40")
-
-    def _toggle(self, job: EmailJob, var: ctk.BooleanVar):
-        job.selected = var.get()
-        self._update_status_bar()
+            command=self.destroy).pack(side="right")
 
     def _select_all(self):
-        for rw in self._row_widgets:
-            if rw["job"].status != "skipped":
-                rw["chk_var"].set(True)
-                rw["job"].selected = True
-        self._update_status_bar()
+        for sub_var, _, _ in self.group["items"]:
+            sub_var.set(True)
 
     def _select_none(self):
-        for rw in self._row_widgets:
-            rw["chk_var"].set(False)
-            rw["job"].selected = False
-        self._update_status_bar()
+        for sub_var, _, _ in self.group["items"]:
+            sub_var.set(False)
 
-    def _select_sendable(self):
-        for rw in self._row_widgets:
-            job = rw["job"]
-            ok = job.is_sendable
-            rw["chk_var"].set(ok)
-            job.selected = ok
-        self._update_status_bar()
 
-    def _update_status_bar(self):
-        selected = sum(1 for j in self.jobs if j.selected and j.is_sendable)
-        skipped = sum(1 for j in self.jobs if j.status == "skipped")
-        sent = sum(1 for j in self.jobs if j.status == "sent")
-        failed = sum(1 for j in self.jobs if j.status == "failed")
-        total_bytes = sum(
-            j.total_attachment_bytes for j in self.jobs if j.selected and j.is_sendable
-        )
-        mb = total_bytes / (1024 * 1024)
-        self.status_lbl.configure(
-            text=f"將寄送 {selected} 封（附件合計 {mb:.1f} MB）  |  "
-                 f"跳過 {skipped}  |  已寄出 {sent}  |  失敗 {failed}"
-        )
+# ──────────────────────────────────────────────────────────
+# 診所勾選視窗
+# ──────────────────────────────────────────────────────────
+class ClinicSelectorWindow(ctk.CTkToplevel):
+    """讓使用者勾選要產生文件的診所(依分區分組)。"""
 
-    def _preview_job(self, job: EmailJob):
-        win = ctk.CTkToplevel(self)
-        win.title(f"預覽 — {job.person_name}")
-        win.geometry("680x520")
-        win.transient(self)
+    def __init__(self, master, regions_map: dict, extra_clinics: list):
+        super().__init__(master)
+        self.title("選擇要產生的診所")
+        self.geometry("520x680")
+        self.minsize(450, 420)
 
-        # 主旨
-        frm = ctk.CTkFrame(win, fg_color="transparent")
-        frm.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(frm, text="主旨：",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
-        ctk.CTkLabel(frm, text=job.subject, anchor="w").pack(
-            side="left", fill="x", expand=True, padx=(8, 0))
+        self.master_app = master
+        self.regions_map = regions_map
+        self.extra_clinics = list(extra_clinics or [])
 
-        # 收件者
-        frm2 = ctk.CTkFrame(win, fg_color="transparent")
-        frm2.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(frm2, text="收件者：",
-                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
-        ctk.CTkLabel(frm2, text=job.to_email or "（無）",
-                     anchor="w").pack(side="left", padx=(8, 0))
+        # 用主畫面當前狀態還原勾選
+        prev = master._selected_clinics
+        self.checks: dict[str, ctk.BooleanVar] = {}
 
-        # 內文
-        ctk.CTkLabel(win, text="內文：",
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     anchor="w").pack(fill="x", padx=15, pady=(10, 2))
-        txt = ctk.CTkTextbox(win, height=220,
-                             font=ctk.CTkFont(family="Microsoft JhengHei", size=12))
-        txt.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-        txt.insert("1.0", job.body)
-        txt.configure(state="disabled")
+        ordered: list[tuple[str, list[str]]] = []
+        for r in regions_mod.REGION_NAMES:
+            cs = regions_map.get(r, [])
+            if cs:
+                ordered.append((r, list(cs)))
+        if self.extra_clinics:
+            ordered.append(("其他 (處方 Excel 有但分區檔未列)", self.extra_clinics))
+        self.ordered = ordered
 
-        # 附件
-        ctk.CTkLabel(win, text=f"附件（{len(job.attachments)}）：",
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     anchor="w").pack(fill="x", padx=15, pady=(6, 2))
-        att_box = ctk.CTkTextbox(win, height=110,
-                                 font=ctk.CTkFont(family="Consolas", size=11))
-        att_box.pack(fill="both", expand=False, padx=15, pady=(0, 15))
-        for p in job.attachments:
-            att_box.insert("end", f"{p}\n")
-        att_box.configure(state="disabled")
-
-    def _on_send_clicked(self):
-        selected_jobs = [j for j in self.jobs if j.selected and j.is_sendable]
-        if not selected_jobs:
-            messagebox.showinfo("無可寄送項目", "沒有勾選任何可寄送的信件。")
-            return
-
-        # 輸入 App Password
-        pw_dialog = ctk.CTkInputDialog(
-            title="Gmail App Password",
-            text=f"即將寄送 {len(selected_jobs)} 封信。\n"
-                 f"請輸入 {self.sender_email} 的 App Password：")
-        app_password = pw_dialog.get_input()
-        if not app_password:
-            return
-        # 移除所有空白字元（含 unicode 空白、零寬字元、換行、tab 等）
-        app_password = "".join(
-            c for c in app_password
-            if not c.isspace() and c not in "\u200b\u200c\u200d\ufeff\u00a0"
-        )
-        # 只保留可列印 ASCII（App Password 只有 a-z 字母）
-        app_password = "".join(c for c in app_password if 32 < ord(c) < 127)
-        if not app_password:
-            messagebox.showwarning("未輸入密碼", "已取消寄送。")
-            return
-        # 檢查長度 — App Password 標準為 16 碼
-        if len(app_password) != 16:
-            if not messagebox.askyesno(
-                "密碼長度異常",
-                f"你輸入的密碼長度為 {len(app_password)} 字元，"
-                f"Gmail App Password 標準為 16 字元。\n\n"
-                f"是否仍要嘗試送出？（可能會被 Google 拒絕）",
-            ):
-                return
-
-        # 二次確認
-        if not messagebox.askyesno(
-            "確認寄送",
-            f"即將寄送 {len(selected_jobs)} 封 Gmail。\n\n"
-            f"寄件者：{self.sender_email}\n"
-            f"附件合計：{sum(j.total_attachment_bytes for j in selected_jobs) / 1024 / 1024:.1f} MB\n\n"
-            f"確認繼續？",
-        ):
-            return
-
-        self.btn_send.configure(state="disabled", text="寄送中…")
-        threading.Thread(
-            target=self._send_worker,
-            args=(selected_jobs, app_password),
-            daemon=True,
-        ).start()
-
-    def _send_worker(self, selected_jobs: list[EmailJob], app_password: str):
-        total = len(selected_jobs)
-        auth_error = False
-        for idx, job in enumerate(selected_jobs, 1):
-            self.after(0, lambda j=job: self._mark_status(j, "sending"))
-            try:
-                send_via_gmail_smtp(self.sender_email, app_password, job)
-            except SmtpAuthError as e:
-                auth_error = True
-                self.after(0, lambda msg=str(e): messagebox.showerror(
-                    "Gmail 認證失敗", msg))
-                break
-            except Exception:
-                pass  # 錯誤已記在 job
-            finally:
-                self.after(0, lambda j=job: self._mark_status(j, j.status))
-
-        # 完成
-        self.after(0, lambda: self.btn_send.configure(
-            state="normal", text="✉ 確認寄送勾選項目"))
-        if not auth_error:
-            sent = sum(1 for j in selected_jobs if j.status == "sent")
-            failed = sum(1 for j in selected_jobs if j.status == "failed")
-            self.after(0, lambda: messagebox.showinfo(
-                "寄送完成",
-                f"成功：{sent}\n失敗：{failed}\n總計：{total}"))
-
-    def _mark_status(self, job: EmailJob, display_status: str):
-        """即時更新某 job 的狀態欄。"""
-        for rw in self._row_widgets:
-            if rw["job"] is job:
-                if display_status == "sending":
-                    rw["status_lbl"].configure(text="寄送中…", text_color="gray40")
+        for _, cs in ordered:
+            for c in cs:
+                # 預設勾選:None → 全部勾;否則只勾在 set 內的
+                if prev is None:
+                    default = True
                 else:
-                    rw["status_lbl"].configure(
-                        text=self._status_text(job),
-                        text_color=self._status_color(job))
-                break
-        self._update_status_bar()
+                    default = c in prev
+                if c not in self.checks:
+                    self.checks[c] = ctk.BooleanVar(value=default)
+
+        self._build_ui()
+        self.transient(master)
+        self.after(100, self.lift)
+        self.after(150, self.focus_force)
+
+    def _build_ui(self):
+        # 頂部說明
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(top, text="勾選要產生文件的診所",
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+
+        # 全選/全不選/反選
+        ops = ctk.CTkFrame(self, fg_color="transparent")
+        ops.pack(fill="x", padx=15, pady=(0, 6))
+        ctk.CTkButton(ops, text="全選", width=70, height=28,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._select_all).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(ops, text="全不選", width=70, height=28,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._select_none).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(ops, text="反選", width=70, height=28,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self._invert).pack(side="left", padx=(0, 5))
+
+        # 滾動清單
+        self.scroll = ctk.CTkScrollableFrame(self)
+        self.scroll.pack(fill="both", expand=True, padx=15, pady=(2, 6))
+
+        for region_label, clinics in self.ordered:
+            self._build_group(region_label, clinics)
+
+        # 計數狀態
+        self.count_lbl = ctk.CTkLabel(self, text="", text_color="#a0aec0",
+                                      font=ctk.CTkFont(size=12), anchor="w")
+        self.count_lbl.pack(fill="x", padx=15, pady=(0, 4))
+
+        # 確認/取消
+        bot = ctk.CTkFrame(self, fg_color="transparent")
+        bot.pack(fill="x", padx=15, pady=(0, 15))
+        ctk.CTkButton(bot, text="確認", width=90, height=34,
+                      fg_color="#1e8449", hover_color="#196f3d",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      command=self._on_confirm).pack(side="right")
+        ctk.CTkButton(bot, text="取消", width=80, height=34,
+                      fg_color="gray60", hover_color="gray50",
+                      command=self.destroy).pack(side="right", padx=(0, 6))
+
+        self._update_count()
+
+    def _build_group(self, region_label: str, clinics: list):
+        header = ctk.CTkFrame(self.scroll, fg_color=("gray85", "gray25"),
+                              corner_radius=4)
+        header.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(header,
+                     text=f"  📍 {region_label} ({len(clinics)} 間)",
+                     font=ctk.CTkFont(size=13, weight="bold")
+                     ).pack(side="left", pady=4)
+        ctk.CTkButton(header, text="全不選", width=70, height=24,
+                      fg_color="gray60", hover_color="gray50",
+                      font=ctk.CTkFont(size=11),
+                      command=lambda cs=clinics:
+                          self._toggle_group(cs, False)
+                      ).pack(side="right", padx=(2, 8), pady=2)
+        ctk.CTkButton(header, text="全選", width=60, height=24,
+                      fg_color="gray60", hover_color="gray50",
+                      font=ctk.CTkFont(size=11),
+                      command=lambda cs=clinics:
+                          self._toggle_group(cs, True)
+                      ).pack(side="right", padx=2, pady=2)
+
+        for c in clinics:
+            ctk.CTkCheckBox(self.scroll, text=c,
+                            variable=self.checks[c],
+                            command=self._update_count
+                            ).pack(anchor="w", padx=20, pady=2)
+
+    def _select_all(self):
+        for v in self.checks.values():
+            v.set(True)
+        self._update_count()
+
+    def _select_none(self):
+        for v in self.checks.values():
+            v.set(False)
+        self._update_count()
+
+    def _invert(self):
+        for v in self.checks.values():
+            v.set(not v.get())
+        self._update_count()
+
+    def _toggle_group(self, clinics: list, on: bool):
+        for c in clinics:
+            if c in self.checks:
+                self.checks[c].set(on)
+        self._update_count()
+
+    def _update_count(self):
+        n = sum(1 for v in self.checks.values() if v.get())
+        total = len(self.checks)
+        self.count_lbl.configure(text=f"已勾 {n} / {total}")
+
+    def _on_confirm(self):
+        selected = {c for c, v in self.checks.items() if v.get()}
+        total = len(self.checks)
+        if not selected:
+            if not messagebox.askyesno(
+                "確認",
+                "目前未勾選任何診所,將不會產出診所相關文件。\n仍要套用嗎?"):
+                return
+            self.master_app._selected_clinics = set()
+        elif len(selected) == total:
+            # 全選等於「全部」(預設行為)
+            self.master_app._selected_clinics = None
+        else:
+            self.master_app._selected_clinics = selected
+        self.master_app._update_clinic_filter_label()
+        self.destroy()
 
 
 if __name__ == "__main__":
