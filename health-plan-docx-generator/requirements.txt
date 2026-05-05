@@ -4,3 +4,4 @@ customtkinter>=5.2.0
 docx2pdf>=0.1.8
 PyPDF2>=3.0.0
 pyinstaller>=6.0
+Pillow>=10.0.0

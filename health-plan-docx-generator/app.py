@@ -104,7 +104,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
                      font=ctk.CTkFont(size=26, weight="bold"),
                      text_color="#3498db").pack(side="left")
-        ctk.CTkLabel(title_inner, text="  v34",
+        ctk.CTkLabel(title_inner, text="  v35",
                      font=ctk.CTkFont(family=MONO_FONT, size=13),
                      text_color="#52b3e2").pack(side="left", padx=(10, 0))
         ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
@@ -432,6 +432,17 @@ class App(ctk.CTk):
         self._last_receipt_lookup: dict = {}
         self._last_year: int | None = None
         self._last_month: int | None = None
+
+        # ── Pac-Man 進度動畫 ──
+        # 真正在「批次轉 PDF」時會逐檔餵進來,平時待機嘴巴一開一合
+        try:
+            from pacman_animator import PacManAnimator
+            self.pacman = PacManAnimator(main)
+            self.pacman.pack(fill="x", pady=(0, 6))
+        except Exception as e:
+            # 萬一 Pillow / 素材載入失敗,動畫不要拖累主功能
+            self.pacman = None
+            print(f"[App] PacManAnimator 啟用失敗: {e}")
 
         # ── Progress ──
         self.progress = ctk.CTkProgressBar(main)
@@ -1370,13 +1381,29 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(
                 f"\n批次轉換 {total_pdf} 份 Word → PDF（共用一個 Word 程序）..."))
 
+            # Pac-Man 動畫:預先把所有待轉檔名餵進去,讓左側隊列可以看到接下來要吃的
+            todo_basenames = [os.path.basename(p) for p in all_pending_docx]
+            if self.pacman is not None:
+                self.after(0, lambda t=total_pdf, names=todo_basenames:
+                           self.pacman.start(t, names))
+
             def _pdf_progress(done, total, name):
+                # 每一份都餵 Pac-Man(每 ~150ms 一次,順)
+                in_name = os.path.basename(name) if name else ""
+                # 對應的 PDF 檔名(把 .docx 換成 .pdf)
+                stem, _ = os.path.splitext(in_name)
+                out_name = f"{stem}.pdf" if stem else ""
+                if self.pacman is not None:
+                    self.after(0, lambda i=in_name, o=out_name:
+                               self.pacman.feed(i, o))
                 if done % 10 == 0 or done == total:
                     self.after(0, lambda d=done, t=total, n=name:
                                self._log(f"  [{d}/{t}] {n}"))
             _convert_docx_list_to_pdf(all_pending_docx, progress_cb=_pdf_progress)
             self.after(0, lambda: self._log(
                 f"[OK] {total_pdf} 份 PDF 轉換完成"))
+            if self.pacman is not None:
+                self.after(0, lambda: self.pacman.stop(finished=True))
 
         # ── 合併每人的「明細 + 領據」PDF（不含總表）──
         for health_merge_info, executor_merge_info, doctor_merge_info in merge_bundles:
