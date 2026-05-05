@@ -104,7 +104,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
                      font=ctk.CTkFont(size=26, weight="bold"),
                      text_color="#3498db").pack(side="left")
-        ctk.CTkLabel(title_inner, text="  v33",
+        ctk.CTkLabel(title_inner, text="  v34",
                      font=ctk.CTkFont(family=MONO_FONT, size=13),
                      text_color="#52b3e2").pack(side="left", padx=(10, 0))
         ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
