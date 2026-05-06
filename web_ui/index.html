@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>核銷文件產生器 v39</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* pywebview 內嵌時不需要外連 Google Font，改用本機字體後備鏈 */
+  body { background-color: #FAFAF9; }
+  /* 啟動載入提示 */
+  #boot {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px;
+    background: #FAFAF9; color: #525252;
+    font-family: -apple-system, "Microsoft JhengHei", sans-serif;
+    z-index: 9999;
+    transition: opacity .3s; opacity: 1;
+  }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  #boot .dot {
+    width: 10px; height: 10px; border-radius: 999px; background: #D4452C;
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: .5; }
+  }
+</style>
+</head>
+<body>
+<div id="boot"><span class="dot"></span><span>核銷文件產生器 v39 啟動中…</span></div>
+
+<div id="root"></div>
+
+<!-- React + Babel -->
+<script src="vendor/react.min.js"></script>
+<script src="vendor/react-dom.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script type="text/babel" src="app.jsx"></script>
+<script>
+  // app.jsx 載完後 React mount 完，藏 boot
+  setTimeout(() => {
+    const b = document.getElementById('boot');
+    if (b) { b.classList.add('gone'); setTimeout(() => b.remove(), 400); }
+  }, 800);
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+"""集中管理可調整的參數 / 費用。
+
+執行時順序:
+  1. 先載入本檔預設值
+  2. 若 exe 同目錄下有 config.json,以 JSON 內容覆蓋
+     (PyInstaller onefile: exe 所在目錄 = sys.executable 的 parent,
+      開發模式: 當前工作目錄)
+
+未來法規或費用調整 → 改 config.json 即可,不用重打包 exe。
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+# ---- Defaults --------------------------------------------------------
+_DEFAULTS: dict = {
+    # 健管費:達標的診所可申報
+    "HEALTH_MGMT_FEE": 7000,
+    # 每份處方費 / 每份執行費 / 每人次處置費
+    "FEE_PER_PRESCRIPTION": 300,
+    "FEE_PER_EXECUTION": 100,
+    "FEE_PER_TREATMENT": 400,
+    # 份數 ÷ 此值 = 對應人數門檻(註解顯示用)
+    "PEOPLE_DIVISOR": 4,
+    # UI「健管費最低份數」欄位預設值
+    "MIN_PRESCRIPTIONS_DEFAULT": 20,
+}
+
+
+def _external_config_path() -> Path:
+    """決定 config.json 擺在哪。
+    PyInstaller onefile: exe 解壓後 sys.executable 指向真正 exe 路徑。
+    開發模式: sys.executable 是 python.exe,用 app.py 所在處。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "config.json"
+    return Path(__file__).resolve().parent / "config.json"
+
+
+def _load() -> dict:
+    cfg = dict(_DEFAULTS)
+    p = _external_config_path()
+    if p.is_file():
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                overrides = json.load(f)
+            # 僅接受已知的 key,避免打錯字導致靜默失敗
+            for k, v in overrides.items():
+                if k in _DEFAULTS:
+                    cfg[k] = v
+        except (OSError, json.JSONDecodeError):
+            # 讀取失敗就用預設,不中斷程式
+            pass
+    return cfg
+
+
+_CFG = _load()
+
+HEALTH_MGMT_FEE: int = _CFG["HEALTH_MGMT_FEE"]
+FEE_PER_PRESCRIPTION: int = _CFG["FEE_PER_PRESCRIPTION"]
+FEE_PER_EXECUTION: int = _CFG["FEE_PER_EXECUTION"]
+FEE_PER_TREATMENT: int = _CFG["FEE_PER_TREATMENT"]
+PEOPLE_DIVISOR: int = _CFG["PEOPLE_DIVISOR"]
+MIN_PRESCRIPTIONS_DEFAULT: int = _CFG["MIN_PRESCRIPTIONS_DEFAULT"]
+
+
+def config_source() -> str:
+    """回傳目前設定從哪裡來(供 log / debug 顯示)。"""
+    p = _external_config_path()
+    return str(p) if p.is_file() else "(defaults)"
