@@ -104,7 +104,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
                      font=ctk.CTkFont(size=26, weight="bold"),
                      text_color="#3498db").pack(side="left")
-        ctk.CTkLabel(title_inner, text="  v36",
+        ctk.CTkLabel(title_inner, text="  v37",
                      font=ctk.CTkFont(family=MONO_FONT, size=13),
                      text_color="#52b3e2").pack(side="left", padx=(10, 0))
         ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
@@ -1327,11 +1327,12 @@ class App(ctk.CTk):
         steps_done = 0
 
         # ── Pac-Man 動畫 Phase 1:Word 文件產生階段 ──
-        # 此時還不知道每份 docx 具體檔名,先用 step 編號當佔位,
-        # 主要目的是讓使用者看到 Pac-Man 在動、知道進度有在跑。
+        # 此時產生的也是 Word docx,所以右側「已完成」用 Word 圖示
+        # (尚未轉成 PDF)。step_cb 觸發時餵階段編號給動畫。
         if self.pacman is not None:
-            self.after(0, lambda t=total_steps:
-                       self.pacman.start(t, [""] * t))
+            placeholder = [f"第 {i + 1} 階段" for i in range(total_steps)]
+            self.after(0, lambda t=total_steps, ph=placeholder:
+                       self.pacman.start(t, ph, output_icon="word"))
             self.after(0, lambda: self.pacman.set_label(
                 "Step 1/2:產生 Word 文件中…"))
 
@@ -1340,12 +1341,12 @@ class App(ctk.CTk):
             steps_done += 1
             self.after(0, lambda: self.progress.set(
                 0.1 + 0.85 * steps_done / total_steps))
-            # 每完成一階段就餵 Pac-Man 一口
+            # 每完成一階段就餵 Pac-Man 一口(用階段編號當標籤)
             if self.pacman is not None:
-                self.after(0, lambda d=steps_done, t=total_steps:
+                self.after(0, lambda d=steps_done:
                            self.pacman.feed(
-                               in_name=f"Word_{d}.docx",
-                               out_name=f"完成 {d}/{t}"))
+                               in_name=f"第 {d} 階段",
+                               out_name=f"第 {d} 階段"))
 
         # ── 逐 scope 產出 ──
         all_pending_docx: list[str] = []
@@ -1397,11 +1398,12 @@ class App(ctk.CTk):
                 f"\n批次轉換 {total_pdf} 份 Word → PDF（共用一個 Word 程序）..."))
 
             # ── Pac-Man 動畫 Phase 2:Word → PDF 批次轉檔 ──
-            # 重新啟動 Pac-Man,清空 Phase 1 的 placeholder,改用真實檔名
+            # 重新啟動 Pac-Man,清空 Phase 1 的階段編號,改用真實檔名,
+            # output_icon='pdf' 讓右側顯示紅色 PDF 圖示
             todo_basenames = [os.path.basename(p) for p in all_pending_docx]
             if self.pacman is not None:
                 self.after(0, lambda t=total_pdf, names=todo_basenames:
-                           self.pacman.start(t, names))
+                           self.pacman.start(t, names, output_icon="pdf"))
                 self.after(0, lambda: self.pacman.set_label(
                     "Step 2/2:Word → PDF 轉檔中…"))
 

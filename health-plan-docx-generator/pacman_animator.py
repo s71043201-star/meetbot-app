@@ -104,12 +104,17 @@ class PacManAnimator(tk.Frame):
         # 狀態
         self.total = 0
         self.done = 0
-        self.queue_in: deque[str] = deque()    # 待處理(Word)
-        self.queue_out: deque[str] = deque()   # 已產出(PDF)
+        self.queue_in: deque[str] = deque()    # 待處理
+        self.queue_out: deque[str] = deque()   # 已產出
         self._mouth_open = True
         self._sparkle_phase = 0   # 0=隱藏、1~3 漸漸消失
         self._anim_id: str | None = None
         self._sparkle_id: str | None = None
+        # 右側圖示用 word 或 pdf (對應 Phase 1 / Phase 2)
+        self._output_icon_key = "icon_pdf"
+        # 左右側標題(可由 start() 改)
+        self._title_left = "📥 待處理"
+        self._title_right = "📤 已完成"
 
         # 啟動嘴巴循環(在沒在跑時也讓它一開一合,顯示「待命」)
         self._tick_mouth()
@@ -141,12 +146,16 @@ class PacManAnimator(tk.Frame):
                 print(f"[PacManAnimator] 載入 {fname} 失敗: {e}")
 
     # ─── 公開 API ───
-    def start(self, total: int, todo_filenames: list[str] | None = None):
+    def start(self, total: int, todo_filenames: list[str] | None = None,
+              output_icon: str = "pdf"):
         """重設,開始一輪。
 
         total: 預期會推進的次數
         todo_filenames: 可選,給定後右側 in-queue 會用實際檔名顯示。
             沒給就用「(待轉)」佔位。
+        output_icon: 右側「已完成」隊列要用哪種圖示,以及對應的標題。
+            "pdf"  → 紅色 PDF 圖示,標題「已轉 PDF」(Phase 2 用)
+            "word" → 藍色 W 圖示,標題「已產 Word」(Phase 1 用)
         """
         self.total = max(1, total)
         self.done = 0
@@ -158,6 +167,14 @@ class PacManAnimator(tk.Frame):
         else:
             for _ in range(min(total, self.MAX_QUEUE_VISIBLE)):
                 self.queue_in.append("")
+        if output_icon == "word":
+            self._output_icon_key = "icon_word"
+            self._title_left = "📥 待產出 Word"
+            self._title_right = "📤 已產 Word"
+        else:
+            self._output_icon_key = "icon_pdf"
+            self._title_left = "📥 待轉 Word"
+            self._title_right = "📤 已轉 PDF"
         self._update_progress_var()
         self.status_var.set("開始處理…")
         self._render()
@@ -260,13 +277,13 @@ class PacManAnimator(tk.Frame):
         c.create_line(20, line_y, w - 20, line_y,
                       fill="#2c3e50", width=1)
 
-        # 標題:左「待轉 Word」、右「已轉 PDF」
+        # 標題(動態,跟 output_icon 同步)
         c.create_text(20, 18,
-                      text="📥 待處理",
+                      text=self._title_left,
                       anchor="w", fill="#7fc4e6",
                       font=("Microsoft JhengHei UI", 13, "bold"))
         c.create_text(w - 20, 18,
-                      text="📤 已完成",
+                      text=self._title_right,
                       anchor="e", fill="#e88989",
                       font=("Microsoft JhengHei UI", 13, "bold"))
 
@@ -290,34 +307,52 @@ class PacManAnimator(tk.Frame):
                                 anchor="n")
 
     def _render_queue_right(self, cx: int, cy: int):
-        """右側 PDF 隊列。剛吐出的貼近 Pac-Man。"""
+        """右側「已完成」隊列。剛吐出的貼近 Pac-Man。
+        圖示依 self._output_icon_key 切換 word/pdf。
+        """
         c = self.canvas
-        pdf_img = self._assets.get("icon_pdf")
+        out_img = (self._assets.get(self._output_icon_key)
+                    or self._assets.get("icon_pdf"))
+        is_word = (self._output_icon_key == "icon_word")
         gap = self.PACMAN_SIZE // 2 + 26
         for i, name in enumerate(self.queue_out):
             x = cx + gap + i * self.DOC_SPACING
             w = c.winfo_width()
             if x > w - 30:
                 break
-            if pdf_img:
-                c.create_image(x, cy, image=pdf_img)
+            if out_img:
+                c.create_image(x, cy, image=out_img)
             else:
+                # fallback rectangle
+                fill = "#2B579A" if is_word else "#E53935"
+                outline = "#52b3e2" if is_word else "#ff6e6e"
+                text = "W" if is_word else "PDF"
                 c.create_rectangle(x - 22, cy - 22, x + 22, cy + 22,
-                                   fill="#E53935", outline="#ff6e6e")
-                c.create_text(x, cy, text="PDF", fill="#fff",
-                              font=("Microsoft JhengHei UI", 9, "bold"))
+                                   fill=fill, outline=outline)
+                c.create_text(x, cy, text=text, fill="#fff",
+                              font=("Microsoft JhengHei UI",
+                                    12 if is_word else 9, "bold"))
             self._draw_filename(x, cy + self.DOC_SIZE // 2 + 12, name,
                                 anchor="n")
 
     def _draw_filename(self, x: int, y: int, name: str, anchor: str = "n"):
         if not name:
             return
-        # 圖示下方只顯示「姓名」(檔名通常是 {姓名}_明細領據_{類別}.pdf,
-        # 取第一段就好,完整檔名留給底部狀態列)
+        # 圖示下方的標籤策略:
+        #  - 檔名類(有 .docx/.pdf 副檔名 + 底線分段)→ 取第一段(通常是姓名)
+        #  - 純文字標籤(例如「處方費領據」)→ 直接顯示
+        # 短的不截、長的最多顯示 9 個字
         stem = os.path.splitext(name)[0]
-        display = stem.split("_")[0] if "_" in stem else stem
-        if len(display) > 6:
-            display = display[:5] + "…"
+        if "_" in stem and stem.endswith(("docx", "pdf")) is False:
+            # 檔名格式:取姓名(第一段)
+            display = stem.split("_")[0]
+        else:
+            display = stem
+        # 純文字檔名(沒副檔名)— 例如 "處方費領據"
+        if "." not in name and "_" not in name:
+            display = name
+        if len(display) > 9:
+            display = display[:8] + "…"
         self.canvas.create_text(
             x, y, text=display, anchor=anchor,
             fill="#dde6ed",
