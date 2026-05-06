@@ -44,6 +44,34 @@ def alpha_key_dark(img: Image.Image, threshold: int = 28,
     return img
 
 
+def alpha_key_white(img: Image.Image, threshold: int = 235,
+                     soft_band: int = 20) -> Image.Image:
+    """把白底/淺色背景的像素 alpha 化為透明。
+
+    判斷準則:R/G/B 三色都高於 threshold (灰白色)就視為背景。
+    threshold ~ threshold-soft_band 之間做漸進透明,讓邊緣不留鋸齒。
+    用於處理 ChatGPT 把透明 checker pattern 烘焙成不透明白色像素的圖。
+    """
+    img = img.convert("RGBA")
+    px = img.load()
+    w, h = img.size
+    low = threshold - soft_band
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            min_rgb = min(r, g, b)
+            max_rgb = max(r, g, b)
+            # 必須是「高亮度且接近灰色」(飽和度低)才當背景
+            if min_rgb >= threshold and (max_rgb - min_rgb) < 25:
+                px[x, y] = (r, g, b, 0)
+            elif min_rgb >= low and (max_rgb - min_rgb) < 25:
+                # 漸進透明
+                ratio = 1.0 - (min_rgb - low) / soft_band
+                new_a = int(a * ratio)
+                px[x, y] = (r, g, b, new_a)
+    return img
+
+
 def trim_transparent(img: Image.Image, padding: int = 4) -> Image.Image:
     """裁掉四周完全透明的邊距,留 padding 像素的緩衝。"""
     img = img.convert("RGBA")
@@ -72,9 +100,12 @@ def fit_square(img: Image.Image, size: int) -> Image.Image:
 
 def process(src_name: str, dst_name: str, *,
              remove_dark: bool = False,
+             remove_white: bool = False,
              size: int = 128,
              dark_threshold: int = 28,
-             dark_soft: int = 24) -> None:
+             dark_soft: int = 24,
+             white_threshold: int = 235,
+             white_soft: int = 20) -> None:
     src_path = os.path.join(SRC, src_name)
     dst_path = os.path.join(DST, dst_name)
     if not os.path.exists(src_path):
@@ -84,34 +115,37 @@ def process(src_name: str, dst_name: str, *,
     if remove_dark:
         img = alpha_key_dark(img, threshold=dark_threshold,
                              soft_band=dark_soft)
+    if remove_white:
+        img = alpha_key_white(img, threshold=white_threshold,
+                              soft_band=white_soft)
     img = trim_transparent(img, padding=2)
     img = fit_square(img, size)
     img.save(dst_path, "PNG")
-    print(f"  [OK] {src_name} → {dst_name} ({size}x{size})")
+    flags = []
+    if remove_dark:
+        flags.append("去黑")
+    if remove_white:
+        flags.append("去白")
+    flag_str = f" [{'+'.join(flags)}]" if flags else ""
+    print(f"  [OK] {src_name} → {dst_name} ({size}x{size}){flag_str}")
 
 
-def crop_ghost_trio() -> None:
-    """三鬼合圖切成個別。圖大致是「上紅、下左藍、下右白」配置。"""
+def crop_ghost_blue_from_trio() -> None:
+    """從三鬼合圖切藍鬼(紅鬼用單獨那張更乾淨,白鬼跟白底分不開放棄)。"""
     src_path = os.path.join(SRC, "ghosts_trio_raw.png")
     if not os.path.exists(src_path):
         print(f"  [skip] ghosts_trio_raw.png 不存在")
         return
     img = Image.open(src_path).convert("RGBA")
     w, h = img.size
-
-    # 紅(上半中央)、藍(下半左)、白(下半右)
-    # 給寬鬆框,後面的 trim_transparent 會貼齊
-    boxes = {
-        "ghost_red.png": (w // 4, 0, 3 * w // 4, h // 2 + 20),
-        "ghost_blue.png": (0, h // 2 - 20, w // 2 + 10, h),
-        "ghost_white.png": (w // 2 - 10, h // 2 - 20, w, h),
-    }
-    for name, box in boxes.items():
-        sub = img.crop(box)
-        sub = trim_transparent(sub, padding=4)
-        sub = fit_square(sub, 128)
-        sub.save(os.path.join(DST, name), "PNG")
-        print(f"  [OK] ghosts_trio_raw.png → {name} (128x128)")
+    # 藍鬼在下半左
+    blue_box = (0, h // 2 - 20, w // 2 + 10, h)
+    sub = img.crop(blue_box)
+    sub = alpha_key_white(sub, threshold=235, soft_band=20)
+    sub = trim_transparent(sub, padding=4)
+    sub = fit_square(sub, 128)
+    sub.save(os.path.join(DST, "ghost_blue.png"), "PNG")
+    print(f"  [OK] ghosts_trio_raw.png → ghost_blue.png (128x128) [去白+裁]")
 
 
 def main():
@@ -126,26 +160,26 @@ def main():
     process("pacman_close_raw.png", "pacman_close.png",
             remove_dark=True, size=128, dark_threshold=22, dark_soft=20)
 
-    print("\n圖示 (Word 去黑底、PDF 已透明)")
+    print("\n圖示 (Word 去黑底、PDF 去白底 ChatGPT checker)")
     process("icon_word_raw.png", "icon_word.png",
             remove_dark=True, size=96, dark_threshold=22, dark_soft=20)
     process("icon_pdf_raw.png", "icon_pdf.png",
-            remove_dark=False, size=96)
+            remove_white=True, size=96)
 
-    print("\n鬼魂 (單獨紅鬼直接用,三鬼圖切藍/白)")
-    # 用 ChatGPT 多生的單獨紅鬼,品質比從三鬼裁切更好
+    print("\n鬼魂 (紅鬼用獨立那張、藍鬼從三鬼切+去白底,白鬼放棄)")
     process("ghost_red_raw.png", "ghost_red.png",
-            remove_dark=False, size=128)
-    crop_ghost_trio()
-    # crop_ghost_trio 也產出 ghost_red.png 但會被前一行覆蓋
-    # 重做,讓單獨紅鬼是最終版
-    process("ghost_red_raw.png", "ghost_red.png",
-            remove_dark=False, size=128)
+            remove_white=True, size=128)
+    crop_ghost_blue_from_trio()
 
-    print("\n閃光特效")
-    # sparkle 圖底部有些雜訊區塊,需要去掉
+    print("\n閃光特效 (去黑底)")
     process("sparkle_raw.png", "sparkle.png",
             remove_dark=True, size=96, dark_threshold=28, dark_soft=20)
+
+    # 確認沒留下舊的 ghost_white
+    old = os.path.join(DST, "ghost_white.png")
+    if os.path.exists(old):
+        os.remove(old)
+        print(f"  [刪除] 舊的 ghost_white.png(白鬼跟白底分不開,放棄)")
 
     print("\n全部完成")
 

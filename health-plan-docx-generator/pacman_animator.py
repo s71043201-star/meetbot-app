@@ -55,16 +55,16 @@ class PacManAnimator(tk.Frame):
     PANEL_BG = "#1a2332"     # 內框背景
     BORDER = "#2c3e50"
 
-    PACMAN_SIZE = 80
-    DOC_SIZE = 56
-    DOC_SPACING = 64
-    SPARKLE_SIZE = 56
+    PACMAN_SIZE = 88
+    DOC_SIZE = 60
+    DOC_SPACING = 88        # 加大讓檔名(姓名)能完整顯示
+    SPARKLE_SIZE = 60
 
-    HEIGHT = 240             # 整個面板高
-    LANE_Y_OFFSET = 70       # 兩條跑道距頂端
+    HEIGHT = 260             # 整個面板高(加大讓字夠空間)
+    LANE_Y_OFFSET = 76       # 兩條跑道距頂端
     PACMAN_X = 0             # 由 _layout() 計算
 
-    MAX_QUEUE_VISIBLE = 6    # 左右各最多顯示幾個檔案
+    MAX_QUEUE_VISIBLE = 5    # 左右各最多顯示幾個檔案(配合放大字體)
 
     def __init__(self, master, **kwargs):
         super().__init__(master, bg=self.BG, **kwargs)
@@ -89,11 +89,11 @@ class PacManAnimator(tk.Frame):
         bottom.pack(fill="x", padx=12, pady=(2, 10))
         tk.Label(bottom, textvariable=self.status_var,
                  bg=self.PANEL_BG, fg="#52b3e2",
-                 font=("Microsoft JhengHei UI", 11, "bold"),
+                 font=("Microsoft JhengHei UI", 14, "bold"),
                  anchor="w").pack(side="left")
         tk.Label(bottom, textvariable=self.progress_var,
                  bg=self.PANEL_BG, fg="#a0aec0",
-                 font=("Microsoft JhengHei UI", 11),
+                 font=("Microsoft JhengHei UI", 13),
                  anchor="e").pack(side="right")
 
         # 載入素材
@@ -261,14 +261,14 @@ class PacManAnimator(tk.Frame):
                       fill="#2c3e50", width=1)
 
         # 標題:左「待轉 Word」、右「已轉 PDF」
-        c.create_text(20, 16,
-                      text="📥 待轉 Word",
+        c.create_text(20, 18,
+                      text="📥 待處理",
                       anchor="w", fill="#7fc4e6",
-                      font=("Microsoft JhengHei UI", 11, "bold"))
-        c.create_text(w - 20, 16,
-                      text="📤 已轉 PDF",
+                      font=("Microsoft JhengHei UI", 13, "bold"))
+        c.create_text(w - 20, 18,
+                      text="📤 已完成",
                       anchor="e", fill="#e88989",
-                      font=("Microsoft JhengHei UI", 11, "bold"))
+                      font=("Microsoft JhengHei UI", 13, "bold"))
 
     def _render_queue_left(self, cx: int, cy: int):
         """左側 Word 隊列。最近的(下一個被吃)貼近 Pac-Man。"""
@@ -312,14 +312,16 @@ class PacManAnimator(tk.Frame):
     def _draw_filename(self, x: int, y: int, name: str, anchor: str = "n"):
         if not name:
             return
-        # 截短檔名顯示
-        display = name
-        if len(display) > 14:
-            display = display[:13] + "…"
+        # 圖示下方只顯示「姓名」(檔名通常是 {姓名}_明細領據_{類別}.pdf,
+        # 取第一段就好,完整檔名留給底部狀態列)
+        stem = os.path.splitext(name)[0]
+        display = stem.split("_")[0] if "_" in stem else stem
+        if len(display) > 6:
+            display = display[:5] + "…"
         self.canvas.create_text(
             x, y, text=display, anchor=anchor,
-            fill="#a0aec0",
-            font=("Microsoft JhengHei UI", 9))
+            fill="#dde6ed",
+            font=("Microsoft JhengHei UI", 12, "bold"))
 
     # ─── 狀態文字 ───
     def _format_status(self, in_name: str, out_name: str) -> str:

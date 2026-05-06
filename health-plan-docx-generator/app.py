@@ -104,7 +104,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
                      font=ctk.CTkFont(size=26, weight="bold"),
                      text_color="#3498db").pack(side="left")
-        ctk.CTkLabel(title_inner, text="  v35",
+        ctk.CTkLabel(title_inner, text="  v36",
                      font=ctk.CTkFont(family=MONO_FONT, size=13),
                      text_color="#52b3e2").pack(side="left", padx=(10, 0))
         ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
@@ -1326,11 +1326,26 @@ class App(ctk.CTk):
 
         steps_done = 0
 
+        # ── Pac-Man 動畫 Phase 1:Word 文件產生階段 ──
+        # 此時還不知道每份 docx 具體檔名,先用 step 編號當佔位,
+        # 主要目的是讓使用者看到 Pac-Man 在動、知道進度有在跑。
+        if self.pacman is not None:
+            self.after(0, lambda t=total_steps:
+                       self.pacman.start(t, [""] * t))
+            self.after(0, lambda: self.pacman.set_label(
+                "Step 1/2:產生 Word 文件中…"))
+
         def step_cb():
             nonlocal steps_done
             steps_done += 1
             self.after(0, lambda: self.progress.set(
                 0.1 + 0.85 * steps_done / total_steps))
+            # 每完成一階段就餵 Pac-Man 一口
+            if self.pacman is not None:
+                self.after(0, lambda d=steps_done, t=total_steps:
+                           self.pacman.feed(
+                               in_name=f"Word_{d}.docx",
+                               out_name=f"完成 {d}/{t}"))
 
         # ── 逐 scope 產出 ──
         all_pending_docx: list[str] = []
@@ -1381,11 +1396,14 @@ class App(ctk.CTk):
             self.after(0, lambda: self._log(
                 f"\n批次轉換 {total_pdf} 份 Word → PDF（共用一個 Word 程序）..."))
 
-            # Pac-Man 動畫:預先把所有待轉檔名餵進去,讓左側隊列可以看到接下來要吃的
+            # ── Pac-Man 動畫 Phase 2:Word → PDF 批次轉檔 ──
+            # 重新啟動 Pac-Man,清空 Phase 1 的 placeholder,改用真實檔名
             todo_basenames = [os.path.basename(p) for p in all_pending_docx]
             if self.pacman is not None:
                 self.after(0, lambda t=total_pdf, names=todo_basenames:
                            self.pacman.start(t, names))
+                self.after(0, lambda: self.pacman.set_label(
+                    "Step 2/2:Word → PDF 轉檔中…"))
 
             def _pdf_progress(done, total, name):
                 # 每一份都餵 Pac-Man(每 ~150ms 一次,順)
