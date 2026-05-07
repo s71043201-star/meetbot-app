@@ -256,7 +256,7 @@ def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
     docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir)
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pypdf import PdfWriter as PdfMerger
     except ImportError:
         return
 
@@ -449,7 +449,7 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
     docx_info tuple: (person, detail_docx, receipt_docx)
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pypdf import PdfWriter as PdfMerger
     except ImportError:
         return
 
@@ -696,7 +696,7 @@ def _merge_docx_to_pdf(docx_paths: list, output_dir: str, name: str):
     """將多份 docx 轉成 PDF 後合併"""
     try:
         import win32com.client
-        import PyPDF2
+        import pypdf
     except ImportError:
         return
 
@@ -718,7 +718,7 @@ def _merge_docx_to_pdf(docx_paths: list, output_dir: str, name: str):
 
     if len(pdf_paths) >= 2:
         merged_path = os.path.join(output_dir, f"{name}_領據合併.pdf")
-        merger = PyPDF2.PdfMerger()
+        merger = pypdf.PdfWriter()
         for p in pdf_paths:
             merger.append(p)
         merger.write(merged_path)
@@ -864,7 +864,7 @@ def merge_executor_pdfs(docx_info, receipt_dir):
     docx_info tuple: (name, ptype, detail_docx, receipt_docx)
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pypdf import PdfWriter as PdfMerger
     except ImportError:
         return
 

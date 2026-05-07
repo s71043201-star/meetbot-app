@@ -1,0 +1,36 @@
+@echo off
+REM ─────────────────────────────────────────────────────────────
+REM  核銷文件產生器 v39  快速啟動
+REM
+REM  第一次跑：請先雙擊 install.bat 安裝套件
+REM  之後就點這支 start.bat 即可
+REM ─────────────────────────────────────────────────────────────
+
+cd /d "%~dp0"
+
+REM 偵測 Python
+where py >nul 2>nul
+if %errorlevel%==0 (
+    py app_webview.py
+    goto :end
+)
+
+where python >nul 2>nul
+if %errorlevel%==0 (
+    python app_webview.py
+    goto :end
+)
+
+echo.
+echo [錯誤] 找不到 Python，請先到 https://www.python.org/ 下載安裝
+echo        安裝時務必勾選 "Add Python to PATH"
+echo.
+pause
+exit /b 1
+
+:end
+if errorlevel 1 (
+    echo.
+    echo [程式異常結束]
+    pause
+)

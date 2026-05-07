@@ -1,0 +1,26 @@
+# 核銷文件產生器 v39 (pywebview 版)
+# Python >= 3.10 建議
+
+# Web 介面框架（HTML 內嵌視窗）
+pywebview>=5.0
+
+# 讀寫 Excel
+openpyxl>=3.1
+
+# 讀寫 Word
+python-docx>=1.0
+
+# Word → PDF（Windows 需要 Microsoft Word）
+docx2pdf>=0.1.8
+
+# 合併 PDF（pypdf 是 PyPDF2 的後繼版，新版 Python 上更穩）
+pypdf>=4.0
+
+# 影像處理（icon 等）
+Pillow>=10.0
+
+# Windows COM（pywebview 的 Edge WebView2 後端依賴）
+pywin32>=306
+
+# 打包成 .exe
+pyinstaller>=6.0

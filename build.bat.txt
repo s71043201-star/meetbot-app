@@ -1,0 +1,30 @@
+@echo off
+REM ─────────────────────────────────────────────────────────────
+REM  打包成 .exe（onefile 單檔）
+REM
+REM  使用前請確認已執行 install.bat 安裝所有套件
+REM  輸出位置：dist\核銷文件產生器_v39.exe
+REM ─────────────────────────────────────────────────────────────
+
+cd /d "%~dp0"
+
+echo.
+echo === 清理舊檔 ===
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
+
+echo.
+echo === 開始打包（5~10 分鐘）===
+py -m PyInstaller "核銷文件產生器_v39.spec" --noconfirm
+
+echo.
+if exist "dist\核銷文件產生器_v39.exe" (
+    echo === 打包成功！===
+    echo 檔案位置：dist\核銷文件產生器_v39.exe
+    explorer dist
+) else (
+    echo === 打包失敗，請檢查上方訊息 ===
+)
+
+echo.
+pause

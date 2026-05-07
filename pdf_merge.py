@@ -32,7 +32,7 @@ def docx_to_pdf_batch(docx_paths: list[str], pdf_paths: list[str]):
 
 def merge_pdfs(pdf_paths: list[str], output_path: str):
     """合併多個 PDF 為一個"""
-    from PyPDF2 import PdfMerger
+    from pypdf import PdfWriter as PdfMerger
     merger = PdfMerger()
     for path in pdf_paths:
         merger.append(path)

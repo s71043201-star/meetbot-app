@@ -1,3 +1,21 @@
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
-.env
+dist/
+*.egg-info/
+
+# 個資 / 測試輸出（不要推到公開 repo）
+人員個資.xlsx
+診所分區.xlsx
+核銷文件/
+*.bak.xlsx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
