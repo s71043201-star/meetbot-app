@@ -84,6 +84,8 @@ const App = () => {
   const [cloudPwInput, setCloudPwInput] = React.useState("");
   const [cloudPwErr, setCloudPwErr] = React.useState("");
   const [cloudBusy, setCloudBusy] = React.useState(false);
+  const [peopleFromCloud, setPeopleFromCloud] = React.useState(false);
+  const [regionsFromCloud, setRegionsFromCloud] = React.useState(false);
 
   // 拿到所有勾選旗標的 flat object
   const docFlags = React.useMemo(() => {
@@ -208,6 +210,7 @@ const App = () => {
       const r = await pywv.call("syncRegionsFromDrive");
       if (r && r.ok) {
         if (r.path) setRegionsDb(r.path);
+        setRegionsFromCloud(true);
         flash("✓ 診所分區已從雲端更新");
       } else {
         flash((r && r.message) || "雲端同步失敗", "err");
@@ -227,6 +230,7 @@ const App = () => {
         return;
       }
       setPeopleDb(r.path);
+      setPeopleFromCloud(true);
       flash("✓ 人員個資已從雲端帶入");
       setCloudPwModal(false);
       setCloudPwInput("");
@@ -327,7 +331,12 @@ const App = () => {
           )}
           {currentStep === 3 && (
             <div className="step-body">
-              <FileLine path={peopleDb} placeholder="尚未選擇個資檔" onPick={() => pickFile(setPeopleDb, "xlsx")} />
+              <FileLine
+                path={peopleDb}
+                placeholder="尚未選擇個資檔"
+                onPick={() => { setPeopleFromCloud(false); pickFile(setPeopleDb, "xlsx"); }}
+                badge={peopleFromCloud ? "☁ 雲端帶入" : null}
+              />
               <div className="actions">
                 <BtnAccent icon="☁" onClick={() => { setCloudPwErr(""); setCloudPwInput(""); setCloudPwModal(true); }}>從雲端帶入（需密碼）</BtnAccent>
                 <BtnGhost icon="＋" onClick={createPeopleTpl}>建立空白範本</BtnGhost>
@@ -339,7 +348,12 @@ const App = () => {
           )}
           {currentStep === 4 && (
             <div className="step-body">
-              <FileLine path={regionsDb} placeholder="尚未選擇分區檔" onPick={() => pickFile(setRegionsDb, "xlsx")} />
+              <FileLine
+                path={regionsDb}
+                placeholder="尚未選擇分區檔"
+                onPick={() => { setRegionsFromCloud(false); pickFile(setRegionsDb, "xlsx"); }}
+                badge={regionsFromCloud ? "☁ 雲端帶入" : null}
+              />
               <div className="actions">
                 <BtnAccent icon="☁" onClick={syncRegionsFromCloud}>從雲端帶入最新分區</BtnAccent>
                 <BtnGhost icon="＋" onClick={createRegionsTpl}>建立空白範本</BtnGhost>
@@ -622,7 +636,7 @@ const FilePicker = ({ label, path, hint, onPick, onClear, required }) => {
   );
 };
 
-const FileLine = ({ path, placeholder, onPick, folder }) => {
+const FileLine = ({ path, placeholder, onPick, folder, badge }) => {
   const filename = path ? path.split(/[\\/]/).pop() : "";
   const dir = path ? path.replace(/[\\/][^\\/]*$/, "") : "";
   return (
@@ -630,6 +644,13 @@ const FileLine = ({ path, placeholder, onPick, folder }) => {
       <span className="fl-dot"></span>
       <span className="fl-content">
         <span className="mono small fl-name-anim">{filename || placeholder}</span>
+        {badge && (
+          <span style={{
+            marginLeft: 8, padding: "2px 8px", fontSize: 11,
+            background: "#E8F5E9", color: "#2E7D32",
+            borderRadius: 10, fontWeight: 600, letterSpacing: "0.04em",
+          }}>{badge}</span>
+        )}
         {dir && <span className="mono small dim fl-path"> · {dir}</span>}
       </span>
       <span className="fl-action">{folder ? "選擇資料夾" : "變更"} →</span>
