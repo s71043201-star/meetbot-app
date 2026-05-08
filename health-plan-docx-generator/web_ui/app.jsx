@@ -401,10 +401,18 @@ const App = () => {
 
 // 🔒 雲端帶入個資 — 密碼框
 const CloudPasswordModal = ({ value, err, busy, onChange, onClose, onSubmit }) => (
-  <div className="modal-backdrop" onClick={onClose}>
-    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-      <div className="modal-title">🔒 從雲端帶入人員個資</div>
-      <p className="hint" style={{ margin: "0 0 14px" }}>
+  <div style={{
+    position: "fixed", inset: 0, background: "rgba(0,0,0,.4)",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
+  }} onClick={onClose}>
+    <div style={{
+      background: "#fff", borderRadius: 14, width: "min(440px, 92vw)",
+      padding: "24px 26px",
+      boxShadow: "0 20px 60px rgba(0,0,0,.25)",
+    }} onClick={(e) => e.stopPropagation()}>
+      <div className="mono small dim">CLOUD IMPORT</div>
+      <h3 style={{ margin: "4px 0 14px", fontSize: 20 }}>🔒 從雲端帶入人員個資</h3>
+      <p style={{ margin: "0 0 14px", fontSize: 13, color: "#777" }}>
         個資檔需密碼才能從 Google Drive 下載，下載後會覆蓋本機快取。
       </p>
       <input
@@ -415,10 +423,10 @@ const CloudPasswordModal = ({ value, err, busy, onChange, onClose, onSubmit }) =
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !busy) onSubmit(); }}
         placeholder="輸入密碼"
-        style={{ width: "100%", padding: "10px 12px", border: "1px solid var(--line, #ddd)", borderRadius: 8, fontSize: 14 }}
+        style={{ width: "100%", padding: "10px 12px", border: "1px solid #DDD", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}
       />
       {err && (
-        <div style={{ marginTop: 10, color: "var(--danger, #c0392b)", fontSize: 13 }}>
+        <div style={{ marginTop: 10, color: "#C0392B", fontSize: 13 }}>
           ⚠ {err}
         </div>
       )}
