@@ -5,7 +5,5 @@
   "FEE_PER_TREATMENT": 400,
   "PEOPLE_DIVISOR": 4,
   "MIN_PRESCRIPTIONS_DEFAULT": 20,
-  "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing",
-  "PEOPLE_DB_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1z5fCNGC0AU9CTzLhVtD-mAueQGn473yU/edit?usp=sharing",
-  "PEOPLE_DB_PASSWORD": "tpma28917453"
+  "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing"
 }

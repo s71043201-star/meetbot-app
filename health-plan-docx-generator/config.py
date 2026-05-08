@@ -2,11 +2,15 @@
 
 執行時順序:
   1. 先載入本檔預設值
-  2. 若 exe 同目錄下有 config.json,以 JSON 內容覆蓋
-     (PyInstaller onefile: exe 所在目錄 = sys.executable 的 parent,
-      開發模式: 當前工作目錄)
+  2. 若 exe 同目錄下有 config.json,以 JSON 內容覆蓋（公開設定）
+  3. 若 exe 同目錄下有 secrets.json,再以其內容覆蓋（私密設定，
+     不入 git；用於 Google Drive URL、密碼等敏感值）
+
+   PyInstaller onefile: exe 所在目錄 = sys.executable 的 parent,
+   開發模式: 當前工作目錄
 
 未來法規或費用調整 → 改 config.json 即可,不用重打包 exe。
+雲端 URL / 密碼變更 → 改 secrets.json，不會被 push 到 GitHub。
 """
 from __future__ import annotations
 
@@ -27,38 +31,50 @@ _DEFAULTS: dict = {
     "PEOPLE_DIVISOR": 4,
     # UI「健管費最低份數」欄位預設值
     "MIN_PRESCRIPTIONS_DEFAULT": 20,
-    # Google Drive 同步：診所分區（啟動時自動拉，無密碼）
+    # Google Drive 同步：診所分區（公開設定，非個資）
     "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing",
-    # Google Drive 同步：人員個資（按按鈕後輸入密碼才拉）
-    "PEOPLE_DB_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1z5fCNGC0AU9CTzLhVtD-mAueQGn473yU/edit?usp=sharing",
-    "PEOPLE_DB_PASSWORD": "tpma28917453",
+    # 以下為敏感值，預設留空；實際值放 secrets.json（不入 git）
+    "PEOPLE_DB_DRIVE_URL": "",
+    "PEOPLE_DB_PASSWORD": "",
 }
 
 
-def _external_config_path() -> Path:
-    """決定 config.json 擺在哪。
+def _external_dir() -> Path:
+    """決定 config.json / secrets.json 擺在哪。
     PyInstaller onefile: exe 解壓後 sys.executable 指向真正 exe 路徑。
-    開發模式: sys.executable 是 python.exe,用 app.py 所在處。
+    開發模式: sys.executable 是 python.exe,用 config.py 所在處。
     """
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent / "config.json"
-    return Path(__file__).resolve().parent / "config.json"
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent
+
+
+def _external_config_path() -> Path:
+    return _external_dir() / "config.json"
+
+
+def _external_secrets_path() -> Path:
+    return _external_dir() / "secrets.json"
+
+
+def _load_overrides(path: Path, cfg: dict) -> None:
+    """把 path 的 JSON 內容覆蓋到 cfg；只接受已知 keys。靜默失敗。"""
+    if not path.is_file():
+        return
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        for k, v in data.items():
+            if k in _DEFAULTS:
+                cfg[k] = v
+    except (OSError, json.JSONDecodeError):
+        pass
 
 
 def _load() -> dict:
     cfg = dict(_DEFAULTS)
-    p = _external_config_path()
-    if p.is_file():
-        try:
-            with p.open("r", encoding="utf-8") as f:
-                overrides = json.load(f)
-            # 僅接受已知的 key,避免打錯字導致靜默失敗
-            for k, v in overrides.items():
-                if k in _DEFAULTS:
-                    cfg[k] = v
-        except (OSError, json.JSONDecodeError):
-            # 讀取失敗就用預設,不中斷程式
-            pass
+    _load_overrides(_external_config_path(), cfg)
+    _load_overrides(_external_secrets_path(), cfg)
     return cfg
 
 
@@ -77,5 +93,9 @@ PEOPLE_DB_PASSWORD: str = _CFG["PEOPLE_DB_PASSWORD"]
 
 def config_source() -> str:
     """回傳目前設定從哪裡來(供 log / debug 顯示)。"""
-    p = _external_config_path()
-    return str(p) if p.is_file() else "(defaults)"
+    parts = []
+    cp = _external_config_path()
+    sp = _external_secrets_path()
+    parts.append(str(cp) if cp.is_file() else "(no config.json)")
+    parts.append(str(sp) if sp.is_file() else "(no secrets.json)")
+    return " + ".join(parts)
