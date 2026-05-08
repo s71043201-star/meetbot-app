@@ -208,13 +208,19 @@ const App = () => {
     setCloudBusy(true);
     try {
       const r = await pywv.call("syncPeopleFromDrive", cloudPwInput);
-      if (!r || !r.ok) { setCloudPwErr(r?.message || "帶入失敗"); return; }
+      if (!r || !r.ok) {
+        setCloudPwErr((r && r.message) || "帶入失敗");
+        return;
+      }
       setPeopleDb(r.path);
-      flash(`✓ 人員個資已從雲端帶入`);
+      flash("✓ 人員個資已從雲端帶入");
       setCloudPwModal(false);
       setCloudPwInput("");
-    } catch (e) { setCloudPwErr(e.message || "帶入失敗"); }
-    finally { setCloudBusy(false); }
+    } catch (e) {
+      setCloudPwErr((e && e.message) || "帶入失敗");
+    } finally {
+      setCloudBusy(false);
+    }
   };
 
   const openClinicPicker = async () => {
