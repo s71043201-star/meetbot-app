@@ -512,7 +512,7 @@ class JsApi:
             if r:
                 hd, hrd = r
                 h_info = (hd, hrd)
-                for _, dd, rr in hd:
+                for _, dd, rr, _ in hd:
                     for p in (dd, rr):
                         if p: all_p.append(p)
             _log(f"[{label}] 診所個人文件")
@@ -535,7 +535,7 @@ class JsApi:
             if r:
                 ed, erd = r
                 e_info = (ed, erd)
-                for _, _, dd, rr in ed:
+                for _, _, dd, rr, _ in ed:
                     for p in (dd, rr):
                         if p: all_p.append(p)
             _log(f"[{label}] 老師個人文件")

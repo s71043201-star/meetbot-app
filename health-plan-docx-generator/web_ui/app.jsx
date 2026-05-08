@@ -372,7 +372,14 @@ const App = () => {
             <div className="step-body">
               <FileLine path={output} placeholder="尚未選擇輸出資料夾" onPick={() => pickFolder(setOutput)} folder />
               <div className="actions">
-                <BtnGhost icon="📂" onClick={() => output && pywv.call("openFile", output)}>開啟資料夾</BtnGhost>
+                <BtnGhost icon="📂" onClick={async () => {
+                  if (!output) { flash("請先選擇輸出資料夾", "err"); return; }
+                  try {
+                    const exists = await pywv.call("fileExists", output);
+                    if (!exists) { flash("資料夾不存在或尚未建立", "err"); return; }
+                    await pywv.call("openFile", output);
+                  } catch (e) { flash((e && e.message) || "開啟失敗", "err"); }
+                }}>開啟資料夾</BtnGhost>
                 <span className="hint">最終 Word/PDF/Excel 會放在這個資料夾下，依年月分組</span>
               </div>
               <div style={{ marginTop: 18 }}>
