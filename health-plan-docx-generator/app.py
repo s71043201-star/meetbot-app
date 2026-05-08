@@ -1,4 +1,10 @@
-"""健康台灣深耕計畫 — Word 核銷文件產生器（桌面 GUI 版）"""
+"""健康台灣深耕計畫 — Word 核銷文件產生器（桌面 GUI 版 v38 — Stepper UI）
+
+v37 → v38 改動範圍：
+- UI 全面重做為 Stepper 逐步流程（6 步 + 底部 sticky bar）
+- 視覺升級：新色彩體系、字體層級、卡片化、中強度動畫
+- 業務邏輯（_on_generate、_do_generate、Gmail 寄送…）完全保留
+"""
 
 import os
 import sys
@@ -42,6 +48,11 @@ from email_sender import build_email_jobs
 from email_preview import EmailPreviewWindow
 import regions as regions_mod
 
+from ui_stepper import (
+    StepperHeader, StepperContainer,
+    roll_number, animate_height, COLORS,
+)
+
 
 # 偵測執行位置（exe 打包後用 sys.executable，開發時用 __file__）
 if getattr(sys, "frozen", False):
@@ -59,10 +70,10 @@ DEFAULT_TEMPLATES = {
     "health_mgmt": os.path.join(TEMPLATE_DIR, "健康管理費_template.docx"),
 }
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("dark-blue")
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
 
-# 全域字型:Windows 下中文友善 + 較清晰的字級
+# 全域字型
 try:
     ctk.ThemeManager.theme["CTkFont"]["family"] = "Microsoft JhengHei UI"
     ctk.ThemeManager.theme["CTkFont"]["size"] = 13
@@ -71,158 +82,497 @@ except Exception:
     pass
 
 UI_FONT = "Microsoft JhengHei UI"
-MONO_FONT = "Cascadia Mono"  # Windows 11 內建,比 Consolas 清晰
+MONO_FONT = "Cascadia Mono"
+
+
+# ──────────────────────────────────────────────────────────
+# 6 步定義（label, validator method name）
+# ──────────────────────────────────────────────────────────
+STEPS = [
+    ("匯入", "_validate_step_import"),
+    ("申報", "_validate_step_settings"),
+    ("文件", "_validate_step_outputs"),
+    ("人員", "_validate_step_people"),
+    ("分區", "_validate_step_regions"),
+    ("輸出", "_validate_step_output"),
+]
 
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("⚡ 健康台灣深耕計畫 — 核銷文件產生器")
-        self.geometry("820x820")
-        self.minsize(740, 640)
-        self.configure(fg_color="#0f1419")  # 深色背景
+        self.title("⚡ 核銷文件產生器  v40")
+        self.geometry("960x780")
+        self.minsize(880, 680)
+        self.configure(fg_color=COLORS["bg"])
 
-        # 進階篩選:勾選要產生的診所(None = 全部,維持預設行為)
+        # 進階篩選：勾選要產生的診所
         self._selected_clinics: set[str] | None = None
 
+        # 產生後狀態
+        self._last_month_dir: str | None = None
+        self._last_receipt_lookup: dict = {}
+        self._last_year: int | None = None
+        self._last_month: int | None = None
+
+        # log 展開狀態
+        self._log_expanded = False
+
+        # 初始化所有 var
+        self._init_vars()
+
+        # 建構 UI
         self._build_ui()
 
-    def _build_ui(self):
-        # Scrollable main frame(深色科技風)
-        main = ctk.CTkScrollableFrame(
-            self, fg_color="#0f1419",
-            scrollbar_button_color="#1f2933",
-            scrollbar_button_hover_color="#2c3e50")
-        main.pack(fill="both", expand=True, padx=18, pady=18)
+        # 預設顯示第 0 步
+        self.stepper_container.show(0)
+        self.stepper_header.set_current(0)
+        self._update_nav_buttons()
 
-        # ── 頂部標題 Banner ──
-        banner = ctk.CTkFrame(main, fg_color="#1a2332", corner_radius=12,
-                              border_width=1, border_color="#2c3e50")
-        banner.pack(fill="x", pady=(0, 15))
-        title_inner = ctk.CTkFrame(banner, fg_color="transparent")
-        title_inner.pack(padx=20, pady=14)
-        ctk.CTkLabel(title_inner, text="⚡  核銷文件產生器",
-                     font=ctk.CTkFont(size=26, weight="bold"),
-                     text_color="#3498db").pack(side="left")
-        ctk.CTkLabel(title_inner, text="  v37",
-                     font=ctk.CTkFont(family=MONO_FONT, size=13),
-                     text_color="#52b3e2").pack(side="left", padx=(10, 0))
-        ctk.CTkLabel(banner, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
-                     font=ctk.CTkFont(size=12),
-                     text_color="#a0aec0").pack(pady=(0, 12))
-
-        # ── 資料來源 ──
-        self._section_label(main, "1. 匯入處方紀錄（分開立/執行兩份，以便跨月核銷）")
-
-        # 開立處方紀錄（處方費 + 健康管理費）
-        frame_src = ctk.CTkFrame(main, fg_color="transparent")
-        frame_src.pack(fill="x", pady=(0, 4))
-        ctk.CTkLabel(frame_src, text="開立", width=40).pack(side="left")
-        self.var_excel = ctk.StringVar()
-        ctk.CTkEntry(frame_src, textvariable=self.var_excel,
-                     placeholder_text="開立處方 Excel（處方費 + 健康管理費）...",
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(0, 8))
-        ctk.CTkButton(frame_src, text="選擇檔案", width=100, height=36,
-                      command=self._browse_excel).pack(side="right")
-
-        # 執行處方紀錄（處方執行費 + 處方處置費）
-        frame_src2 = ctk.CTkFrame(main, fg_color="transparent")
-        frame_src2.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(frame_src2, text="執行", width=40).pack(side="left")
-        self.var_exec_excel = ctk.StringVar()
-        ctk.CTkEntry(frame_src2, textvariable=self.var_exec_excel,
-                     placeholder_text="執行處方 Excel（處方執行費 + 處方處置費；留空則用開立檔）...",
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(0, 8))
-        ctk.CTkButton(frame_src2, text="選擇檔案", width=100, height=36,
-                      command=self._browse_exec_excel).pack(side="right")
-
-        # ── 申報設定 ──
-        self._section_label(main, "2. 申報設定")
-        frame_cfg = ctk.CTkFrame(main, corner_radius=10)
-        frame_cfg.pack(fill="x", pady=(0, 10))
-
+    # ──────────────────────────────────────────────────────
+    # 初始化所有變數（從 v37 抽出）
+    # ──────────────────────────────────────────────────────
+    def _init_vars(self):
         today = date.today()
         roc_year = today.year - 1911
 
-        row1 = ctk.CTkFrame(frame_cfg, fg_color="transparent")
-        row1.pack(fill="x", padx=15, pady=10)
+        # Step 1
+        self.var_excel = ctk.StringVar()
+        self.var_exec_excel = ctk.StringVar()
 
-        ctk.CTkLabel(row1, text="申報年度（民國）").pack(side="left")
+        # Step 2
         self.var_year = ctk.StringVar(value=str(roc_year))
-        ctk.CTkEntry(row1, textvariable=self.var_year, width=70,
-                     height=32).pack(side="left", padx=(5, 20))
-
-        ctk.CTkLabel(row1, text="申報月份").pack(side="left")
         self.var_month = ctk.StringVar(value=str(today.month))
-        month_menu = ctk.CTkOptionMenu(
-            row1, values=[str(i) for i in range(1, 13)],
-            variable=self.var_month, width=70, height=32)
-        month_menu.pack(side="left", padx=(5, 20))
-
-        ctk.CTkLabel(row1, text="分區").pack(side="left")
         self.var_region = ctk.StringVar(value="全部")
-        region_menu = ctk.CTkOptionMenu(
-            row1, values=["全部"] + list(regions_mod.REGION_NAMES),
-            variable=self.var_region, width=90, height=32,
-            command=self._on_region_changed)
-        region_menu.pack(side="left", padx=5)
-
-        # 第二列：每個分區的最低份數（選「全部」時全部顯示，否則只顯示單一分區）
-        row2 = ctk.CTkFrame(frame_cfg, fg_color="transparent")
-        row2.pack(fill="x", padx=15, pady=(3, 8))
-
-        self._min_label = ctk.CTkLabel(row2, text="健管費最低份數:")
-        self._min_label.pack(side="left")
-
-        # 以 region → StringVar 對應；"全部" scope 不單獨提供欄位（取各區獨立閾值）
         default_min = str(MIN_PRESCRIPTIONS_DEFAULT)
         self.var_min_by_region: dict[str, ctk.StringVar] = {
             r: ctk.StringVar(value=default_min) for r in regions_mod.REGION_NAMES
         }
-        # 每個分區對應一個 label + entry 的小元件組，依選擇顯示/隱藏
-        self._min_widgets: dict[str, list] = {}
-        for r in regions_mod.REGION_NAMES:
-            lbl = ctk.CTkLabel(row2, text=f"  {r}")
-            entry = ctk.CTkEntry(
-                row2, textvariable=self.var_min_by_region[r],
-                width=55, height=32)
-            lbl.pack(side="left")
-            entry.pack(side="left", padx=(3, 8))
-            self._min_widgets[r] = [lbl, entry]
 
-        ctk.CTkLabel(
-            row2,
-            text="(皆需為 4 的倍數;0 代表不過濾、顯示 X/XX)",
-            text_color="#a0aec0", font=ctk.CTkFont(size=12)
-        ).pack(side="left", padx=12)
-
-        # ── 產出選項 ──
-        self._section_label(main, "3. 選擇要產生的文件 (勾選 = 該資料夾才會產出)")
-        frame_opts = ctk.CTkFrame(main, corner_radius=10)
-        frame_opts.pack(fill="x", pady=(0, 10))
-
-        opts_inner = ctk.CTkFrame(frame_opts, fg_color="transparent")
-        opts_inner.pack(padx=15, pady=10, fill="x")
-
-        # ── 子變數(後端用) ──
-        # 醫師類
+        # Step 3 — 10 項勾選
         self.var_gen_doctor_presc_detail = ctk.BooleanVar(value=True)
         self.var_gen_doctor_exec_detail = ctk.BooleanVar(value=True)
         self.var_gen_doctor_receipt = ctk.BooleanVar(value=True)
         self.var_gen_doctor_summary = ctk.BooleanVar(value=True)
-        # 診所類(健康管理費)
         self.var_gen_health_detail = ctk.BooleanVar(value=True)
         self.var_gen_health_receipt = ctk.BooleanVar(value=True)
         self.var_gen_health_summary = ctk.BooleanVar(value=True)
-        # 課程老師類(處方處置費)
         self.var_gen_treatment_detail = ctk.BooleanVar(value=True)
         self.var_gen_treatment_receipt = ctk.BooleanVar(value=True)
         self.var_gen_treatment_summary = ctk.BooleanVar(value=True)
 
-        # ── 三大群組設定(主 toggle + 詳情視窗) ──
-        # items: (BooleanVar, 資料夾名稱, 簡短描述)
+        # Step 4
+        default_db = os.path.join(APP_DIR, "人員個資.xlsx")
+        self.var_people_db = ctk.StringVar(value=default_db)
+
+        # Step 5
+        default_rg = os.path.join(APP_DIR, "診所分區.xlsx")
+        self.var_regions_db = ctk.StringVar(value=default_rg)
+
+        # Step 6
+        self.var_output = ctk.StringVar(value=os.path.join(APP_DIR, "核銷文件"))
+
+        # Gmail（不在 stepper 內，但要保留）
+        self.var_sender_email = ctk.StringVar()
+
+    # ──────────────────────────────────────────────────────
+    # UI 主結構
+    # ──────────────────────────────────────────────────────
+    def _build_ui(self):
+        # ── 頂部 banner ──
+        banner = ctk.CTkFrame(
+            self, fg_color=COLORS["bg_card"], corner_radius=0,
+            height=64,
+            border_width=0)
+        banner.pack(fill="x", side="top")
+        banner.pack_propagate(False)
+
+        binner = ctk.CTkFrame(banner, fg_color="transparent")
+        binner.pack(fill="both", expand=True, padx=24, pady=12)
+
+        left = ctk.CTkFrame(binner, fg_color="transparent")
+        left.pack(side="left", fill="y")
+        ctk.CTkLabel(left, text="⚡  核銷文件產生器",
+                     font=ctk.CTkFont(size=30, weight="bold"),
+                     text_color=COLORS["accent"]).pack(side="left", anchor="w")
+        ctk.CTkLabel(left, text="  v40",
+                     font=ctk.CTkFont(family=MONO_FONT, size=12),
+                     text_color=COLORS["accent_hi"]).pack(
+                         side="left", padx=(6, 0), anchor="s", pady=(0, 4))
+
+        right = ctk.CTkFrame(binner, fg_color="transparent")
+        right.pack(side="right", fill="y")
+        ctk.CTkLabel(right, text="台北市醫師公會 ◆ 健康台灣深耕計畫",
+                     font=ctk.CTkFont(size=17),
+                     text_color=COLORS["text_dim"]).pack(side="right",
+                                                          anchor="e")
+
+        # 分隔線
+        sep = ctk.CTkFrame(self, fg_color=COLORS["border"], height=1)
+        sep.pack(fill="x", side="top")
+
+        # ── Stepper Header ──
+        header_wrap = ctk.CTkFrame(self, fg_color=COLORS["bg"], height=54)
+        header_wrap.pack(fill="x", side="top")
+        header_wrap.pack_propagate(False)
+
+        self.stepper_header = StepperHeader(
+            header_wrap,
+            steps=[s[0] for s in STEPS],
+            on_step_click=self._on_header_click,
+        )
+        self.stepper_header.pack(pady=10)
+
+        # ── Sticky bar（先建，固定底部）──
+        self._build_sticky_bar()
+
+        # ── Stepper Container（中間內容，fill=both expand=True）──
+        body_wrap = ctk.CTkFrame(self, fg_color=COLORS["bg"])
+        body_wrap.pack(fill="both", expand=True, side="top",
+                       padx=24, pady=(8, 8))
+
+        self.stepper_container = StepperContainer(body_wrap, n_steps=len(STEPS))
+        self.stepper_container.pack(fill="both", expand=True)
+
+        # 建立每一步內容
+        self._build_step_import(self.stepper_container.page(0))
+        self._build_step_settings(self.stepper_container.page(1))
+        self._build_step_outputs(self.stepper_container.page(2))
+        self._build_step_people(self.stepper_container.page(3))
+        self._build_step_regions(self.stepper_container.page(4))
+        self._build_step_output(self.stepper_container.page(5))
+
+    # ──────────────────────────────────────────────────────
+    # Sticky Bar（產生進度 + 上一步/下一步/產生/Gmail）
+    # ──────────────────────────────────────────────────────
+    def _build_sticky_bar(self):
+        bar = ctk.CTkFrame(
+            self, fg_color=COLORS["bg_card"], corner_radius=0,
+            border_width=0, height=128)
+        bar.pack(fill="x", side="bottom")
+        bar.pack_propagate(False)
+
+        # 上方分隔線
+        ctk.CTkFrame(bar, fg_color=COLORS["border"], height=1).pack(fill="x")
+
+        # ── 進度區（產生時顯示） ──
+        self.progress_wrap = ctk.CTkFrame(bar, fg_color="transparent")
+        # 預設不 pack；產生時才顯示
+
+        prog_row1 = ctk.CTkFrame(self.progress_wrap, fg_color="transparent")
+        prog_row1.pack(fill="x", padx=24, pady=(8, 2))
+
+        self.lbl_progress_status = ctk.CTkLabel(
+            prog_row1, text="準備中…",
+            font=ctk.CTkFont(size=17, weight="bold"),
+            text_color=COLORS["accent"], anchor="w")
+        self.lbl_progress_status.pack(side="left")
+
+        self.lbl_progress_pct = ctk.CTkLabel(
+            prog_row1, text="0%",
+            font=ctk.CTkFont(family=MONO_FONT, size=12, weight="bold"),
+            text_color=COLORS["accent"], anchor="e")
+        self.lbl_progress_pct.pack(side="right")
+
+        self.progress = ctk.CTkProgressBar(
+            self.progress_wrap, height=8,
+            progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_card_hi"])
+        self.progress.pack(fill="x", padx=24, pady=(2, 6))
+        self.progress.set(0)
+        self._last_progress_pct = 0
+
+        self.lbl_current_file = ctk.CTkLabel(
+            self.progress_wrap, text="",
+            font=ctk.CTkFont(family=MONO_FONT, size=11),
+            text_color=COLORS["text_dim"], anchor="w")
+        self.lbl_current_file.pack(fill="x", padx=24, pady=(2, 4))
+
+        # 顯示詳細記錄按鈕
+        self.btn_toggle_log = ctk.CTkButton(
+            self.progress_wrap, text="顯示詳細記錄 ▼", height=22, width=120,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text_dim"], border_width=0,
+            font=ctk.CTkFont(size=16),
+            command=self._toggle_log)
+        self.btn_toggle_log.pack(side="left", padx=(20, 0), pady=(0, 4),
+                                 anchor="w")
+
+        # ── 隱藏式 log（在 progress_wrap 內，預設高度 0） ──
+        self.log_frame = ctk.CTkFrame(
+            self.progress_wrap, fg_color=COLORS["bg"],
+            height=1, border_width=1, border_color=COLORS["border"])
+        # log_frame 預設不 pack，展開時才 pack
+
+        self.log = ctk.CTkTextbox(
+            self.log_frame, height=140,
+            font=ctk.CTkFont(family=MONO_FONT, size=10),
+            fg_color=COLORS["bg"], text_color=COLORS["text_dim"],
+            border_width=0)
+        self.log.pack(fill="both", expand=True, padx=2, pady=2)
+
+        # ── 按鈕區 ──
+        btn_row = ctk.CTkFrame(bar, fg_color="transparent")
+        btn_row.pack(fill="x", side="bottom", padx=24, pady=12)
+
+        # 左：上一步
+        self.btn_prev = ctk.CTkButton(
+            btn_row, text="← 上一步", height=46, width=110,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=18),
+            command=self._on_prev)
+        self.btn_prev.pack(side="left")
+
+        # 中間：步驟提示
+        self.lbl_step_hint = ctk.CTkLabel(
+            btn_row, text="",
+            font=ctk.CTkFont(size=17),
+            text_color=COLORS["text_dim"])
+        self.lbl_step_hint.pack(side="left", padx=16)
+
+        # 右：產生文件 / 下一步 / Gmail
+        right_btns = ctk.CTkFrame(btn_row, fg_color="transparent")
+        right_btns.pack(side="right")
+
+        self.btn_send_email = ctk.CTkButton(
+            right_btns, text="📧 預覽並寄送 Gmail", height=46, width=180,
+            fg_color=COLORS["success"], hover_color="#15803d",
+            text_color="white",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._on_open_email_preview)
+        self.btn_send_email.pack(side="right", padx=(12, 0))
+
+        # next / generate 兩顆共用同一格，依步驟切換顯示
+        # 注意 pack 順序：generate 要在 send_email **左邊**，所以先建立、後 pack（pack right 是堆右側）
+        self.btn_next = ctk.CTkButton(
+            right_btns, text="下一步 →", height=46, width=130,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            text_color="white",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._on_next)
+        self.btn_next.pack(side="right")
+
+        self.btn_generate = ctk.CTkButton(
+            right_btns, text="✨ 產 生 文 件", height=46, width=170,
+            fg_color="#16a34a", hover_color="#15803d",
+            text_color="white",
+            font=ctk.CTkFont(size=19, weight="bold"),
+            command=self._on_generate)
+        # 預設不 pack；最後一步才出現（pack 在 btn_next 的位置，btn_send_email 的左邊）
+
+    # ──────────────────────────────────────────────────────
+    # 共用工具
+    # ──────────────────────────────────────────────────────
+    def _section_title(self, parent, num, title, subtitle=""):
+        wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        wrap.pack(fill="x", pady=(8, 14))
+
+        row = ctk.CTkFrame(wrap, fg_color="transparent")
+        row.pack(fill="x")
+
+        # 大數字
+        ctk.CTkLabel(
+            row, text=str(num),
+            font=ctk.CTkFont(family=MONO_FONT, size=42, weight="bold"),
+            text_color=COLORS["accent"], width=56
+        ).pack(side="left", padx=(0, 14))
+
+        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True, anchor="w")
+        ctk.CTkLabel(
+            text_col, text=title,
+            font=ctk.CTkFont(size=30, weight="bold"),
+            text_color=COLORS["text"], anchor="w"
+        ).pack(fill="x", anchor="w")
+        if subtitle:
+            ctk.CTkLabel(
+                text_col, text=subtitle,
+                font=ctk.CTkFont(size=17),
+                text_color=COLORS["text_dim"], anchor="w"
+            ).pack(fill="x", anchor="w", pady=(2, 0))
+
+    def _card(self, parent, **kw):
+        return ctk.CTkFrame(
+            parent, fg_color=COLORS["bg_card"],
+            corner_radius=12,
+            border_width=1, border_color=COLORS["border"],
+            **kw,
+        )
+
+    def _field_label(self, parent, text):
+        return ctk.CTkLabel(
+            parent, text=text,
+            font=ctk.CTkFont(size=17, weight="bold"),
+            text_color=COLORS["text_dim"], anchor="w")
+
+    # ──────────────────────────────────────────────────────
+    # Step 1：匯入處方紀錄
+    # ──────────────────────────────────────────────────────
+    def _build_step_import(self, parent):
+        self._section_title(
+            parent, "01", "匯入處方紀錄",
+            "選擇本月的處方紀錄 Excel —— 開立檔與執行檔分開匯入，方便跨月核銷")
+
+        card = self._card(parent)
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=18)
+
+        # 開立
+        self._field_label(inner, "開立處方 Excel").pack(fill="x", anchor="w")
+        ctk.CTkLabel(
+            inner, text="處方費 + 健康管理費",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["text_muted"], anchor="w"
+        ).pack(fill="x", anchor="w", pady=(0, 6))
+
+        row1 = ctk.CTkFrame(inner, fg_color="transparent")
+        row1.pack(fill="x", pady=(0, 16))
+        ctk.CTkEntry(
+            row1, textvariable=self.var_excel,
+            placeholder_text="尚未選擇檔案…",
+            height=46, font=ctk.CTkFont(size=18),
+            border_width=1, border_color=COLORS["border"],
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            row1, text="選擇檔案", width=110, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._browse_excel
+        ).pack(side="right")
+
+        # 執行
+        self._field_label(inner, "執行處方 Excel").pack(fill="x", anchor="w")
+        ctk.CTkLabel(
+            inner, text="處方執行費 + 處方處置費；留空則用開立檔",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["text_muted"], anchor="w"
+        ).pack(fill="x", anchor="w", pady=(0, 6))
+
+        row2 = ctk.CTkFrame(inner, fg_color="transparent")
+        row2.pack(fill="x")
+        ctk.CTkEntry(
+            row2, textvariable=self.var_exec_excel,
+            placeholder_text="（選填）尚未選擇檔案…",
+            height=46, font=ctk.CTkFont(size=18),
+            border_width=1, border_color=COLORS["border"],
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            row2, text="選擇檔案", width=110, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._browse_exec_excel
+        ).pack(side="right")
+
+    # ──────────────────────────────────────────────────────
+    # Step 2：申報設定
+    # ──────────────────────────────────────────────────────
+    def _build_step_settings(self, parent):
+        self._section_title(
+            parent, "02", "申報設定",
+            "設定申報年月、要產出的分區，以及各區健康管理費的最低處方份數門檻")
+
+        card = self._card(parent)
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=18)
+
+        # Row 1：年月分區
+        row1 = ctk.CTkFrame(inner, fg_color="transparent")
+        row1.pack(fill="x", pady=(0, 16))
+
+        col_year = ctk.CTkFrame(row1, fg_color="transparent")
+        col_year.pack(side="left", padx=(0, 28))
+        self._field_label(col_year, "申報年度（民國）").pack(anchor="w")
+        ctk.CTkEntry(
+            col_year, textvariable=self.var_year, width=100, height=46,
+            font=ctk.CTkFont(family=MONO_FONT, size=14, weight="bold"),
+            justify="center",
+            border_width=1, border_color=COLORS["border"]
+        ).pack(pady=(4, 0))
+
+        col_m = ctk.CTkFrame(row1, fg_color="transparent")
+        col_m.pack(side="left", padx=(0, 28))
+        self._field_label(col_m, "申報月份").pack(anchor="w")
+        ctk.CTkOptionMenu(
+            col_m, values=[str(i) for i in range(1, 13)],
+            variable=self.var_month, width=100, height=46,
+            font=ctk.CTkFont(family=MONO_FONT, size=14, weight="bold"),
+            fg_color="#ffffff", text_color=COLORS["text"],
+            button_color="#1a1a1a",
+            button_hover_color="#404040",
+            dropdown_fg_color="#ffffff",
+            dropdown_text_color=COLORS["text"],
+            dropdown_hover_color="#f0f0ee",
+            corner_radius=6,
+        ).pack(pady=(4, 0))
+
+        col_r = ctk.CTkFrame(row1, fg_color="transparent")
+        col_r.pack(side="left")
+        self._field_label(col_r, "分區").pack(anchor="w")
+        ctk.CTkOptionMenu(
+            col_r, values=["全部"] + list(regions_mod.REGION_NAMES),
+            variable=self.var_region, width=130, height=46,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            fg_color="#ffffff", text_color=COLORS["text"],
+            button_color="#1a1a1a",
+            button_hover_color="#404040",
+            dropdown_fg_color="#ffffff",
+            dropdown_text_color=COLORS["text"],
+            dropdown_hover_color="#f0f0ee",
+            corner_radius=6,
+            command=self._on_region_changed,
+        ).pack(pady=(4, 0))
+
+        # 分隔
+        ctk.CTkFrame(inner, fg_color=COLORS["border"], height=1).pack(
+            fill="x", pady=12)
+
+        # Row 2：每區門檻
+        ctk.CTkLabel(
+            inner, text="健康管理費最低處方份數門檻",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text"], anchor="w"
+        ).pack(fill="x", anchor="w")
+        ctk.CTkLabel(
+            inner,
+            text=f"皆需為 {PEOPLE_DIVISOR} 的倍數（對應人數需為整數）；0 = 不過濾、顯示 X/XX",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["text_muted"], anchor="w"
+        ).pack(fill="x", anchor="w", pady=(2, 12))
+
+        row2 = ctk.CTkFrame(inner, fg_color="transparent")
+        row2.pack(fill="x")
+
+        self._min_widgets: dict[str, list] = {}
+        for r in regions_mod.REGION_NAMES:
+            col = ctk.CTkFrame(row2, fg_color="transparent")
+            col.pack(side="left", padx=(0, 18))
+            lbl = ctk.CTkLabel(
+                col, text=r,
+                font=ctk.CTkFont(size=17, weight="bold"),
+                text_color=COLORS["accent"], anchor="w")
+            lbl.pack(anchor="w")
+            entry = ctk.CTkEntry(
+                col, textvariable=self.var_min_by_region[r],
+                width=80, height=46,
+                font=ctk.CTkFont(family=MONO_FONT, size=14, weight="bold"),
+                justify="center",
+                border_width=1, border_color=COLORS["border"])
+            entry.pack(pady=(4, 0))
+            self._min_widgets[r] = [col, lbl, entry]
+
+    # ──────────────────────────────────────────────────────
+    # Step 3：選擇要產生的文件
+    # ──────────────────────────────────────────────────────
+    def _build_step_outputs(self, parent):
+        self._section_title(
+            parent, "03", "選擇要產生的文件",
+            "三大群組共 10 項，勾選 = 該資料夾才會產出。點「詳情」可微調每一項")
+
+        # 三大群組設定
         self._gen_groups = [
             {
                 "key": "doctor",
@@ -276,36 +626,121 @@ class App(ctk.CTk):
 
         self._gen_group_main_vars: dict = {}
         self._gen_group_status_lbls: dict = {}
+        self._gen_group_detail_frames: dict = {}
+        self._gen_group_detail_buttons: dict = {}
+        self._gen_group_detail_open: dict = {}
         self._suppress_group_sync = False
 
         for g in self._gen_groups:
-            block = ctk.CTkFrame(opts_inner, corner_radius=8,
-                                 fg_color=("gray92", "gray22"))
-            block.pack(fill="x", pady=4)
+            card = self._card(parent)
+            card.pack(fill="x", pady=(0, 10))
 
-            row = ctk.CTkFrame(block, fg_color="transparent")
-            row.pack(fill="x", padx=12, pady=8)
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(fill="x", padx=18, pady=14)
 
             main_var = ctk.BooleanVar(value=True)
             self._gen_group_main_vars[g["key"]] = main_var
 
             chk = ctk.CTkCheckBox(
                 row, text=g["title"], variable=main_var,
-                font=ctk.CTkFont(size=13, weight="bold"),
+                font=ctk.CTkFont(size=19, weight="bold"),
+                text_color=COLORS["text"],
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+                border_color=COLORS["border"], border_width=2,
+                checkmark_color="#ffffff",
+                checkbox_width=22, checkbox_height=22,
                 command=lambda gk=g["key"]: self._on_group_main_clicked(gk))
             chk.pack(side="left")
 
-            status_lbl = ctk.CTkLabel(row, text="", text_color="#a0aec0",
-                                       font=ctk.CTkFont(size=11))
+            status_lbl = ctk.CTkLabel(
+                row, text="",
+                text_color=COLORS["text_dim"],
+                font=ctk.CTkFont(size=16))
             status_lbl.pack(side="left", padx=(15, 0))
             self._gen_group_status_lbls[g["key"]] = status_lbl
 
-            ctk.CTkButton(row, text="詳情 ▼", width=80, height=28,
-                          fg_color="#2980b9", hover_color="#1f618d",
-                          font=ctk.CTkFont(size=11),
-                          command=lambda gk=g["key"]:
-                              self._open_group_detail(gk)
-                          ).pack(side="right")
+            btn_detail = ctk.CTkButton(
+                row, text="詳情 ▼", width=90, height=32,
+                fg_color="transparent",
+                hover_color=COLORS["bg_card_hi"],
+                text_color=COLORS["accent"],
+                border_color=COLORS["accent"],
+                border_width=1,
+                font=ctk.CTkFont(size=17, weight="bold"),
+                command=lambda gk=g["key"]: self._toggle_group_detail(gk))
+            btn_detail.pack(side="right")
+            self._gen_group_detail_buttons[g["key"]] = btn_detail
+
+            # ── inline 展開區（預設隱藏） ──
+            detail = ctk.CTkFrame(card, fg_color="transparent")
+            inner_d = ctk.CTkFrame(
+                detail, fg_color=COLORS["bg"],
+                corner_radius=8,
+                border_width=1, border_color=COLORS["border"])
+            inner_d.pack(fill="x", padx=18, pady=(0, 14))
+
+            # 全選 / 全不選
+            tool_row = ctk.CTkFrame(inner_d, fg_color="transparent")
+            tool_row.pack(fill="x", padx=14, pady=(12, 6))
+            ctk.CTkLabel(
+                tool_row,
+                text="勾選 = 該資料夾才會產出。每個資料夾獨立控制。",
+                font=ctk.CTkFont(size=16),
+                text_color=COLORS["text_dim"]
+            ).pack(side="left")
+            ctk.CTkButton(
+                tool_row, text="✓ 全選", width=70, height=28,
+                fg_color=COLORS["text"], hover_color="#000",
+                text_color="#fff",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                command=lambda gk=g["key"]: self._set_group_all(gk, True)
+            ).pack(side="right", padx=(6, 0))
+            ctk.CTkButton(
+                tool_row, text="✕ 全不選", width=80, height=28,
+                fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+                text_color=COLORS["text"],
+                border_color=COLORS["border"], border_width=1,
+                font=ctk.CTkFont(size=16),
+                command=lambda gk=g["key"]: self._set_group_all(gk, False)
+            ).pack(side="right")
+
+            # 子項列表
+            for sub_var, folder_name, desc in g["items"]:
+                item_card = ctk.CTkFrame(
+                    inner_d, fg_color=COLORS["bg_card"],
+                    corner_radius=6,
+                    border_width=1, border_color=COLORS["border"])
+                item_card.pack(fill="x", padx=14, pady=(0, 8))
+
+                irow = ctk.CTkFrame(item_card, fg_color="transparent")
+                irow.pack(fill="x", padx=12, pady=10)
+
+                ctk.CTkCheckBox(
+                    irow, text="", variable=sub_var, width=22,
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hi"],
+                    border_color=COLORS["border"], border_width=2,
+                    checkmark_color="#fff",
+                    checkbox_width=20, checkbox_height=20
+                ).pack(side="left", padx=(0, 10))
+
+                tcol = ctk.CTkFrame(irow, fg_color="transparent")
+                tcol.pack(side="left", fill="x", expand=True)
+                ctk.CTkLabel(
+                    tcol, text=f"📁  {folder_name}",
+                    font=ctk.CTkFont(size=17, weight="bold"),
+                    text_color=COLORS["text"], anchor="w"
+                ).pack(fill="x", anchor="w")
+                ctk.CTkLabel(
+                    tcol, text=desc,
+                    font=ctk.CTkFont(size=16),
+                    text_color=COLORS["text_dim"], anchor="w"
+                ).pack(fill="x", anchor="w", pady=(2, 0))
+
+            # 留隱藏狀態
+            self._gen_group_detail_frames[g["key"]] = detail
+            self._gen_group_detail_open[g["key"]] = False
+            # detail 不 pack；toggle 時 pack/unpack
 
             for sub_var, _, _ in g["items"]:
                 sub_var.trace_add(
@@ -313,159 +748,380 @@ class App(ctk.CTk):
                     lambda *a, gk=g["key"]: self._update_group_status(gk))
             self._update_group_status(g["key"])
 
-        # ── 人員個資檔 ──
-        self._section_label(main, "4. 人員個資檔（選填，新增/修改人員資料）")
-        frame_db = ctk.CTkFrame(main, fg_color="transparent")
-        frame_db.pack(fill="x", pady=(0, 4))
+    # ──────────────────────────────────────────────────────
+    # Step 4：人員個資
+    # ──────────────────────────────────────────────────────
+    def _build_step_people(self, parent):
+        self._section_title(
+            parent, "04", "人員個資（選填）",
+            "醫師、診所、課程老師的姓名、身分證、地址、電話、銀行資訊。可從舊領據自動匯入")
 
-        default_db = os.path.join(APP_DIR, "人員個資.xlsx")
-        self.var_people_db = ctk.StringVar(value=default_db)
-        ctk.CTkEntry(frame_db, textvariable=self.var_people_db,
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(0, 8))
-        ctk.CTkButton(frame_db, text="選擇檔案", width=90, height=36,
-                      command=self._browse_people_db).pack(side="right")
+        card = self._card(parent)
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=18)
 
-        frame_db2 = ctk.CTkFrame(main, fg_color="transparent")
-        frame_db2.pack(fill="x", pady=(0, 10))
-        ctk.CTkButton(frame_db2, text="建立空白範本", width=110, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._create_people_db_template).pack(side="left")
-        ctk.CTkButton(frame_db2, text="開啟編輯", width=90, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._open_people_db).pack(side="left", padx=(8, 0))
-        ctk.CTkButton(frame_db2, text="從舊領據匯入", width=110, height=30,
-                      fg_color="steelblue", hover_color="steelblue4",
-                      command=self._import_from_receipts).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(frame_db2,
-                     text="  每人一行填寫：姓名、身分證、地址、電話、銀行資訊",
-                     text_color="#a0aec0", font=ctk.CTkFont(size=12)).pack(
-                         side="left", padx=8)
+        self._field_label(inner, "個資 Excel 路徑").pack(fill="x", anchor="w")
+        row = ctk.CTkFrame(inner, fg_color="transparent")
+        row.pack(fill="x", pady=(6, 14))
+        ctk.CTkEntry(
+            row, textvariable=self.var_people_db,
+            height=46, font=ctk.CTkFont(size=18)
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            row, text="選擇檔案", width=110, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._browse_people_db
+        ).pack(side="right")
 
-        # ── 診所分區名單 ──
-        self._section_label(main, "5. 診所分區名單（Excel 三分頁：北投/士林/中山）")
-        frame_rg = ctk.CTkFrame(main, fg_color="transparent")
-        frame_rg.pack(fill="x", pady=(0, 4))
+        # 操作鈕
+        btns = ctk.CTkFrame(inner, fg_color="transparent")
+        btns.pack(fill="x")
+        ctk.CTkButton(
+            btns, text="建立空白範本", width=120, height=48,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=17),
+            command=self._create_people_db_template
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            btns, text="開啟編輯", width=100, height=48,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=17),
+            command=self._open_people_db
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            btns, text="📥 從舊領據匯入", width=140, height=48,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=17, weight="bold"),
+            command=self._import_from_receipts
+        ).pack(side="left")
 
-        default_rg = os.path.join(APP_DIR, "診所分區.xlsx")
-        self.var_regions_db = ctk.StringVar(value=default_rg)
-        ctk.CTkEntry(frame_rg, textvariable=self.var_regions_db,
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(0, 8))
-        ctk.CTkButton(frame_rg, text="選擇檔案", width=90, height=36,
-                      command=self._browse_regions).pack(side="right")
+        ctk.CTkLabel(
+            inner,
+            text="ℹ 每人一行：姓名、身分證、戶籍地址、聯絡電話、戶名、銀行及分行、銀行代碼、帳號",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["text_muted"], anchor="w", justify="left"
+        ).pack(fill="x", anchor="w", pady=(14, 0))
 
-        frame_rg2 = ctk.CTkFrame(main, fg_color="transparent")
-        frame_rg2.pack(fill="x", pady=(0, 10))
-        ctk.CTkButton(frame_rg2, text="建立空白範本", width=110, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._create_regions_template).pack(side="left")
-        ctk.CTkButton(frame_rg2, text="開啟編輯", width=90, height=30,
-                      fg_color="gray60", hover_color="gray50",
-                      command=self._open_regions).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(frame_rg2,
-                     text="  每分頁 A 欄列出該區診所名稱;新增診所直接新增一列即可",
-                     text_color="#a0aec0", font=ctk.CTkFont(size=12)).pack(
-                         side="left", padx=8)
+    # ──────────────────────────────────────────────────────
+    # Step 5：診所分區
+    # ──────────────────────────────────────────────────────
+    def _build_step_regions(self, parent):
+        self._section_title(
+            parent, "05", "診所分區",
+            "Excel 三分頁：北投／士林／中山。可進階勾選只產出特定診所")
 
-        # 進階篩選:選擇要產生的診所
-        frame_rg3 = ctk.CTkFrame(main, fg_color="transparent")
-        frame_rg3.pack(fill="x", pady=(0, 10))
-        ctk.CTkButton(frame_rg3, text="📋 選擇要產生的診所", width=170, height=32,
-                      fg_color="#2980b9", hover_color="#1f618d",
-                      command=self._open_clinic_selector).pack(side="left")
+        card = self._card(parent)
+        card.pack(fill="x", pady=(0, 12))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=18)
+
+        self._field_label(inner, "分區 Excel 路徑").pack(fill="x", anchor="w")
+        row = ctk.CTkFrame(inner, fg_color="transparent")
+        row.pack(fill="x", pady=(6, 14))
+        ctk.CTkEntry(
+            row, textvariable=self.var_regions_db,
+            height=46, font=ctk.CTkFont(size=18)
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            row, text="選擇檔案", width=110, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._browse_regions
+        ).pack(side="right")
+
+        btns = ctk.CTkFrame(inner, fg_color="transparent")
+        btns.pack(fill="x", pady=(0, 14))
+        ctk.CTkButton(
+            btns, text="建立空白範本", width=120, height=48,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=17),
+            command=self._create_regions_template
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            btns, text="開啟編輯", width=100, height=48,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=17),
+            command=self._open_regions
+        ).pack(side="left")
+
+        # 進階篩選
+        ctk.CTkFrame(inner, fg_color=COLORS["border"], height=1).pack(
+            fill="x", pady=4)
+
+        ctk.CTkLabel(
+            inner, text="進階：選擇要產生的診所",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text"], anchor="w"
+        ).pack(fill="x", anchor="w", pady=(12, 4))
+
+        adv_row = ctk.CTkFrame(inner, fg_color="transparent")
+        adv_row.pack(fill="x")
+        ctk.CTkButton(
+            adv_row, text="📋 勾選診所", width=130, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=17, weight="bold"),
+            command=self._open_clinic_selector
+        ).pack(side="left")
+
         self.lbl_clinic_filter = ctk.CTkLabel(
-            frame_rg3, text="目前: 全部診所 (預設)",
-            text_color="#a0aec0", font=ctk.CTkFont(size=12))
-        self.lbl_clinic_filter.pack(side="left", padx=12)
-        ctk.CTkButton(frame_rg3, text="重設", width=60, height=28,
-                      fg_color="gray60", hover_color="gray50",
-                      font=ctk.CTkFont(size=11),
-                      command=self._reset_clinic_filter).pack(side="right")
+            adv_row, text="目前：全部診所（預設）",
+            text_color=COLORS["text_dim"],
+            font=ctk.CTkFont(size=17), anchor="w")
+        self.lbl_clinic_filter.pack(side="left", padx=12, fill="x", expand=True)
 
-        # ── 輸出目錄 ──
-        self._section_label(main, "6. 輸出位置")
-        frame_out = ctk.CTkFrame(main, fg_color="transparent")
-        frame_out.pack(fill="x", pady=(0, 10))
+        ctk.CTkButton(
+            adv_row, text="重設", width=70, height=32,
+            fg_color="transparent", hover_color=COLORS["bg_card_hi"],
+            text_color=COLORS["text_dim"],
+            border_color=COLORS["border"], border_width=1,
+            font=ctk.CTkFont(size=16),
+            command=self._reset_clinic_filter
+        ).pack(side="right")
 
-        self.var_output = ctk.StringVar(
-            value=os.path.join(APP_DIR, "核銷文件"))
-        ctk.CTkEntry(frame_out, textvariable=self.var_output,
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(0, 8))
-        ctk.CTkButton(frame_out, text="選擇資料夾", width=100, height=36,
-                      command=self._browse_output).pack(side="right")
+    # ──────────────────────────────────────────────────────
+    # Step 6：輸出位置 + Gmail
+    # ──────────────────────────────────────────────────────
+    def _build_step_output(self, parent):
+        self._section_title(
+            parent, "06", "輸出位置 & 寄送設定",
+            "選擇文件輸出資料夾。Gmail 為選填，可在產生後從底部按鈕寄送")
 
-        # ── Gmail 寄送設定 ──
-        self._section_label(main, "7. Gmail 寄送設定（選填，產生後可批次寄送）")
-        frame_mail = ctk.CTkFrame(main, fg_color="transparent")
-        frame_mail.pack(fill="x", pady=(0, 10))
+        # 輸出位置
+        card1 = self._card(parent)
+        card1.pack(fill="x", pady=(0, 12))
+        inner1 = ctk.CTkFrame(card1, fg_color="transparent")
+        inner1.pack(fill="x", padx=20, pady=18)
 
-        ctk.CTkLabel(frame_mail, text="寄件 Gmail").pack(side="left")
-        self.var_sender_email = ctk.StringVar()
-        ctk.CTkEntry(frame_mail, textvariable=self.var_sender_email,
-                     placeholder_text="your-name@gmail.com",
-                     height=36).pack(side="left", fill="x", expand=True,
-                                     padx=(8, 8))
-        ctk.CTkLabel(frame_mail,
-                     text="App Password 於寄送時輸入",
-                     text_color="#a0aec0",
-                     font=ctk.CTkFont(size=11)).pack(side="right")
+        self._field_label(inner1, "輸出資料夾").pack(fill="x", anchor="w")
+        row1 = ctk.CTkFrame(inner1, fg_color="transparent")
+        row1.pack(fill="x", pady=(6, 0))
+        ctk.CTkEntry(
+            row1, textvariable=self.var_output,
+            height=46, font=ctk.CTkFont(size=18)
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            row1, text="選擇資料夾", width=110, height=46,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hi"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            command=self._browse_output
+        ).pack(side="right")
 
-        # ── 產生按鈕 ──
-        self.btn_generate = ctk.CTkButton(
-            main, text="產 生 文 件", height=48,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            command=self._on_generate)
-        self.btn_generate.pack(pady=(15, 8), fill="x")
+        # Gmail
+        card2 = self._card(parent)
+        card2.pack(fill="x", pady=(0, 12))
+        inner2 = ctk.CTkFrame(card2, fg_color="transparent")
+        inner2.pack(fill="x", padx=20, pady=18)
 
-        # 寄送按鈕（可直接用既有月份資料夾寄，不必重跑產生）
-        self.btn_send_email = ctk.CTkButton(
-            main, text="📧 預覽並寄送 Gmail", height=40,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#1e8449", hover_color="#196f3d",
-            command=self._on_open_email_preview)
-        self.btn_send_email.pack(pady=(0, 15), fill="x")
+        self._field_label(inner2, "📧 Gmail 寄送設定（選填）").pack(
+            fill="x", anchor="w")
+        ctk.CTkLabel(
+            inner2,
+            text="App Password 會在按下底部「📧 預覽並寄送 Gmail」時輸入",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["text_muted"], anchor="w"
+        ).pack(fill="x", anchor="w", pady=(0, 6))
 
-        # 產生後保存的狀態（供寄送使用）
-        self._last_month_dir: str | None = None
-        self._last_receipt_lookup: dict = {}
-        self._last_year: int | None = None
-        self._last_month: int | None = None
+        ctk.CTkEntry(
+            inner2, textvariable=self.var_sender_email,
+            placeholder_text="your-name@gmail.com",
+            height=46, font=ctk.CTkFont(size=18)
+        ).pack(fill="x", pady=(2, 0))
 
-        # ── Pac-Man 進度動畫 ──
-        # 真正在「批次轉 PDF」時會逐檔餵進來,平時待機嘴巴一開一合
+        # 「按下下面的『產生文件』」提示
+        hint = ctk.CTkLabel(
+            parent,
+            text="✨ 設定完成！按右下角「產 生 文 件」開始批次處理",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["accent"]
+        )
+        hint.pack(pady=12)
+
+    # ──────────────────────────────────────────────────────
+    # Stepper 導覽
+    # ──────────────────────────────────────────────────────
+    def _on_header_click(self, idx: int):
+        cur = self.stepper_container.current()
+        if idx == cur:
+            return
+        if idx > cur:
+            # 往前要逐步驗證
+            for i in range(cur, idx):
+                if not self._validate_step(i):
+                    return
+        self._goto(idx)
+
+    def _on_prev(self):
+        cur = self.stepper_container.current()
+        if cur > 0:
+            self._goto(cur - 1)
+
+    def _on_next(self):
+        cur = self.stepper_container.current()
+        if not self._validate_step(cur):
+            return
+        if cur < len(STEPS) - 1:
+            self._goto(cur + 1)
+
+    def _goto(self, idx: int):
+        cur = self.stepper_container.current()
+        direction = "forward" if idx > cur else "backward"
+        self.stepper_container.go(idx, direction=direction)
+        self.stepper_header.set_current(idx)
+        self._update_nav_buttons(idx)
+        # Step 2 切到時觸發分區欄位顯示
+        if idx == 1:
+            self.after(50, self._on_region_changed)
+
+    def _update_nav_buttons(self, idx: int = None):
+        if idx is None:
+            cur = self.stepper_container.current()
+        else:
+            cur = idx
+        total = len(STEPS)
+
+        # 上一步
+        if cur == 0:
+            self.btn_prev.configure(state="disabled")
+        else:
+            self.btn_prev.configure(state="normal")
+
+        # 下一步 / 產生文件（pack 在 send_email 左邊）
+        if cur == total - 1:
+            self.btn_next.pack_forget()
+            try:
+                self.btn_generate.pack(
+                    side="right", before=self.btn_send_email)
+            except Exception:
+                self.btn_generate.pack(side="right")
+        else:
+            self.btn_generate.pack_forget()
+            try:
+                self.btn_next.pack(
+                    side="right", before=self.btn_send_email)
+            except Exception:
+                self.btn_next.pack(side="right")
+
+        # 中間提示
+        self.lbl_step_hint.configure(
+            text=f"步驟 {cur + 1} / {total} · {STEPS[cur][0]}")
+
+    # ──────────────────────────────────────────────────────
+    # 每步驗證
+    # ──────────────────────────────────────────────────────
+    def _validate_step(self, idx: int) -> bool:
+        method_name = STEPS[idx][1]
+        method = getattr(self, method_name, None)
+        if method:
+            return method()
+        return True
+
+    def _validate_step_import(self) -> bool:
+        excel = self.var_excel.get().strip()
+        if not excel:
+            messagebox.showerror("缺少檔案", "請先選擇「開立處方 Excel」")
+            return False
+        if not os.path.exists(excel):
+            messagebox.showerror(
+                "檔案不存在", f"找不到開立處方 Excel：\n{excel}")
+            return False
+        exec_path = self.var_exec_excel.get().strip()
+        if exec_path and not os.path.exists(exec_path):
+            messagebox.showerror(
+                "檔案不存在", f"找不到執行處方 Excel：\n{exec_path}")
+            return False
+        return True
+
+    def _validate_step_settings(self) -> bool:
         try:
-            from pacman_animator import PacManAnimator
-            self.pacman = PacManAnimator(main)
-            self.pacman.pack(fill="x", pady=(0, 6))
-        except Exception as e:
-            # 萬一 Pillow / 素材載入失敗,動畫不要拖累主功能
-            self.pacman = None
-            print(f"[App] PacManAnimator 啟用失敗: {e}")
+            int(self.var_year.get())
+            int(self.var_month.get())
+        except (ValueError, TypeError):
+            messagebox.showerror("錯誤", "申報年度/月份必須是數字")
+            return False
+        try:
+            self._region_thresholds()
+        except ValueError as e:
+            messagebox.showerror("錯誤", str(e))
+            return False
+        return True
 
-        # ── Progress ──
-        self.progress = ctk.CTkProgressBar(main)
-        self.progress.pack(fill="x", pady=(0, 5))
-        self.progress.set(0)
+    def _validate_step_outputs(self) -> bool:
+        any_on = any([
+            self.var_gen_doctor_presc_detail.get(),
+            self.var_gen_doctor_exec_detail.get(),
+            self.var_gen_doctor_receipt.get(),
+            self.var_gen_doctor_summary.get(),
+            self.var_gen_health_detail.get(),
+            self.var_gen_health_receipt.get(),
+            self.var_gen_health_summary.get(),
+            self.var_gen_treatment_detail.get(),
+            self.var_gen_treatment_receipt.get(),
+            self.var_gen_treatment_summary.get(),
+        ])
+        if not any_on:
+            messagebox.showerror(
+                "未選任何文件",
+                "10 項都未勾選，產生文件不會有任何輸出。\n"
+                "請至少勾選一項。")
+            return False
+        return True
 
-        # ── 日誌 ──
-        self.log = ctk.CTkTextbox(main, height=150,
-                                  font=ctk.CTkFont(family=MONO_FONT, size=11))
-        self.log.pack(fill="both", expand=True)
+    def _validate_step_people(self) -> bool:
+        # 選填，不擋
+        return True
 
-    def _section_label(self, parent, text):
-        # 加上前綴裝飾線、強調色文字
-        wrap = ctk.CTkFrame(parent, fg_color="transparent")
-        wrap.pack(fill="x", pady=(14, 4))
-        ctk.CTkLabel(wrap, text="┃", text_color="#3498db",
-                     font=ctk.CTkFont(size=18, weight="bold")
-                     ).pack(side="left", padx=(0, 4))
-        ctk.CTkLabel(wrap, text=text,
-                     font=ctk.CTkFont(size=14, weight="bold"),
-                     text_color="#dde6ed",
-                     anchor="w").pack(side="left", fill="x", expand=True)
+    def _validate_step_regions(self) -> bool:
+        # 選填，不擋
+        return True
 
+    def _validate_step_output(self) -> bool:
+        out = self.var_output.get().strip()
+        if not out:
+            messagebox.showerror("缺少輸出位置", "請選擇輸出資料夾")
+            return False
+        return True
+
+    # ──────────────────────────────────────────────────────
+    # 詳細記錄展開／收起
+    # ──────────────────────────────────────────────────────
+    def _toggle_log(self):
+        if self._log_expanded:
+            self.log_frame.pack_forget()
+            self.btn_toggle_log.configure(text="顯示詳細記錄 ▼")
+            self._log_expanded = False
+        else:
+            self.log_frame.pack(fill="x", padx=24, pady=(0, 4))
+            self.btn_toggle_log.configure(text="隱藏詳細記錄 ▲")
+            self._log_expanded = True
+
+    def _show_progress_panel(self):
+        self.progress_wrap.pack(fill="x", side="top",
+                                before=self.btn_prev.master)
+        # progress_wrap 要在 btn_row 之上：直接重 pack
+        self.progress_wrap.pack(fill="x", side="top")
+        # 由於 sticky bar 已經 pack_propagate(False)、高度固定，
+        # 為了顯示 progress + log，動態調整 bar 高度
+        bar = self.progress_wrap.master
+        bar.configure(height=180 if not self._log_expanded else 340)
+
+    def _hide_progress_panel(self):
+        self.progress_wrap.pack_forget()
+        bar = self.progress.master.master  # progress_wrap → bar
+        bar.configure(height=72)
+
+    # ──────────────────────────────────────────────────────
+    # ↓↓↓ 以下為 v37 原生邏輯，完全保留，不做改動 ↓↓↓
+    # ──────────────────────────────────────────────────────
     def _browse_excel(self):
         path = filedialog.askopenfilename(
             title="選擇開立處方紀錄 Excel",
@@ -499,7 +1155,6 @@ class App(ctk.CTk):
         os.startfile(path)
 
     def _import_from_receipts(self):
-        """從舊領據資料夾讀取個資，寫入人員個資 Excel"""
         receipts_dir = filedialog.askdirectory(title="選擇舊領據資料夾")
         if not receipts_dir:
             return
@@ -541,16 +1196,10 @@ class App(ctk.CTk):
         os.startfile(path)
 
     def _docx_to_pdf(self, docx_path: str):
-        """將 Word 檔轉成同目錄的 PDF（需要 Word 已安裝）
-
-        用 DispatchEx 建立獨立 Word process，避免與先前 instance 衝突造成
-        'Word.Application.Visible can not be set' 錯誤。
-        """
         try:
             import win32com.client
             pdf_path = docx_path.replace(".docx", ".pdf")
             word = win32com.client.DispatchEx("Word.Application")
-            # Visible / DisplayAlerts 設失敗不致命，包 try/except
             try:
                 word.Visible = False
             except Exception:
@@ -576,17 +1225,17 @@ class App(ctk.CTk):
         if path:
             self.var_output.set(path)
 
-    # ── 分區相關 ──
     def _on_region_changed(self, *_):
-        """依目前分區選擇，顯示/隱藏對應的最低份數欄位。"""
         choice = self.var_region.get()
+        if not hasattr(self, "_min_widgets"):
+            return
         for r, widgets in self._min_widgets.items():
             show = (choice == "全部" or choice == r)
-            for w in widgets:
-                if show:
-                    w.pack(side="left", padx=(3, 8) if isinstance(w, ctk.CTkEntry) else 0)
-                else:
-                    w.pack_forget()
+            col = widgets[0]
+            if show:
+                col.pack(side="left", padx=(0, 18))
+            else:
+                col.pack_forget()
 
     def _browse_regions(self):
         path = filedialog.askopenfilename(
@@ -594,7 +1243,6 @@ class App(ctk.CTk):
             filetypes=[("Excel 檔案", "*.xlsx"), ("所有檔案", "*.*")])
         if path:
             self.var_regions_db.set(path)
-            # 換檔可能造成清單變動,重設診所篩選
             self._selected_clinics = None
             if hasattr(self, "lbl_clinic_filter"):
                 self._update_clinic_filter_label()
@@ -619,7 +1267,6 @@ class App(ctk.CTk):
             return
         os.startfile(path)
 
-    # ── 進階:選擇診所 ──
     def _open_clinic_selector(self):
         regions_path = self.var_regions_db.get().strip()
         regions_map = regions_mod.load_regions(regions_path)
@@ -628,7 +1275,6 @@ class App(ctk.CTk):
                 "找不到診所清單",
                 "診所分區檔不存在或為空白,請先設定。")
             return
-        # 嘗試從處方 Excel 取「未分區」的診所(歸「其他」群組)
         extra_clinics: list[str] = []
         excel_path = self.var_excel.get().strip()
         if excel_path and os.path.exists(excel_path):
@@ -641,7 +1287,6 @@ class App(ctk.CTk):
                 listed = set()
                 for cs in regions_map.values():
                     listed.update(cs)
-                # 沒被分區檔列到 + 不能 fuzzy match 的,才視為「其他」
                 for c in sorted(clinics_in_excel):
                     if regions_mod.find_region(c, regions_map) is None \
                             and c not in listed:
@@ -657,25 +1302,27 @@ class App(ctk.CTk):
         sel = self._selected_clinics
         if sel is None:
             self.lbl_clinic_filter.configure(
-                text="目前: 全部診所 (預設)", text_color="#a0aec0")
+                text="目前：全部診所（預設）",
+                text_color=COLORS["text_dim"])
         elif not sel:
             self.lbl_clinic_filter.configure(
-                text="目前: 未勾選任何診所 (不會產出)", text_color="#c0392b")
+                text="目前：未勾選任何診所（不會產出）",
+                text_color=COLORS["danger"])
         else:
             n = len(sel)
             preview = ", ".join(list(sel)[:3])
             if n > 3:
                 preview += f" 等 {n} 間"
             else:
-                preview = f"已選 {n} 間: {preview}"
+                preview = f"已選 {n} 間：{preview}"
             self.lbl_clinic_filter.configure(
-                text=f"目前: {preview}", text_color="#2980b9")
+                text=f"目前：{preview}",
+                text_color=COLORS["accent"])
 
     def _reset_clinic_filter(self):
         self._selected_clinics = None
         self._update_clinic_filter_label()
 
-    # ── 產出選項群組:主 toggle / 狀態 / 詳情視窗 ──
     def _get_group(self, group_key: str):
         for g in self._gen_groups:
             if g["key"] == group_key:
@@ -683,7 +1330,6 @@ class App(ctk.CTk):
         raise KeyError(group_key)
 
     def _on_group_main_clicked(self, group_key: str):
-        """user 點主 checkbox 時:同步全部子勾選為 main_var 的值。"""
         main_var = self._gen_group_main_vars[group_key]
         target = main_var.get()
         g = self._get_group(group_key)
@@ -696,7 +1342,6 @@ class App(ctk.CTk):
         self._update_group_status(group_key)
 
     def _update_group_status(self, group_key: str):
-        """子變動時:更新狀態 label 並同步主 checkbox 顯示。"""
         if self._suppress_group_sync:
             return
         g = self._get_group(group_key)
@@ -705,29 +1350,57 @@ class App(ctk.CTk):
         lbl = self._gen_group_status_lbls[group_key]
         main_var = self._gen_group_main_vars[group_key]
 
-        # 同步主 checkbox 視覺狀態(主 var 沒被 trace,不會循環)
         if n == total:
             if not main_var.get():
                 main_var.set(True)
             lbl.configure(text=f"{total}/{total} 項全部產出",
-                          text_color="#1e8449")
+                          text_color=COLORS["success"])
         elif n == 0:
             if main_var.get():
                 main_var.set(False)
-            lbl.configure(text="整組不產出", text_color="#c0392b")
+            lbl.configure(text="整組不產出", text_color=COLORS["danger"])
         else:
             if main_var.get():
                 main_var.set(False)
             lbl.configure(text=f"部分產出 ({n}/{total} 項)",
-                          text_color="#d68910")
+                          text_color=COLORS["warn"])
 
     def _open_group_detail(self, group_key: str):
+        # 保留舊 API 名稱（外部有人呼叫到 fallback）
+        self._toggle_group_detail(group_key)
+
+    def _toggle_group_detail(self, group_key: str):
+        detail = self._gen_group_detail_frames.get(group_key)
+        btn = self._gen_group_detail_buttons.get(group_key)
+        if not detail:
+            return
+        is_open = self._gen_group_detail_open.get(group_key, False)
+        if is_open:
+            detail.pack_forget()
+            self._gen_group_detail_open[group_key] = False
+            if btn:
+                btn.configure(text="詳情 ▼")
+        else:
+            detail.pack(fill="x")
+            self._gen_group_detail_open[group_key] = True
+            if btn:
+                btn.configure(text="收合 ▲")
+
+    def _set_group_all(self, group_key: str, value: bool):
         g = self._get_group(group_key)
-        GroupDetailWindow(self, g)
+        if not g:
+            return
+        self._suppress_group_sync = True
+        for sub_var, _, _ in g["items"]:
+            sub_var.set(value)
+        self._suppress_group_sync = False
+        main_var = self._gen_group_main_vars.get(group_key)
+        if main_var:
+            main_var.set(value)
+        self._update_group_status(group_key)
 
     @staticmethod
     def _clinic_matches_selection(institution: str, selected: set[str]) -> bool:
-        """institution 是否對應到 selected 中任一診所(精確/子字串/前綴 ≥3)。"""
         if not institution:
             return False
         if institution in selected:
@@ -749,7 +1422,6 @@ class App(ctk.CTk):
         return False
 
     def _region_thresholds(self) -> dict[str, int]:
-        """回傳 {region: 最低份數}。驗證失敗時丟出 ValueError。"""
         result: dict[str, int] = {}
         for r, var in self.var_min_by_region.items():
             raw = var.get().strip() or "0"
@@ -771,7 +1443,6 @@ class App(ctk.CTk):
         self.log.see("end")
 
     def _log_incomplete_recipients(self, data, receipt_lookup):
-        """掃描所有要產領據的人，列出個資不完整的（缺欄位需手動補齊）"""
         REQUIRED_FIELDS = [
             ("id_number",      "身分證字號"),
             ("address",        "戶籍地址"),
@@ -782,7 +1453,6 @@ class App(ctk.CTk):
             ("account_number", "帳號"),
         ]
 
-        # 收集所有要產領據的人 (name, role)
         targets = []
         seen = set()
 
@@ -803,7 +1473,6 @@ class App(ctk.CTk):
                     targets.append((ex.executor_name, "處置費"))
                     seen.add(ex.executor_name)
 
-        # 檢查每人個資
         missing_report = []
         for name, role in targets:
             info = receipt_lookup.get(name) if receipt_lookup else None
@@ -835,16 +1504,25 @@ class App(ctk.CTk):
             messagebox.showerror("錯誤", "請選擇有效的 Excel 檔案")
             return
 
-        # 驗證各分區健管費最低份數
         try:
             self._region_thresholds_cache = self._region_thresholds()
         except ValueError as e:
             messagebox.showerror("錯誤", str(e))
             return
 
-        self.btn_generate.configure(state="disabled", text="產生中...")
+        self.btn_generate.configure(state="disabled", text="產生中…")
+        self.btn_prev.configure(state="disabled")
+
+        # 顯示 progress 區
+        self._show_progress_panel()
         self.log.delete("1.0", "end")
         self.progress.set(0)
+        self._last_progress_pct = 0
+        self.lbl_progress_pct.configure(text="0%")
+        self.lbl_progress_status.configure(text="準備中…",
+                                           text_color=COLORS["accent"])
+        self.lbl_current_file.configure(text="")
+
         threading.Thread(target=self._generate_worker, daemon=True).start()
 
     def _generate_worker(self):
@@ -853,17 +1531,34 @@ class App(ctk.CTk):
         except Exception as e:
             self.after(0, lambda: self._log(f"\n錯誤：{e}"))
             self.after(0, lambda: messagebox.showerror("錯誤", str(e)))
+            self.after(0, lambda: self.lbl_progress_status.configure(
+                text="發生錯誤", text_color=COLORS["danger"]))
         finally:
             self.after(0, lambda: self.btn_generate.configure(
-                state="normal", text="產 生 文 件"))
+                state="normal", text="✨ 產 生 文 件"))
+            self.after(0, lambda: self.btn_prev.configure(state="normal"))
 
-    # ──────────────────────────────────────────────────────
-    # 依分區過濾資料
-    # ──────────────────────────────────────────────────────
+    def _set_progress(self, pct: float, status: str = None,
+                      current_file: str = None):
+        """thread-safe：UI 更新請用 self.after 包"""
+        self.progress.set(pct)
+        new_pct = int(pct * 100)
+        try:
+            roll_number(self.lbl_progress_pct,
+                        self._last_progress_pct, new_pct, "{}%", 200)
+            self._last_progress_pct = new_pct
+        except Exception:
+            self.lbl_progress_pct.configure(text=f"{new_pct}%")
+        if status:
+            self.lbl_progress_status.configure(text=status)
+        if current_file is not None:
+            # 截短超長檔名
+            disp = current_file
+            if len(disp) > 60:
+                disp = "…" + disp[-58:]
+            self.lbl_current_file.configure(text=disp)
+
     def _filter_data(self, data, allowed_clinics: set[str]):
-        """回傳只保留 medical_institution 在 allowed_clinics 裡的新 AllData。
-        executors 不分區（處方處置費跨區共用）。
-        """
         from models import AllData
         new_doctors = [d for d in data.doctors
                        if d.medical_institution in allowed_clinics]
@@ -879,41 +1574,25 @@ class App(ctk.CTk):
         )
 
     def _filter_raw_records(self, raw_records, allowed_clinics: set[str]):
-        """過濾 raw_records 只留該區診所的列（COL_CLINIC = 7）"""
         return [r for r in raw_records
                 if len(r) > 7 and str(r[7] or "") in allowed_clinics]
 
-    # ──────────────────────────────────────────────────────
-    # 對單一 scope 產出一組文件
-    # ──────────────────────────────────────────────────────
     def _produce_for_scope(
-        self,
-        scope_label: str,
-        data,
-        raw_records_issuance,
-        raw_records_execution,
-        month_dir: str,
-        prefix: str,
-        min_presc: int,
-        receipt_lookup: dict,
-        produce_executor: bool,
-        step_cb,
+        self, scope_label, data,
+        raw_records_issuance, raw_records_execution,
+        month_dir, prefix, min_presc,
+        receipt_lookup, produce_executor, step_cb,
     ):
-        """在 `month_dir` 下產生一組文件（可能是全部 / 北投 / 士林 / ...）。
-        produce_executor：是否產處方處置費相關文件（通常只在全部或第一個 scope 執行一次）。
-        回傳 (all_pending_docx, health_merge_info, executor_merge_info, doctor_merge_info)
-        """
         os.makedirs(month_dir, exist_ok=True)
 
-        # 子資料夾工具
         def subdir(name):
             d = os.path.join(month_dir, name)
             os.makedirs(d, exist_ok=True)
             return d
 
         OTHER_DIR = "其他內容"
+
         def agg_subdir(name):
-            """彙整檔資料夾 — 統一放在 其他內容/ 下"""
             d = os.path.join(month_dir, OTHER_DIR, name)
             os.makedirs(d, exist_ok=True)
             return d
@@ -927,29 +1606,21 @@ class App(ctk.CTk):
         executor_merge_info = None
         doctor_merge_info = None
 
-        # ───────────── 醫師類:彙整總表(其他內容/處方費...合併檔與Excel/) ─────────────
         if self.var_gen_doctor_summary.get() and data.doctors:
             d = agg_subdir(COMBINED_DIR_NAME)
-            # Excel 統計檔
             try:
-                generate_prescription_fee_excel(
-                    raw_records_issuance, prefix, d)
-                generate_execution_fee_excel(
-                    raw_records_execution, prefix, d)
+                generate_prescription_fee_excel(raw_records_issuance, prefix, d)
+                generate_execution_fee_excel(raw_records_execution, prefix, d)
             except Exception:
                 pass
-            # 處方費總表 docx
-            path1 = os.path.join(
-                d, f"健康台灣深耕計畫_處方費-總表-{prefix}.docx")
+            path1 = os.path.join(d, f"健康台灣深耕計畫_處方費-總表-{prefix}.docx")
             tmpl1 = DEFAULT_TEMPLATES["prescription"]
             if os.path.exists(tmpl1):
                 generate_prescription_fee_from_template(tmpl1, data, path1)
             else:
                 generate_prescription_fee_doc(data, path1)
             all_pending_docx.append(os.path.abspath(path1))
-            # 處方執行費總表 docx
-            path2 = os.path.join(
-                d, f"健康台灣深耕計畫_處方執行費核銷總表-{prefix}.docx")
+            path2 = os.path.join(d, f"健康台灣深耕計畫_處方執行費核銷總表-{prefix}.docx")
             tmpl2 = DEFAULT_TEMPLATES["execution"]
             if os.path.exists(tmpl2):
                 generate_execution_fee_from_template(tmpl2, data, path2)
@@ -960,7 +1631,6 @@ class App(ctk.CTk):
                 f"[{s}] 處方費、處方執行費總表明細表合併檔與Excel"))
             step_cb()
 
-        # ───────── 醫師類:每醫師個別 民眾明細 + 領據 ─────────
         emit_dpd = self.var_gen_doctor_presc_detail.get()
         emit_ded = self.var_gen_doctor_exec_detail.get()
         emit_dr = self.var_gen_doctor_receipt.get()
@@ -990,25 +1660,19 @@ class App(ctk.CTk):
                 parts.append("處方執行費民眾明細")
             if emit_dr:
                 parts.append("處方處方費與處方執行費領據")
-            self.after(0, lambda s=scope_label, c=count,
-                       p="、".join(parts):
+            self.after(0, lambda s=scope_label, c=count, p="、".join(parts):
                        self._log(f"[{s}] {p} ({c} 位醫師)"))
             step_cb()
 
-        # ───────── 診所類:彙整總表(其他內容/健康管理費合併總表與個人excel/) ─────────
         if self.var_gen_health_summary.get() and data.health_mgmts:
             d = agg_subdir(HEALTH_COMBINED_DIR)
-            # Excel 統計檔
             try:
                 generate_health_mgmt_excel(raw_records_issuance, prefix, d)
             except Exception:
                 pass
-            # 健管費總表 docx
-            path = os.path.join(
-                d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
+            path = os.path.join(d, f"健康台灣深耕計畫_健康管理費總表-{prefix}.docx")
             generate_health_mgmt_doc(data, path, min_prescriptions=min_presc)
             all_pending_docx.append(os.path.abspath(path))
-            # 個別 Excel
             per_clinic_excel_dir = os.path.join(d, "個別Excel")
             os.makedirs(per_clinic_excel_dir, exist_ok=True)
             clinic_to_person_map = {
@@ -1022,11 +1686,11 @@ class App(ctk.CTk):
                 )
             except Exception:
                 xlsx_paths = []
-            self.after(0, lambda s=scope_label, x=len(xlsx_paths): self._log(
+            self.after(0, lambda s=scope_label, x=len(xlsx_paths):
+                       self._log(
                 f"[{s}] 健康管理費合併總表與個人excel (個別Excel×{x})"))
             step_cb()
 
-        # ───────── 診所類:每診所個別 民眾明細 + 領據 ─────────
         emit_hd = self.var_gen_health_detail.get()
         emit_hr = self.var_gen_health_receipt.get()
         if (emit_hd or emit_hr) and data.health_mgmts:
@@ -1053,23 +1717,17 @@ class App(ctk.CTk):
                        self._log(f"[{s}] {p} ({c} 間診所)"))
             step_cb()
 
-        # ───────── 課程老師類:彙整總表(其他內容/處方處置費合併總表word/) ─────────
         if produce_executor and self.var_gen_treatment_summary.get() \
                 and data.executors:
             d = agg_subdir(TREATMENT_COMBINED_DIR)
-            # 核銷總表
-            p1 = os.path.join(
-                d, f"健康台灣深耕計畫_處方處置費核銷總表-{prefix}.docx")
+            p1 = os.path.join(d, f"健康台灣深耕計畫_處方處置費核銷總表-{prefix}.docx")
             generate_treatment_fee_doc(data, p1)
-            # 執行人員民眾明細表(合併版)
-            p2 = os.path.join(
-                d, f"健康台灣深耕計畫_執行人員民眾明細表-{prefix}.docx")
+            p2 = os.path.join(d, f"健康台灣深耕計畫_執行人員民眾明細表-{prefix}.docx")
             generate_executor_patient_list_doc(data, p2)
             self.after(0, lambda s=scope_label: self._log(
                 f"[{s}] 處方處置費合併總表word"))
             step_cb()
 
-        # ───────── 課程老師類:每老師個別 民眾明細 + 領據 ─────────
         emit_td = self.var_gen_treatment_detail.get()
         emit_tr = self.var_gen_treatment_receipt.get()
         if produce_executor and (emit_td or emit_tr) and data.executors:
@@ -1085,7 +1743,6 @@ class App(ctk.CTk):
                     for p in (dd, r):
                         if p:
                             all_pending_docx.append(p)
-            # 同一人多處方類型會拆成多筆 ExecutorData,計數時依姓名去重
             count = len({ex.executor_name for ex in data.executors
                          if ex.receipt and ex.receipt.amount > 0})
             parts = []
@@ -1093,18 +1750,18 @@ class App(ctk.CTk):
                 parts.append("處方處置費民眾明細")
             if emit_tr:
                 parts.append("處方處置費領據")
-            self.after(0, lambda s=scope_label, c=count,
-                       p="、".join(parts):
+            self.after(0, lambda s=scope_label, c=count, p="、".join(parts):
                        self._log(f"[{s}] {p} ({c} 位老師)"))
             step_cb()
 
-        return all_pending_docx, health_merge_info, executor_merge_info, doctor_merge_info
+        return (all_pending_docx, health_merge_info,
+                executor_merge_info, doctor_merge_info)
 
     def _do_generate(self):
         issuance_excel = self.var_excel.get().strip()
         execution_excel = self.var_exec_excel.get().strip()
         if not execution_excel:
-            execution_excel = issuance_excel  # 單檔相容
+            execution_excel = issuance_excel
         year = int(self.var_year.get())
         month = int(self.var_month.get())
         region_choice = self.var_region.get()
@@ -1122,28 +1779,20 @@ class App(ctk.CTk):
                        self._log(f"  執行: {os.path.basename(p)}"))
         else:
             self.after(0, lambda: self._log("  執行: (沿用開立檔)"))
-        self.after(0, lambda: self.progress.set(0.05))
+        self.after(0, lambda: self._set_progress(
+            0.05, "讀取 Excel…", os.path.basename(issuance_excel)))
 
-        # 讀取總資料(read_prescription_report 只用一次,分區時再 filter)
-        # min_prescriptions 統一傳 0,reader 不過濾任何診所;
-        # 各區門檻在下方 per-scope 迴圈以 is_qualified 控制是否產出。
-        # (舊版:傳 any_threshold 會用任一區的門檻砍掉所有診所,
-        #  導致低門檻區(如 中山/士林=20)在高門檻區(如 北投=30) 存在時
-        #  被誤判成「未達門檻」,只有大量資料的診所才會留下。)
         data = read_prescription_report(
             issuance_excel,
             execution_path=execution_excel,
             report_year=year, report_month=month,
             min_prescriptions=0,
         )
-        # 兩組 raw records：處方費/健管費 用開立、執行費用執行
         raw_records_issuance = read_raw_records(issuance_excel)
         if execution_excel != issuance_excel:
             raw_records_execution = read_raw_records(execution_excel)
         else:
             raw_records_execution = raw_records_issuance
-        # 預設 raw_records 變數供後面程式相容使用（處方費/健管費）
-        raw_records = raw_records_issuance
 
         self.after(0, lambda: self._log(
             f"  醫師: {len(data.doctors)} 位 | "
@@ -1151,17 +1800,12 @@ class App(ctk.CTk):
             f"執行人員: {len({ex.executor_name for ex in data.executors})} 位\n"
         ))
 
-        # 人員個資
         receipt_lookup = {}
         db_path = self.var_people_db.get().strip()
         if db_path and os.path.exists(db_path):
             self.after(0, lambda: self._log("讀取人員個資檔..."))
             receipt_lookup = load_people_db(db_path)
 
-        # 診所名 → 人名(用於健管費 clinic_person 修正)
-        # 修正:value 用 info.recipient_name 而非 dict key,避免取到
-        # people_db 的內部佔位 key(如 "__clinic_only:診所名")。
-        # 個資該列有姓名 → 填姓名;姓名空白 → "" (明確留空,不亂寫)
         clinic_to_person = {
             info.clinic_name: (info.recipient_name or "")
             for info in receipt_lookup.values()
@@ -1198,14 +1842,12 @@ class App(ctk.CTk):
             if person:
                 hm.clinic_person = person
 
-        # ── 讀分區名單 ──
         regions_path = self.var_regions_db.get().strip()
         regions_map = regions_mod.load_regions(regions_path)
         if not regions_map or not any(regions_map.values()):
             self.after(0, lambda: self._log(
                 "⚠ 無分區名單(檔案不存在或空白),全部診所會歸為「其他」"))
 
-        # 把所有診所依分區分類
         all_clinics: set[str] = set()
         for d in data.doctors:
             all_clinics.add(d.medical_institution)
@@ -1221,7 +1863,6 @@ class App(ctk.CTk):
             clinic_region[c] = r
             region_to_clinics.setdefault(r, set()).add(c)
 
-        # ── 套用「進階:選擇要產生的診所」過濾 ──
         sel = self._selected_clinics
         if sel is not None:
             if not sel:
@@ -1252,16 +1893,12 @@ class App(ctk.CTk):
         self.after(0, lambda dl="\n".join(diag_lines):
                    self._log("分區比對結果:\n" + dl))
 
-        # ── 組 scopes ──
         prefix = f"{year}年{month:02d}月"
         month_dir_root = os.path.join(output, prefix)
         os.makedirs(month_dir_root, exist_ok=True)
 
-        # scope tuple: (label, allowed_clinics, min_presc, month_dir, produce_executor)
         scopes: list[tuple[str, set[str], int, str, bool]] = []
         if region_choice == "全部":
-            # 改:不再產出「全部/」資料夾(內容跟北投+士林+中山+其他重複)
-            # 改:處方處置費(課程老師)跨區共用,獨立放「課程老師/」資料夾
             for r in regions_mod.REGION_NAMES:
                 clinics = region_to_clinics.get(r, set())
                 if clinics:
@@ -1275,7 +1912,6 @@ class App(ctk.CTk):
                     "其他", unclassified, 0,
                     os.path.join(month_dir_root, "其他"),
                     False))
-            # 處方處置費獨立 scope(只產 executor 相關文件)
             if data.executors:
                 scopes.append((
                     "課程老師", set(), 0,
@@ -1290,12 +1926,11 @@ class App(ctk.CTk):
                 region_choice, clinics,
                 region_thresholds.get(region_choice, 0),
                 os.path.join(month_dir_root, region_choice),
-                True))  # 單區也產 executor
+                True))
 
         self.after(0, lambda: self._log(
-            f"\n產生範圍:{len(scopes)} 個 scope (不再產出『全部/』,可省 ~50% 時間)"))
+            f"\n產生範圍:{len(scopes)} 個 scope"))
 
-        # ── 進度 ──
         any_doctor_per_person = (
             self.var_gen_doctor_presc_detail.get()
             or self.var_gen_doctor_exec_detail.get()
@@ -1316,7 +1951,6 @@ class App(ctk.CTk):
             self.var_gen_treatment_summary.get(),
             any_treatment_per_person,
         ])
-        # 含 clinics 的 scope × per_scope_steps + 執行 executor 的 scope × executor_steps
         clinic_scope_count = sum(1 for _, allowed, _, _, _ in scopes if allowed)
         executor_scope_count = sum(1 for _, _, _, _, pe in scopes if pe)
         total_steps = (per_scope_steps * clinic_scope_count
@@ -1326,43 +1960,28 @@ class App(ctk.CTk):
 
         steps_done = 0
 
-        # ── Pac-Man 動畫 Phase 1:Word 文件產生階段 ──
-        # 此時產生的也是 Word docx,所以右側「已完成」用 Word 圖示
-        # (尚未轉成 PDF)。step_cb 觸發時餵階段編號給動畫。
-        if self.pacman is not None:
-            placeholder = [f"第 {i + 1} 階段" for i in range(total_steps)]
-            self.after(0, lambda t=total_steps, ph=placeholder:
-                       self.pacman.start(t, ph, output_icon="word"))
-            self.after(0, lambda: self.pacman.set_label(
-                "Step 1/2:產生 Word 文件中…"))
+        self.after(0, lambda: self._set_progress(
+            0.1, "Step 1/2 · 產生 Word 文件中…"))
 
         def step_cb():
             nonlocal steps_done
             steps_done += 1
-            self.after(0, lambda: self.progress.set(
-                0.1 + 0.85 * steps_done / total_steps))
-            # 每完成一階段就餵 Pac-Man 一口(用階段編號當標籤)
-            if self.pacman is not None:
-                self.after(0, lambda d=steps_done:
-                           self.pacman.feed(
-                               in_name=f"第 {d} 階段",
-                               out_name=f"第 {d} 階段"))
+            pct = 0.1 + 0.6 * steps_done / total_steps
+            self.after(0, lambda p=pct, d=steps_done, t=total_steps:
+                       self._set_progress(
+                           p, f"Step 1/2 · 產生 Word 文件 {d}/{t}"))
 
-        # ── 逐 scope 產出 ──
         all_pending_docx: list[str] = []
-        merge_bundles: list[tuple] = []  # (health, executor, doctor)
+        merge_bundles: list[tuple] = []
 
         for i, (scope_label, allowed, threshold, month_dir,
                 produce_exec) in enumerate(scopes):
-            # 過濾資料(每個 scope 都按該 scope 的 allowed_clinics 過濾;
-            # executor 資料不受 clinic 過濾影響,_filter_data 中保留全部 executors)
             data_scope = self._filter_data(data, allowed)
             raw_scope_issuance = self._filter_raw_records(
                 raw_records_issuance, allowed)
             raw_scope_execution = self._filter_raw_records(
                 raw_records_execution, allowed)
 
-            # 該 scope 的 min_prescriptions 要重算 is_qualified
             for hm in data_scope.health_mgmts:
                 hm.is_qualified = (
                     threshold == 0
@@ -1391,41 +2010,26 @@ class App(ctk.CTk):
             all_pending_docx.extend(pending)
             merge_bundles.append((hi, ei, di))
 
-        # ── 一次批次 Word → PDF ──
         if all_pending_docx:
             total_pdf = len(all_pending_docx)
             self.after(0, lambda: self._log(
-                f"\n批次轉換 {total_pdf} 份 Word → PDF（共用一個 Word 程序）..."))
-
-            # ── Pac-Man 動畫 Phase 2:Word → PDF 批次轉檔 ──
-            # 重新啟動 Pac-Man,清空 Phase 1 的階段編號,改用真實檔名,
-            # output_icon='pdf' 讓右側顯示紅色 PDF 圖示
-            todo_basenames = [os.path.basename(p) for p in all_pending_docx]
-            if self.pacman is not None:
-                self.after(0, lambda t=total_pdf, names=todo_basenames:
-                           self.pacman.start(t, names, output_icon="pdf"))
-                self.after(0, lambda: self.pacman.set_label(
-                    "Step 2/2:Word → PDF 轉檔中…"))
+                f"\n批次轉換 {total_pdf} 份 Word → PDF…"))
+            self.after(0, lambda: self._set_progress(
+                0.7, "Step 2/2 · Word → PDF 轉檔中…"))
 
             def _pdf_progress(done, total, name):
-                # 每一份都餵 Pac-Man(每 ~150ms 一次,順)
                 in_name = os.path.basename(name) if name else ""
-                # 對應的 PDF 檔名(把 .docx 換成 .pdf)
-                stem, _ = os.path.splitext(in_name)
-                out_name = f"{stem}.pdf" if stem else ""
-                if self.pacman is not None:
-                    self.after(0, lambda i=in_name, o=out_name:
-                               self.pacman.feed(i, o))
+                pct = 0.7 + 0.28 * done / total
+                self.after(0, lambda p=pct, n=in_name, d=done, t=total:
+                           self._set_progress(
+                               p, f"Step 2/2 · PDF 轉檔 {d}/{t}", n))
                 if done % 10 == 0 or done == total:
                     self.after(0, lambda d=done, t=total, n=name:
                                self._log(f"  [{d}/{t}] {n}"))
             _convert_docx_list_to_pdf(all_pending_docx, progress_cb=_pdf_progress)
             self.after(0, lambda: self._log(
                 f"[OK] {total_pdf} 份 PDF 轉換完成"))
-            if self.pacman is not None:
-                self.after(0, lambda: self.pacman.stop(finished=True))
 
-        # ── 合併每人的「明細 + 領據」PDF（不含總表）──
         for health_merge_info, executor_merge_info, doctor_merge_info in merge_bundles:
             if health_merge_info:
                 merge_health_mgmt_pdfs(*health_merge_info)
@@ -1434,40 +2038,37 @@ class App(ctk.CTk):
             if doctor_merge_info:
                 merge_doctor_receipt_pdfs(doctor_merge_info)
 
-        # ── 列出個資不完整的人員（領據缺欄位的）──
         self._log_incomplete_recipients(data, receipt_lookup)
 
-        # 記住本次輸出根（Email 掃描用 month_dir_root，glob 會吸收子分區）
         month_dir = month_dir_root
 
-        self.after(0, lambda: self.progress.set(1.0))
+        self.after(0, lambda: self._set_progress(
+            1.0, "✓ 全部完成", ""))
+        self.after(0, lambda: self.lbl_progress_status.configure(
+            text="✓ 全部完成", text_color=COLORS["success"]))
         self.after(0, lambda: self._log(
             f"\n完成！共產生至: {output}"))
 
-        # 保存寄送所需狀態
         self._last_month_dir = month_dir
         self._last_receipt_lookup = receipt_lookup
         self._last_year = year
         self._last_month = month
 
         self.after(0, lambda: messagebox.showinfo(
-            "完成", f"所有文件已產生！\n\n輸出至: {output}\n\n如需寄送，請按「預覽並寄送 Gmail」。"))
+            "完成", f"所有文件已產生！\n\n輸出至: {output}\n\n如需寄送，請按「📧 預覽並寄送 Gmail」。"))
         self.after(0, lambda: os.startfile(output))
 
-    # ──────────────────────────────────────────────────────
-    # Gmail 寄送
-    # ──────────────────────────────────────────────────────
     def _on_open_email_preview(self):
         sender = self.var_sender_email.get().strip()
         if not sender:
-            messagebox.showwarning("缺少寄件者", "請在「6. Gmail 寄送設定」填入寄件 Gmail。")
+            messagebox.showwarning(
+                "缺少寄件者",
+                "請在第 6 步「輸出位置 & 寄送設定」填入寄件 Gmail。")
             return
         if "@" not in sender:
             messagebox.showwarning("Email 格式錯誤", "寄件 Gmail 看起來不對，請確認。")
             return
 
-        # 取得 year / month / month_dir：優先用本次產生的結果，
-        # 否則用目前 UI 上的年月 + 輸出資料夾推算（支援既有資料夾）
         try:
             year = int(self.var_year.get())
             month = int(self.var_month.get())
@@ -1477,7 +2078,7 @@ class App(ctk.CTk):
 
         output = self.var_output.get().strip()
         if not output:
-            messagebox.showwarning("缺少輸出位置", "請在「5. 輸出位置」指定輸出資料夾。")
+            messagebox.showwarning("缺少輸出位置", "請先指定輸出資料夾。")
             return
 
         prefix = f"{year}年{month:02d}月"
@@ -1492,7 +2093,6 @@ class App(ctk.CTk):
                 f"找不到：\n{month_dir}\n\n請先按「產生文件」，或確認年月/輸出位置正確。")
             return
 
-        # 個資檔：用本次產生的，或重新讀一次
         receipt_lookup = self._last_receipt_lookup or {}
         if not receipt_lookup:
             db_path = self.var_people_db.get().strip()
@@ -1517,20 +2117,15 @@ class App(ctk.CTk):
 
 
 # ──────────────────────────────────────────────────────────
-# 產出選項群組詳情視窗
+# 群組詳情 / 診所選擇器（v37 沿用，配色微調）
 # ──────────────────────────────────────────────────────────
 class GroupDetailWindow(ctk.CTkToplevel):
-    """單一群組(醫師/診所/課程老師)的詳細產出選項視窗。
-
-    顯示該群組可產出的所有資料夾,每個對應一個獨立 checkbox。
-    """
-
     def __init__(self, master, group: dict):
         super().__init__(master)
         self.title(f"產出細項 — {group['title']}")
         self.geometry("720x520")
         self.minsize(580, 380)
-        self.configure(fg_color=("gray95", "gray12"))
+        self.configure(fg_color=COLORS["bg"])
 
         self.group = group
         self._build_ui()
@@ -1539,40 +2134,41 @@ class GroupDetailWindow(ctk.CTkToplevel):
         self.after(150, self.focus_force)
 
     def _build_ui(self):
-        # 頂部標題列
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=22, pady=(22, 4))
         ctk.CTkLabel(top, text="◢ " + self.group["title"],
-                     font=ctk.CTkFont(size=16, weight="bold"),
-                     text_color="#3498db").pack(side="left")
+                     font=ctk.CTkFont(size=23, weight="bold"),
+                     text_color=COLORS["accent"]).pack(side="left")
 
         ctk.CTkLabel(
             self,
             text="勾選 = 該資料夾才會產出。每個資料夾獨立控制。",
-            text_color="#a0aec0", font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_dim"], font=ctk.CTkFont(size=16),
             anchor="w").pack(fill="x", padx=22, pady=(0, 8))
 
-        # 操作列
         ops = ctk.CTkFrame(self, fg_color="transparent")
         ops.pack(fill="x", padx=22, pady=(0, 10))
         ctk.CTkButton(ops, text="✓ 全選", width=80, height=30,
-                      fg_color="#2980b9", hover_color="#1f618d",
-                      font=ctk.CTkFont(size=12),
+                      fg_color=COLORS["accent"],
+                      hover_color=COLORS["accent_hi"],
+                      font=ctk.CTkFont(size=17),
                       command=self._select_all).pack(side="left", padx=(0, 6))
         ctk.CTkButton(ops, text="✕ 全不選", width=80, height=30,
-                      fg_color="gray45", hover_color="gray35",
-                      font=ctk.CTkFont(size=12),
+                      fg_color="transparent",
+                      hover_color=COLORS["bg_card_hi"],
+                      text_color=COLORS["text"],
+                      border_color=COLORS["border"], border_width=1,
+                      font=ctk.CTkFont(size=17),
                       command=self._select_none).pack(side="left")
 
-        # 子項清單
         scroll = ctk.CTkScrollableFrame(
-            self, fg_color=("gray97", "gray16"))
+            self, fg_color=COLORS["bg_card"])
         scroll.pack(fill="both", expand=True, padx=22, pady=(0, 12))
 
         for sub_var, folder, desc in self.group["items"]:
-            row = ctk.CTkFrame(scroll, fg_color=("white", "gray22"),
+            row = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card_hi"],
                                corner_radius=8, border_width=1,
-                               border_color=("gray80", "gray30"))
+                               border_color=COLORS["border"])
             row.pack(fill="x", pady=5, padx=2)
 
             inner = ctk.CTkFrame(row, fg_color="transparent")
@@ -1580,28 +2176,30 @@ class GroupDetailWindow(ctk.CTkToplevel):
 
             ctk.CTkCheckBox(inner, text="", variable=sub_var,
                             width=22, checkbox_width=20,
-                            checkbox_height=20).pack(
+                            checkbox_height=20,
+                            fg_color=COLORS["accent"],
+                            hover_color=COLORS["accent_hi"],
+                            border_color=COLORS["border"], border_width=2,
+                            checkmark_color="#ffffff").pack(
                                 side="left", padx=(0, 12))
 
             text_frame = ctk.CTkFrame(inner, fg_color="transparent")
             text_frame.pack(side="left", fill="x", expand=True)
             ctk.CTkLabel(
                 text_frame, text="📁  " + folder,
-                font=ctk.CTkFont(family=MONO_FONT, size=13,
-                                 weight="bold"),
-                text_color="#2980b9", anchor="w").pack(fill="x")
+                font=ctk.CTkFont(family=MONO_FONT, size=13, weight="bold"),
+                text_color=COLORS["accent"], anchor="w").pack(fill="x")
             ctk.CTkLabel(
                 text_frame, text="    " + desc,
-                font=ctk.CTkFont(size=11),
-                text_color=("gray35", "gray70"), anchor="w").pack(fill="x")
+                font=ctk.CTkFont(size=16),
+                text_color=COLORS["text_dim"], anchor="w").pack(fill="x")
 
-        # 底部
         bot = ctk.CTkFrame(self, fg_color="transparent")
         bot.pack(fill="x", padx=22, pady=(0, 18))
         ctk.CTkButton(
-            bot, text="完成", width=100, height=34,
-            fg_color="#1e8449", hover_color="#196f3d",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            bot, text="完成", width=100, height=48,
+            fg_color=COLORS["success"], hover_color="#15803d",
+            font=ctk.CTkFont(size=18, weight="bold"),
             command=self.destroy).pack(side="right")
 
     def _select_all(self):
@@ -1613,23 +2211,18 @@ class GroupDetailWindow(ctk.CTkToplevel):
             sub_var.set(False)
 
 
-# ──────────────────────────────────────────────────────────
-# 診所勾選視窗
-# ──────────────────────────────────────────────────────────
 class ClinicSelectorWindow(ctk.CTkToplevel):
-    """讓使用者勾選要產生文件的診所(依分區分組)。"""
-
     def __init__(self, master, regions_map: dict, extra_clinics: list):
         super().__init__(master)
         self.title("選擇要產生的診所")
         self.geometry("520x680")
         self.minsize(450, 420)
+        self.configure(fg_color=COLORS["bg"])
 
         self.master_app = master
         self.regions_map = regions_map
         self.extra_clinics = list(extra_clinics or [])
 
-        # 用主畫面當前狀態還原勾選
         prev = master._selected_clinics
         self.checks: dict[str, ctk.BooleanVar] = {}
 
@@ -1644,7 +2237,6 @@ class ClinicSelectorWindow(ctk.CTkToplevel):
 
         for _, cs in ordered:
             for c in cs:
-                # 預設勾選:None → 全部勾;否則只勾在 set 內的
                 if prev is None:
                     default = True
                 else:
@@ -1658,67 +2250,84 @@ class ClinicSelectorWindow(ctk.CTkToplevel):
         self.after(150, self.focus_force)
 
     def _build_ui(self):
-        # 頂部說明
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=15, pady=(15, 5))
         ctk.CTkLabel(top, text="勾選要產生文件的診所",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+                     font=ctk.CTkFont(size=19, weight="bold"),
+                     text_color=COLORS["text"]).pack(side="left")
 
-        # 全選/全不選/反選
         ops = ctk.CTkFrame(self, fg_color="transparent")
         ops.pack(fill="x", padx=15, pady=(0, 6))
         ctk.CTkButton(ops, text="全選", width=70, height=28,
-                      fg_color="gray60", hover_color="gray50",
+                      fg_color="transparent",
+                      hover_color=COLORS["bg_card_hi"],
+                      text_color=COLORS["text"],
+                      border_color=COLORS["border"], border_width=1,
                       command=self._select_all).pack(side="left", padx=(0, 5))
         ctk.CTkButton(ops, text="全不選", width=70, height=28,
-                      fg_color="gray60", hover_color="gray50",
+                      fg_color="transparent",
+                      hover_color=COLORS["bg_card_hi"],
+                      text_color=COLORS["text"],
+                      border_color=COLORS["border"], border_width=1,
                       command=self._select_none).pack(side="left", padx=(0, 5))
         ctk.CTkButton(ops, text="反選", width=70, height=28,
-                      fg_color="gray60", hover_color="gray50",
+                      fg_color="transparent",
+                      hover_color=COLORS["bg_card_hi"],
+                      text_color=COLORS["text"],
+                      border_color=COLORS["border"], border_width=1,
                       command=self._invert).pack(side="left", padx=(0, 5))
 
-        # 滾動清單
-        self.scroll = ctk.CTkScrollableFrame(self)
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg_card"])
         self.scroll.pack(fill="both", expand=True, padx=15, pady=(2, 6))
 
         for region_label, clinics in self.ordered:
             self._build_group(region_label, clinics)
 
-        # 計數狀態
-        self.count_lbl = ctk.CTkLabel(self, text="", text_color="#a0aec0",
-                                      font=ctk.CTkFont(size=12), anchor="w")
+        self.count_lbl = ctk.CTkLabel(self, text="",
+                                       text_color=COLORS["text_dim"],
+                                       font=ctk.CTkFont(size=17),
+                                       anchor="w")
         self.count_lbl.pack(fill="x", padx=15, pady=(0, 4))
 
-        # 確認/取消
         bot = ctk.CTkFrame(self, fg_color="transparent")
         bot.pack(fill="x", padx=15, pady=(0, 15))
-        ctk.CTkButton(bot, text="確認", width=90, height=34,
-                      fg_color="#1e8449", hover_color="#196f3d",
-                      font=ctk.CTkFont(size=13, weight="bold"),
+        ctk.CTkButton(bot, text="確認", width=90, height=48,
+                      fg_color=COLORS["success"], hover_color="#15803d",
+                      font=ctk.CTkFont(size=18, weight="bold"),
                       command=self._on_confirm).pack(side="right")
-        ctk.CTkButton(bot, text="取消", width=80, height=34,
-                      fg_color="gray60", hover_color="gray50",
+        ctk.CTkButton(bot, text="取消", width=80, height=48,
+                      fg_color="transparent",
+                      hover_color=COLORS["bg_card_hi"],
+                      text_color=COLORS["text"],
+                      border_color=COLORS["border"], border_width=1,
                       command=self.destroy).pack(side="right", padx=(0, 6))
 
         self._update_count()
 
     def _build_group(self, region_label: str, clinics: list):
-        header = ctk.CTkFrame(self.scroll, fg_color=("gray85", "gray25"),
+        header = ctk.CTkFrame(self.scroll, fg_color=COLORS["bg_card_hi"],
                               corner_radius=4)
         header.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(header,
                      text=f"  📍 {region_label} ({len(clinics)} 間)",
-                     font=ctk.CTkFont(size=13, weight="bold")
+                     font=ctk.CTkFont(size=18, weight="bold"),
+                     text_color=COLORS["text"]
                      ).pack(side="left", pady=4)
         ctk.CTkButton(header, text="全不選", width=70, height=24,
-                      fg_color="gray60", hover_color="gray50",
-                      font=ctk.CTkFont(size=11),
+                      fg_color="transparent",
+                      hover_color=COLORS["bg"],
+                      text_color=COLORS["text_dim"],
+                      border_color=COLORS["border"], border_width=1,
+                      font=ctk.CTkFont(size=16),
                       command=lambda cs=clinics:
                           self._toggle_group(cs, False)
                       ).pack(side="right", padx=(2, 8), pady=2)
         ctk.CTkButton(header, text="全選", width=60, height=24,
-                      fg_color="gray60", hover_color="gray50",
-                      font=ctk.CTkFont(size=11),
+                      fg_color="transparent",
+                      hover_color=COLORS["bg"],
+                      text_color=COLORS["text_dim"],
+                      border_color=COLORS["border"], border_width=1,
+                      font=ctk.CTkFont(size=16),
                       command=lambda cs=clinics:
                           self._toggle_group(cs, True)
                       ).pack(side="right", padx=2, pady=2)
@@ -1726,6 +2335,11 @@ class ClinicSelectorWindow(ctk.CTkToplevel):
         for c in clinics:
             ctk.CTkCheckBox(self.scroll, text=c,
                             variable=self.checks[c],
+                            text_color=COLORS["text"],
+                            fg_color=COLORS["accent"],
+                            hover_color=COLORS["accent_hi"],
+                            border_color=COLORS["border"], border_width=2,
+                            checkmark_color="#ffffff",
                             command=self._update_count
                             ).pack(anchor="w", padx=20, pady=2)
 
@@ -1765,7 +2379,6 @@ class ClinicSelectorWindow(ctk.CTkToplevel):
                 return
             self.master_app._selected_clinics = set()
         elif len(selected) == total:
-            # 全選等於「全部」(預設行為)
             self.master_app._selected_clinics = None
         else:
             self.master_app._selected_clinics = selected

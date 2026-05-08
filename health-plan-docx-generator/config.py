@@ -27,6 +27,11 @@ _DEFAULTS: dict = {
     "PEOPLE_DIVISOR": 4,
     # UI「健管費最低份數」欄位預設值
     "MIN_PRESCRIPTIONS_DEFAULT": 20,
+    # Google Drive 同步：診所分區（啟動時自動拉，無密碼）
+    "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing",
+    # Google Drive 同步：人員個資（按按鈕後輸入密碼才拉）
+    "PEOPLE_DB_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1z5fCNGC0AU9CTzLhVtD-mAueQGn473yU/edit?usp=sharing",
+    "PEOPLE_DB_PASSWORD": "tpma28917453",
 }
 
 
@@ -65,6 +70,9 @@ FEE_PER_EXECUTION: int = _CFG["FEE_PER_EXECUTION"]
 FEE_PER_TREATMENT: int = _CFG["FEE_PER_TREATMENT"]
 PEOPLE_DIVISOR: int = _CFG["PEOPLE_DIVISOR"]
 MIN_PRESCRIPTIONS_DEFAULT: int = _CFG["MIN_PRESCRIPTIONS_DEFAULT"]
+REGIONS_DRIVE_URL: str = _CFG["REGIONS_DRIVE_URL"]
+PEOPLE_DB_DRIVE_URL: str = _CFG["PEOPLE_DB_DRIVE_URL"]
+PEOPLE_DB_PASSWORD: str = _CFG["PEOPLE_DB_PASSWORD"]
 
 
 def config_source() -> str:

@@ -30,6 +30,22 @@ PTYPE_SHORT = {"運動處方": "運動", "營養處方": "營養",
                "情緒調適處方": "情緒調適", "社會處方": "社會"}
 
 
+def _write_unencrypted_list(unencrypted_by_dir: dict):
+    """將每個 receipt 資料夾的未加密(身分證空白)名單寫成 未加密清單.txt。"""
+    for receipt_dir, names in unencrypted_by_dir.items():
+        if not names:
+            continue
+        try:
+            os.makedirs(receipt_dir, exist_ok=True)
+            txt_path = os.path.join(receipt_dir, "未加密清單.txt")
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write("以下人員因身分證字號空白，PDF 未加密：\n")
+                for n in names:
+                    f.write(f"- {n}\n")
+        except OSError:
+            pass
+
+
 def _present_types(executor: ExecutorData) -> list[str]:
     """回傳此執行人員實際有的處方類型,按固定順序。"""
     counts = executor.type_counts or {}
@@ -122,7 +138,7 @@ def generate_doctor_receipts(data: AllData,
         os.makedirs(receipt_dir, exist_ok=True)
 
     # 蒐集每位醫師的 docx 路徑（kind: "presc" / "exec"）
-    # list of (kind, name, detail_docx, receipt_docx, receipt_dir)
+    # list of (kind, name, detail_docx, receipt_docx, receipt_dir, id_number)
     docx_info = []
 
     for doc_data in data.doctors:
@@ -190,6 +206,7 @@ def generate_doctor_receipts(data: AllData,
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx) if merged_receipt_docx else None,
                 receipt_dir,
+                base_receipt.id_number,
             ))
 
         # === 處方執行費民眾明細 ===
@@ -209,6 +226,7 @@ def generate_doctor_receipts(data: AllData,
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx) if merged_receipt_docx else None,
                 receipt_dir,
+                base_receipt.id_number,
             ))
 
         # 若三種子類別都不產但仍要記錄領據(讓 PDF 合併能找到),
@@ -218,15 +236,17 @@ def generate_doctor_receipts(data: AllData,
                 "receipt_only", name, None,
                 os.path.abspath(merged_receipt_docx),
                 receipt_dir,
+                base_receipt.id_number,
             ))
         elif emit_receipt and merged_receipt_docx \
                 and not emit_presc_detail and not emit_exec_detail:
             # 只勾領據,沒勾任何明細 — 讓 docx_info 至少有一筆
-            if not any(n == name for _, n, _, _, _ in docx_info):
+            if not any(n == name for _, n, _, _, _, _ in docx_info):
                 docx_info.append((
                     "receipt_only", name, None,
                     os.path.abspath(merged_receipt_docx),
                     receipt_dir,
+                    base_receipt.id_number,
                 ))
 
     if not also_pdf or not docx_info:
@@ -236,7 +256,7 @@ def generate_doctor_receipts(data: AllData,
     # 領據是 處方費 / 執行費 兩 docx_info 共用，去重避免重複轉換
     all_docx = []
     seen = set()
-    for _, _, d, r, _ in docx_info:
+    for _, _, d, r, _, _ in docx_info:
         for path in (d, r):
             if path and path not in seen:
                 all_docx.append(path)
@@ -251,12 +271,14 @@ def generate_doctor_receipts(data: AllData,
     return docx_info
 
 
-def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
+def merge_doctor_receipt_pdfs(docx_info, master_password=None, progress_cb=None):
     """合併醫師「明細(處方費+執行費可能各一) + 領據」每人 1 份 PDF。
-    docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir)
+    docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir, id_number)
+    身分證字號當 user_password；master_password 當 owner_password
+    （兩者皆可開啟 PDF）。身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
@@ -265,15 +287,20 @@ def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
 
     # 把同醫師的 entries 收成一組
     by_doctor = {}
-    for kind, name, detail_docx, receipt_docx, receipt_dir in docx_info:
+    for kind, name, detail_docx, receipt_docx, receipt_dir, id_number in docx_info:
         bucket = by_doctor.setdefault(name, {
             "presc_detail": None, "exec_detail": None,
             "receipt": receipt_docx, "receipt_dir": receipt_dir,
+            "id_number": id_number,
         })
         if kind == "presc":
             bucket["presc_detail"] = detail_docx
         elif kind == "exec":
             bucket["exec_detail"] = detail_docx
+        if not bucket.get("id_number") and id_number:
+            bucket["id_number"] = id_number
+
+    unencrypted_by_dir: dict[str, list[str]] = {}
 
     for name, b in by_doctor.items():
         ordered = []
@@ -288,15 +315,20 @@ def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
             continue
         receipt_dir = b["receipt_dir"]
         final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
+        user_pw = normalize_id_number(b.get("id_number"))
         try:
-            merger = PdfMerger()
-            for p in ordered:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                ordered, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            if not user_pw:
+                unencrypted_by_dir.setdefault(receipt_dir, []).append(name)
         except Exception as e:
             if progress_cb:
                 progress_cb(f"  [WARN] {name} PDF 合併失敗: {e}")
+
+    _write_unencrypted_list(unencrypted_by_dir)
 
 
 def generate_health_mgmt_individual_docs(data: AllData,
@@ -423,6 +455,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
                 person,
                 os.path.abspath(detail_docx) if detail_docx else None,
                 os.path.abspath(receipt_docx) if receipt_docx else None,
+                base_receipt.id_number,
             ))
 
     if not also_pdf or not docx_info:
@@ -430,7 +463,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
     # 批次轉 PDF(明細 + 領據;不再合併 PDF)
     all_docx = []
-    for _, d, r in docx_info:
+    for _, d, r, _ in docx_info:
         for p in (d, r):
             if p:
                 all_docx.append(p)
@@ -444,16 +477,20 @@ def generate_health_mgmt_individual_docs(data: AllData,
     return docx_info, receipt_dir
 
 
-def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
+def merge_health_mgmt_pdfs(docx_info, receipt_dir, master_password=None, progress_cb=None):
     """合併健康管理費「明細 + 領據」每人 1 份 PDF。
-    docx_info tuple: (person, detail_docx, receipt_docx)
+    docx_info tuple: (person, detail_docx, receipt_docx, id_number)
+    身分證字號當 user_password；master_password 當 owner_password。
+    身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
-    for person, detail_docx, receipt_docx in docx_info:
+    unencrypted_names: list[str] = []
+
+    for person, detail_docx, receipt_docx, id_number in docx_info:
         # 兩者可能其中之一為 None(該項未勾選產出)
         if not detail_docx or not receipt_docx:
             continue
@@ -465,15 +502,21 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
             continue
 
         final_pdf = os.path.join(receipt_dir, f"{person}_明細領據.pdf")
+        user_pw = normalize_id_number(id_number)
         try:
-            merger = PdfMerger()
-            for p in pdfs:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                pdfs, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            if not user_pw:
+                unencrypted_names.append(person)
         except Exception as e:
             if progress_cb:
                 progress_cb(f"  [WARN] {person} 健康管理費 PDF 合併失敗: {e}")
+
+    if unencrypted_names:
+        _write_unencrypted_list({receipt_dir: unencrypted_names})
 
 
 _PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
@@ -843,14 +886,15 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
             docx_info.append((
                 name, ptype,
                 os.path.abspath(detail_docx) if detail_docx else None,
-                os.path.abspath(receipt_docx) if receipt_docx else None))
+                os.path.abspath(receipt_docx) if receipt_docx else None,
+                receipt.id_number))
 
     if not also_pdf or not docx_info:
         return docx_info, receipt_dir
 
     # === 批次轉 PDF(明細 + 領據;不再合併 PDF)===
     all_docx = []
-    for _, _, d, r in docx_info:
+    for _, _, d, r, _ in docx_info:
         for p in (d, r):
             if p:
                 all_docx.append(p)
@@ -859,16 +903,24 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
     return docx_info, receipt_dir
 
 
-def merge_executor_pdfs(docx_info, receipt_dir):
+def merge_executor_pdfs(docx_info, receipt_dir, master_password=None):
     """合併處方處置費「明細 + 領據」每人 1 份 PDF。
-    docx_info tuple: (name, ptype, detail_docx, receipt_docx)
+    docx_info tuple: (name, ptype, detail_docx, receipt_docx, id_number)
+    身分證字號當 user_password；master_password 當 owner_password。
+    身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from PyPDF2 import PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
-    for name, ptype, detail_docx, receipt_docx in docx_info:
+    # 同一姓名可能因多 ptype 出現多筆，去重避免重複加密同檔
+    seen_names: set[str] = set()
+    unencrypted_names: list[str] = []
+
+    for name, ptype, detail_docx, receipt_docx, id_number in docx_info:
+        if name in seen_names:
+            continue
         if not detail_docx or not receipt_docx:
             continue
         pdfs = [
@@ -879,14 +931,21 @@ def merge_executor_pdfs(docx_info, receipt_dir):
             continue
 
         final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
+        user_pw = normalize_id_number(id_number)
         try:
-            merger = PdfMerger()
-            for p in pdfs:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                pdfs, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            seen_names.add(name)
+            if not user_pw:
+                unencrypted_names.append(name)
         except Exception as e:
             print(f"  [WARN] {name} 處方處置費 PDF 合併失敗: {e}")
+
+    if unencrypted_names:
+        _write_unencrypted_list({receipt_dir: unencrypted_names})
 
 
 # ── Page builders ──────────────────────────────────────
