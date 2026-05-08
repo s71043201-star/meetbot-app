@@ -478,7 +478,7 @@ class JsApi:
             if dr:
                 d_info = dr
                 seen = set()
-                for _, _, dd, r, _ in dr:
+                for _, _, dd, r, _, _ in dr:
                     for p in (dd, r):
                         if p and p not in seen:
                             all_p.append(p)

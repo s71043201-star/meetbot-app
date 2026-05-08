@@ -203,6 +203,20 @@ const App = () => {
     } catch (e) { flash(e.message, "err"); }
   };
 
+  const syncRegionsFromCloud = async () => {
+    try {
+      const r = await pywv.call("syncRegionsFromDrive");
+      if (r && r.ok) {
+        if (r.path) setRegionsDb(r.path);
+        flash("✓ 診所分區已從雲端更新");
+      } else {
+        flash((r && r.message) || "雲端同步失敗", "err");
+      }
+    } catch (e) {
+      flash((e && e.message) || "雲端同步失敗", "err");
+    }
+  };
+
   const submitCloudPeople = async () => {
     setCloudPwErr("");
     setCloudBusy(true);
@@ -327,6 +341,7 @@ const App = () => {
             <div className="step-body">
               <FileLine path={regionsDb} placeholder="尚未選擇分區檔" onPick={() => pickFile(setRegionsDb, "xlsx")} />
               <div className="actions">
+                <BtnAccent icon="☁" onClick={syncRegionsFromCloud}>從雲端帶入最新分區</BtnAccent>
                 <BtnGhost icon="＋" onClick={createRegionsTpl}>建立空白範本</BtnGhost>
                 <BtnGhost icon="✎" onClick={() => regionsDb && pywv.call("openFile", regionsDb)}>開啟編輯</BtnGhost>
                 <BtnAccent icon="▦" onClick={openClinicPicker}>選擇要產生的診所</BtnAccent>
