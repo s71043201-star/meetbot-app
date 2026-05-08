@@ -1,106 +1,89 @@
-# 核銷文件產生器
+# 核銷文件產生器 v39（網頁美化版）
 
-健康台灣深耕計畫 — 台北市醫師公會核銷文件自動產生工具。
-
-讀取處方紀錄 Excel,產出:
-- 處方費 / 處方執行費 / 健康管理費 核銷總表(Word + PDF)
-- 執行人員民眾明細表
-- 執行人員、醫師個人領據(Word + PDF)
-- 各項合併總表 / 個別核銷明細
+HTML 介面 + Python 後端，**真的能產出 Word / PDF / 寄送 Gmail**。
+不再使用 pywebview —— 改用本機瀏覽器（Chrome / Edge / Firefox 皆可），更穩定。
 
 ---
 
-## 給使用者(執行檔版本)
+## 使用方式（需安裝 Python）
 
-直接執行 `dist/核銷文件產生器.exe`。
+> **前提**：電腦先安裝 **Python 3.10 以上**
+> 下載：https://www.python.org/downloads/
+> ⚠️ 安裝時務必勾選「**Add Python to PATH**」
 
-### 調整費用 / 門檻
+### 啟動步驟
+1. 下載本專案 → 解壓縮到固定位置（例如桌面）
+2. 進入 `v39_webview/` 資料夾
+3. 雙擊 **`啟動.py`**
+   - 第一次會自動 `pip install` 所需套件（1~3 分鐘）
+   - 之後就直接開程式
+4. 程式會：
+   - 啟動本機 server `http://127.0.0.1:5173/`
+   - 自動用預設瀏覽器開啟介面
+   - 保留 cmd 視窗（**請勿關閉**，關閉等於關掉程式）
 
-**不用重新打包**。開啟 `dist/config.json` 編輯數值即可,下次啟動生效:
-
-```json
-{
-  "HEALTH_MGMT_FEE": 7000,         // 健管費金額
-  "FEE_PER_PRESCRIPTION": 300,     // 每份處方費
-  "FEE_PER_EXECUTION": 100,        // 每份處方執行費
-  "FEE_PER_TREATMENT": 400,        // 每人次處置費
-  "PEOPLE_DIVISOR": 4,             // 份數 ÷ 此值 = 人數門檻
-  "MIN_PRESCRIPTIONS_DEFAULT": 20  // UI「最低份數」欄位預設
-}
+### 從命令列啟動（雙擊閃退時用）
 ```
-
-若 `config.json` 不存在或讀取失敗,會用內建預設值。
-
-### UI 使用流程
-
-1. **匯入處方紀錄**:選擇 Excel 檔(包含「處方紀錄」分頁)
-2. **申報設定**:年份、月份、健管費最低份數
-   - 份數必須是 `PEOPLE_DIVISOR` (預設 4)的倍數,否則不能產生
-3. **勾選要產生的文件**
-4. **人員個資檔**:選填,會帶入領據的身分證、地址、銀行等
-5. **輸出位置**:產出檔案放哪
-6. 按「產 生 文 件」
+cd 路徑\v39_webview
+py 啟動.py
+```
+有錯誤訊息會直接印在 cmd，方便排查。
 
 ---
 
-## 給開發者
+## 為什麼需要 Python？
 
-### 開發環境
+這是一個**網頁前端 + Python 後端**的混合架構：
 
-```bash
-# Python 3.13 + tkinter
-pip install -r requirements.txt
-```
+- **前端**：HTML + React，跑在瀏覽器
+- **後端**：Python，負責讀 Excel、產 Word、轉 PDF、寄信
+- 兩者透過本機 `http://127.0.0.1:5173/` 連通
 
-### 直接跑(不打包)
+所以**必須有 Python 環境**才能跑。
+若想做成單檔 `.exe`（不需 Python），執行 `build_webview.bat` 打包。
 
-```bash
-python app.py
-```
+---
 
-`config.json` 放在專案根目錄即可(跟 `app.py` 同層)。
-
-### 打包 exe
-
-```cmd
-build.bat
-```
-
-會產出 `dist/核銷文件產生器.exe` 與 `dist/config.json`。把這兩個檔一起給使用者。
-
-### 專案結構
+## 結構
 
 ```
-health-plan-docx-generator/
-├── app.py                    GUI 主程式
-├── config.py                 設定常數(讀 config.json,fallback 用內建)
-├── config.json               ★ 費用/門檻可調整
-├── models.py                 Dataclass:AllData, DoctorPrescription, ...
-├── reader.py                 讀處方紀錄 Excel → AllData
-├── excel_writer.py           產生 Excel 輸出
-├── people_db.py              人員個資 Excel 讀寫
-├── receipt_reader.py         從舊領據 docx 匯入人員資料
-├── generate.py               CLI 入口(保留,目前主要走 app.py)
-├── pdf_merge.py              PDF 合併工具
-├── templates/
-│   ├── clinic.py             核銷總表(處方費/執行費/健管費)
-│   ├── clone_fill.py         直接從 Word 模板複製格式填數據
-│   ├── doc_utils.py          docx 共用工具
-│   ├── executor.py           執行人員文件 + 健管費個別檔
-│   └── receipt.py            領據
-├── word_templates/           使用者提供的樣板 docx
-├── 核銷文件產生器.spec        PyInstaller spec
-├── build.bat                 一鍵打包
+v39_webview/
+├── 啟動.py                  # 一鍵啟動（自動裝套件 + 開瀏覽器）
+├── app_server.py            # HTTP server + API（核心入口）
+├── reader.py / excel_writer.py / models.py / ...   # 核心邏輯
+├── templates/               # 產 Word 邏輯
+├── word_templates/          # Word 範本 .docx
+├── web_ui/                  # HTML 介面
+│   ├── index.html
+│   ├── app.jsx              # React 美化版 UI
+│   ├── app.css
+│   └── email_preview.html
 ├── requirements.txt
-└── README.md
+└── 核銷文件產生器_v39.spec   # PyInstaller 打包設定
 ```
 
-### 架構備忘
+---
 
-- **config.py 是唯一費用來源**。新增費用常數時加到 `config.py` + `config.json` + `_DEFAULTS`,所有模組從 `config` import。
-- **`AllData.min_prescriptions`** 由 UI 填入,`read_prescription_report` 存進 data,`_add_health_mgmt_page` 從 `data.min_prescriptions` 讀取。不要再用 module-level 變數傳值。
-- **Word 模板** (`word_templates/*.docx`) 是使用者提供的實際格式,`clone_fill` 把第一筆當樣板複製 N 份替換數字。改模板不用改程式碼。
+## 故障排除
 
-### 除錯
+| 問題 | 處理 |
+|---|---|
+| 雙擊 `啟動.py` 閃退 | 用 cmd 執行 `py 啟動.py` 看錯誤訊息 |
+| `ModuleNotFoundError: app_server` | 確認你是從**解壓後的資料夾**執行，不是直接從 zip 預覽執行 |
+| 點選檔按鈕沒反應 | 對話框被其他視窗擋住；按 Alt+Tab 切換看看 |
+| `docx2pdf` 失敗 | Word→PDF 需要本機安裝 Microsoft Word |
+| 瀏覽器沒自動開 | 手動瀏覽 http://127.0.0.1:5173/ |
 
-執行時若 UI log 顯示 `設定檔來源: (defaults)` → 代表 `config.json` 沒找到或讀取失敗,請檢查是否跟 exe 同目錄。
+---
+
+## 推上 GitHub
+
+```bash
+cd v39_webview
+git init
+git add .
+git commit -m "v39 網頁美化版（瀏覽器 + Python 後端）"
+git branch -M main
+git remote add origin https://github.com/<你的帳號>/<repo名稱>.git
+git push -u origin main
+```

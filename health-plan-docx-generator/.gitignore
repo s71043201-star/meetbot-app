@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 *.spec
+!核銷文件產生器_v39.spec
 output*/
 test_output*/
 output/
