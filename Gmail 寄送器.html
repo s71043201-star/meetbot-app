@@ -1,0 +1,1773 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Gmail 寄送器 2.0.2 — 美化網頁版</title>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<style>
+:root {
+  --bg: #FAFAF9;
+  --paper: #FFFFFF;
+  --ink: #0A0A0A;
+  --ink-2: #1F1F1F;
+  --sub: #525252;
+  --mute: #8E8E93;
+  --line: #E8E8E5;
+  --line-soft: #F2F2EF;
+  --line-strong: #D4D4D0;
+  --accent: #0A0A0A;
+  --pop: #D4452C;
+  --pop-soft: #FBEAE5;
+  --ok: #1A7F3F;
+  --ok-soft: #E5F3EA;
+  --warn: #B8740F;
+  --warn-soft: #FBF1DE;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 36px rgba(0,0,0,0.10);
+  --sans: 'Inter', 'Noto Sans TC', "Microsoft JhengHei UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: var(--mono); font-feature-settings: "zero", "ss01"; }
+.small { font-size: 11px; letter-spacing: 0.04em; }
+.dim { color: var(--mute); }
+input, select, textarea, button { font-family: inherit; font-size: inherit; color: inherit; }
+input, select, textarea { outline: none; }
+button { background: none; border: none; cursor: pointer; padding: 0; }
+
+/* ─── App shell ─── */
+.app {
+  max-width: 1080px;
+  margin: 0 auto;
+  background: var(--paper);
+  min-height: 100vh;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.titlebar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--mute);
+}
+.titlebar .dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--pop);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(212,69,44,0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(212,69,44,0); }
+  100% { box-shadow: 0 0 0 0 rgba(212,69,44,0); }
+}
+.tb-controls { margin-left: auto; display: flex; gap: 16px; font-size: 12px; color: var(--mute); }
+
+/* ─── Hero ─── */
+.hero {
+  padding: 56px 56px 40px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--paper) 0%, #FAFAF9 100%);
+}
+.hero-meta {
+  display: flex; justify-content: space-between;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.hero-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 60px;
+  align-items: end;
+}
+.hero-title h1 {
+  font-size: 56px; font-weight: 700;
+  letter-spacing: -2px; line-height: 1;
+  margin: 0 0 16px; color: var(--ink);
+}
+.hero-title p { font-size: 15px; color: var(--sub); max-width: 500px; margin: 0; }
+.hero-stat {
+  text-align: right;
+  border-left: 1px solid var(--line);
+  padding-left: 32px;
+}
+.stat-label { text-transform: uppercase; color: var(--mute); margin-bottom: 8px; display: block; }
+.stat-num {
+  font-size: 64px; font-weight: 500;
+  letter-spacing: -3px; line-height: 0.95; color: var(--ink);
+}
+.stat-unit { font-size: 18px; font-family: var(--sans); font-weight: 400; color: var(--mute); letter-spacing: 0; }
+
+/* ─── Step Nav ─── */
+.stepnav {
+  display: flex; align-items: center;
+  padding: 20px 56px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  gap: 8px; overflow-x: auto;
+}
+.stepnav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 8px;
+  cursor: pointer; transition: background 0.15s, opacity 0.15s;
+  flex-shrink: 0;
+}
+.stepnav-item:hover { background: var(--paper); }
+.stepnav-circle {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 999px;
+  border: 1.5px solid var(--line-strong);
+  font-size: 11px; background: var(--paper); color: var(--mute);
+  transition: all 0.2s var(--ease);
+}
+.stepnav-item.current .stepnav-circle {
+  background: var(--ink); border-color: var(--ink); color: var(--paper);
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.06);
+}
+.stepnav-item.visited .stepnav-circle {
+  background: var(--ok-soft); border-color: var(--ok); color: var(--ok);
+}
+.stepnav-tick { color: var(--ok); font-size: 12px; font-weight: 700; }
+.stepnav-item.current .stepnav-tick { color: var(--paper); }
+.stepnav-label { font-size: 13px; font-weight: 500; color: var(--sub); white-space: nowrap; }
+.stepnav-item.current .stepnav-label { color: var(--ink); font-weight: 600; }
+.stepnav-line { flex: 0 0 24px; height: 1px; background: var(--line-strong); }
+.stepnav-line.active { background: var(--ok); }
+
+/* ─── App Password bar ─── */
+.pwbar {
+  display: flex; align-items: center; gap: 16px;
+  margin: 0 56px 24px;
+  padding: 14px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+.pwbar-icon {
+  font-size: 18px;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.pwbar-label { flex: 0 0 auto; min-width: 200px; }
+.pwbar-hint { margin-top: 2px; }
+.pwbar-input-wrap {
+  flex: 1; display: flex; align-items: center; gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 6px 0 12px;
+  transition: border-color 0.15s var(--ease);
+}
+.pwbar-input-wrap:focus-within { border-color: var(--ink); }
+.pwbar-input {
+  flex: 1;
+  background: transparent; border: 0; outline: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0.08em;
+  padding: 10px 0;
+}
+.pwbar-eye {
+  background: transparent; border: 0; cursor: pointer;
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--mute); border-radius: 6px;
+}
+.pwbar-eye:hover { color: var(--ink); background: var(--line-soft); }
+.pwbar-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ok, #16a34a);
+  padding: 4px 10px;
+  background: rgba(22, 163, 74, 0.08);
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+/* ─── Wizard ─── */
+.main { padding: 24px 56px 32px; }
+.wizard-head { margin-bottom: 32px; }
+.wizard-head .small { text-transform: uppercase; margin-bottom: 8px; display: block; }
+.wizard-title {
+  font-size: 32px; font-weight: 600;
+  letter-spacing: -1px; margin: 0 0 10px; color: var(--ink);
+}
+.wizard-desc { font-size: 14px; color: var(--sub); max-width: 580px; margin: 0; line-height: 1.6; }
+.wizard-body { animation: wizardIn 0.6s var(--ease); }
+@keyframes wizardIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.step-body { display: flex; flex-direction: column; gap: 12px; }
+
+/* ─── Config grid (年/月) ─── */
+.config-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+}
+.field {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field:focus-within {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.04);
+}
+.field-label { display: block; text-transform: uppercase; margin-bottom: 6px; }
+.num-input {
+  background: transparent; border: none;
+  font-family: var(--mono); font-size: 22px; font-weight: 500;
+  color: var(--ink); width: 100%; padding: 0; letter-spacing: -0.5px;
+}
+.combo {
+  width: 100%;
+  display: flex; align-items: baseline; justify-content: space-between;
+  background: transparent; padding: 0; cursor: pointer;
+}
+.combo-label {
+  font-family: var(--mono); font-size: 22px; font-weight: 500;
+  letter-spacing: -0.5px; color: var(--ink);
+}
+.combo-suffix { font-size: 13px; color: var(--mute); margin-left: 4px; }
+.combo-chev { font-size: 11px; color: var(--mute); }
+
+/* ─── File line ─── */
+.file-line {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.file-line:hover { border-color: var(--ink); background: var(--bg); }
+.fl-dot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+  animation: dotPulse 1s var(--ease-pop);
+}
+.fl-dot.empty { background: var(--mute); box-shadow: 0 0 0 3px var(--line-soft); animation: none; }
+@keyframes dotPulse {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.4); }
+  100% { transform: scale(1); }
+}
+.fl-content {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  overflow: hidden; white-space: nowrap;
+  animation: fileLineIn 0.9s var(--ease);
+}
+@keyframes fileLineIn {
+  0% { opacity: 0; transform: translateX(-8px); max-width: 0; }
+  100% { opacity: 1; transform: translateX(0); max-width: 800px; }
+}
+.fl-name-anim {
+  display: inline-block;
+  background: linear-gradient(90deg, transparent, var(--ok-soft) 50%, transparent);
+  background-size: 200% 100%;
+  background-position: 200% 0;
+  animation: fileLineSweep 1.4s var(--ease) 0.2s;
+}
+@keyframes fileLineSweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.fl-action { margin-left: auto; font-size: 12px; color: var(--mute); transition: transform 0.15s, color 0.15s; }
+.file-line:hover .fl-action { color: var(--ink); transform: translateX(2px); }
+
+/* ─── Zones (區別) ─── */
+.zones {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.zones-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px;
+}
+.zones-head h3 { font-size: 14px; font-weight: 600; margin: 0; color: var(--ink); }
+.zones-toggle-all {
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--sub);
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--line-strong); background: var(--paper);
+  cursor: pointer;
+}
+.zones-toggle-all:hover { border-color: var(--ink); }
+.zones-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+.zone-chip {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.zone-chip:hover { border-color: var(--line-strong); }
+.zone-chip.on { border-color: var(--ink); background: var(--paper); }
+.zone-chip.on .zone-mini-check {
+  background: var(--ink); border-color: var(--ink);
+}
+.zone-mini-check {
+  width: 16px; height: 16px; border-radius: 4px;
+  border: 1.5px solid var(--line-strong);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.zone-mini-check-mark { color: var(--paper); font-size: 10px; font-weight: 700; }
+.zone-name { font-size: 13px; font-weight: 500; color: var(--ink); }
+.zones-empty {
+  padding: 12px 4px;
+  font-size: 12px; color: var(--mute);
+}
+
+/* ─── Email field ─── */
+.email-field {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.email-field:focus-within {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.04);
+}
+.email-input {
+  width: 100%; background: transparent; border: none;
+  font-family: var(--mono); font-size: 18px;
+  letter-spacing: -0.2px;
+  color: var(--ink); padding: 0;
+}
+.email-input::placeholder { color: var(--mute); font-size: 16px; }
+
+.url-input {
+  width: 100%; background: transparent; border: none;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink); padding: 0;
+}
+.url-input::placeholder { color: var(--mute); }
+
+/* ─── Textarea ─── */
+.textbox-field {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.textbox-field:focus-within {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.04);
+}
+.textbox-input {
+  width: 100%; background: transparent; border: none;
+  font-size: 14px; color: var(--ink); padding: 0;
+  resize: vertical; min-height: 64px; line-height: 1.6;
+}
+.textbox-input::placeholder { color: var(--mute); }
+
+/* ─── Preview panel ─── */
+.preview-panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.preview-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.preview-head h3 { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink); }
+.preview-readonly {
+  margin-left: auto; padding: 2px 8px;
+  border-radius: 999px; font-size: 11px; color: var(--mute);
+  background: var(--paper); border: 1px solid var(--line);
+}
+.preview-body {
+  padding: 18px 22px;
+  font-size: 13px; line-height: 1.75;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  max-height: 320px; overflow-y: auto;
+  background: var(--paper);
+}
+.preview-body strong { color: var(--ink); font-weight: 600; }
+.preview-subject {
+  display: block;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.preview-subject .mono { color: var(--mute); margin-right: 8px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.preview-body .pinned-block {
+  display: block;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--ink);
+  background: var(--line-soft);
+  border-radius: 0 6px 6px 0;
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+.preview-body .extra-block {
+  display: block;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--pop);
+  background: var(--pop-soft);
+  border-radius: 0 6px 6px 0;
+  white-space: pre-wrap;
+}
+
+/* ─── Actions row ─── */
+.actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 4px;
+}
+.actions .hint { font-size: 12px; color: var(--mute); margin-left: 6px; }
+
+.btn-ghost, .btn-accent {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px; font-weight: 500;
+  transition: all 0.15s var(--ease);
+}
+.btn-ghost {
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+.btn-ghost:hover {
+  background: var(--bg);
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+.btn-accent { background: var(--ink); color: var(--paper); }
+.btn-accent:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; font-size: 12px; }
+
+/* ─── Wizard nav ─── */
+.wizard-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 48px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+  gap: 16px;
+}
+.wnav-jump-wrap { position: relative; }
+.wnav-jump {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--sub);
+  background: transparent; border: 1px solid var(--line); cursor: pointer;
+  padding: 8px 14px; border-radius: 8px;
+}
+.wnav-jump:hover { background: var(--bg); color: var(--ink); }
+.wnav-jump.open { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+.wnav-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%; transform: translateX(-50%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  min-width: 240px;
+  z-index: 30;
+}
+.wnav-menu.open { display: flex; }
+.wnav-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 6px;
+  font-size: 13px; color: var(--sub);
+  background: transparent; border: 0; cursor: pointer;
+  text-align: left;
+}
+.wnav-menu-item:hover { background: var(--bg); color: var(--ink); }
+.wnav-menu-item.active { color: var(--ink); background: var(--line-soft); }
+.wnav-menu-item .num {
+  font-family: var(--font-mono); font-size: 11px; color: var(--mute);
+  width: 22px; text-align: right;
+}
+.wnav-menu-item.active .num { color: var(--ink); }
+
+/* ─── Step 6: Send list ─── */
+.sendlist-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; flex-wrap: wrap; gap: 12px;
+}
+.sendlist-summary { display: flex; align-items: baseline; gap: 6px; }
+.sendlist-summary .mono { font-size: 22px; font-weight: 600; color: var(--ink); }
+.sendlist-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn-mini { padding: 8px 12px; font-size: 12px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--line); color: var(--sub); cursor: pointer; }
+.btn-mini:hover { border-color: var(--ink); color: var(--ink); }
+.btn-accent { padding: 10px 18px; font-size: 13px; font-weight: 600;
+  background: var(--ink); color: var(--paper); border: 0; border-radius: 8px; cursor: pointer; }
+.btn-accent:hover { opacity: 0.9; }
+.btn-accent:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── Reviewer 複選清單 (Step 5) ─── */
+.reviewer-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 0 10px;
+}
+.reviewer-toolbar .btn-mini {
+  padding: 4px 10px; font-size: 11px; border-radius: 6px;
+  background: var(--paper); border: 1px solid var(--line-strong); color: var(--sub);
+  cursor: pointer;
+}
+.reviewer-toolbar .btn-mini:hover { border-color: var(--ink); color: var(--ink); }
+.reviewer-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.reviewer-chip {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.reviewer-chip:hover { border-color: var(--line-strong); }
+.reviewer-chip.on { border-color: var(--ink); background: var(--bg); }
+.reviewer-chip-check {
+  width: 18px; height: 18px; border-radius: 4px;
+  border: 1.5px solid var(--line-strong);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.reviewer-chip.on .reviewer-chip-check { background: var(--ink); border-color: var(--ink); }
+.reviewer-chip-check-mark { color: var(--paper); font-size: 11px; font-weight: 700; }
+.reviewer-chip-meta { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+.reviewer-chip-meta .name { font-size: 13px; font-weight: 500; color: var(--ink); }
+.reviewer-chip-meta .title { font-size: 11px; color: var(--mute); }
+.reviewer-chip-meta .email {
+  font-family: var(--mono); font-size: 12px; color: var(--sub);
+  margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.reviewer-custom-row {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 10px; padding: 10px 14px;
+  background: var(--bg); border: 1px dashed var(--line-strong); border-radius: 8px;
+}
+.reviewer-summary {
+  margin-top: 10px; padding: 8px 12px;
+  background: var(--line-soft); border-radius: 6px;
+  color: var(--sub);
+}
+.reviewer-summary.has { color: var(--ink); background: var(--ok-soft); }
+
+/* ─── Reviewer banner (預審狀態) ─── */
+.reviewer-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--mute);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--sub);
+  transition: all 0.2s var(--ease);
+}
+.reviewer-banner.pending { border-left-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+.reviewer-banner.sent    { border-left-color: var(--ok);   background: var(--ok-soft);   color: var(--ok); }
+.reviewer-banner.error   { border-left-color: var(--pop);  background: var(--pop-soft);  color: var(--pop); }
+.rv-dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--mute); flex-shrink: 0;
+}
+.reviewer-banner.pending .rv-dot { background: var(--warn); }
+.reviewer-banner.sent    .rv-dot { background: var(--ok); animation: pulse 2s infinite; }
+.reviewer-banner.error   .rv-dot { background: var(--pop); }
+.rv-text { flex: 1; }
+.rv-meta { margin-left: auto; }
+
+.progress-wrap { margin: 8px 0 14px; padding: 12px 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.progress-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.progress-bar { height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--ink); width: 0; transition: width 0.3s var(--ease); }
+
+.sendlist-table-wrap { border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; background: var(--card); margin-bottom: 18px; max-height: 420px; overflow-y: auto; }
+.sendlist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sendlist-table thead th { background: var(--bg); padding: 10px 12px;
+  text-align: left; font-weight: 500; color: var(--mute); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
+.sendlist-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+.sendlist-table tbody tr:last-child td { border-bottom: 0; }
+.sendlist-table tbody tr.skipped td { color: var(--mute); }
+.sendlist-table tbody tr.sent { background: rgba(22, 163, 74, 0.04); }
+.sendlist-table tbody tr.failed { background: rgba(220, 38, 38, 0.04); }
+.sl-empty { text-align: center; color: var(--mute); padding: 32px 12px !important; font-size: 13px; }
+.sl-col-sel { width: 36px; }
+.sl-col-att, .sl-col-zone, .sl-col-status, .sl-col-act { white-space: nowrap; }
+.sl-col-email { font-family: var(--font-mono); font-size: 12px; color: var(--sub); }
+.sl-status { display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.04em; }
+.sl-status.pending { background: var(--line-soft); color: var(--sub); }
+.sl-status.sent    { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+.sl-status.failed  { background: rgba(220, 38, 38, 0.10); color: #dc2626; }
+.sl-status.skipped { background: rgba(217, 119, 6, 0.10); color: #d97706; }
+.sl-act { font-size: 12px; color: var(--sub); background: transparent;
+  border: 1px solid var(--line); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.sl-act:hover { border-color: var(--ink); color: var(--ink); }
+.sl-err { font-size: 11px; color: #dc2626; margin-top: 2px; max-width: 280px; }
+
+.log-panel { background: #0f1419; border: 1px solid #2c3e50; border-radius: 10px; overflow: hidden; }
+.log-head { display: flex; justify-content: space-between; padding: 10px 14px;
+  border-bottom: 1px solid #2c3e50; }
+.log-head .mono { color: #7f93a3; }
+.log-head .btn-mini { color: #7f93a3; border-color: #2c3e50; }
+.log-body { padding: 12px 14px; font-family: var(--font-mono); font-size: 12px;
+  color: #cbd5e0; max-height: 220px; overflow-y: auto; line-height: 1.7;
+  white-space: pre-wrap; word-break: break-word; }
+.log-body .ok { color: #4ade80; }
+.log-body .err { color: #f87171; }
+
+/* ─── Generate bar ─── */
+.genbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 32px;
+  padding: 28px 56px;
+  background: rgba(250,250,249,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+.genbar-info { display: flex; flex-direction: column; gap: 4px; }
+.genbar-info .small { text-transform: uppercase; }
+.genbar-summary { display: flex; align-items: baseline; gap: 8px; }
+.genbar-num { font-size: 28px; font-weight: 600; color: var(--ink); letter-spacing: -1px; }
+.genbar-unit { font-size: 14px; color: var(--sub); font-weight: 500; }
+.genbar-status { letter-spacing: 0.04em; flex: 1; text-align: right; }
+
+.btn-primary {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 16px 28px;
+  font-size: 15px; font-weight: 500;
+  border-radius: 10px;
+  min-width: 240px;
+  height: 56px;
+  overflow: hidden;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, var(--shadow-md);
+}
+.btn-primary::before {
+  content: '';
+  position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(180px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.18), transparent 60%);
+  opacity: 0; transition: opacity 0.25s var(--ease);
+  pointer-events: none;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, var(--shadow-lg); }
+.btn-primary:hover::before { opacity: 1; }
+.btn-primary > * { position: relative; z-index: 1; }
+.btn-content { display: flex; align-items: center; gap: 8px; justify-content: center; width: 100%; }
+.btn-content .arrow { transition: transform 0.2s var(--ease); }
+.btn-primary:hover .arrow { transform: translateX(4px); }
+
+/* ─── Footer ─── */
+.footer {
+  padding: 24px 56px;
+  border-top: 1px solid var(--line);
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--mute);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─── Title bar ─── -->
+  <div class="titlebar">
+    <span class="dot"></span>
+    <span class="mono small">Gmail 寄送器</span>
+    <span class="mono small dim">/ 健康台灣深耕計畫</span>
+    <span class="tb-controls">
+      <span class="mono small dim">2.0.2 · 獨立寄送介面</span>
+    </span>
+  </div>
+
+  <!-- ─── Hero ─── -->
+  <div class="hero">
+    <div class="hero-meta">
+      <span class="mono small dim">臺北市醫師公會 · 寄送工具</span>
+      <span class="mono small dim" id="hero-period">115 / 04</span>
+    </div>
+    <div class="hero-row">
+      <div class="hero-title">
+        <h1>Gmail 寄送器</h1>
+        <p>掃描已產出的領據資料夾，逐人對應信箱與附件，預覽後批次寄出。可隨時開啟，不需等產生器跑完。</p>
+      </div>
+      <div class="hero-stat">
+        <div class="stat-label mono small">可寄區別</div>
+        <div class="stat-num mono" id="hero-zones">3<span class="stat-unit"> 區</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── App Password bar (fixed across all steps) ─── -->
+  <div class="pwbar">
+    <div class="pwbar-icon">🔑</div>
+    <div class="pwbar-label">
+      <div class="mono small dim">APP PASSWORD · 寄件密碼</div>
+      <div class="pwbar-hint small dim">tpma.healthtw@gmail.com · Gmail 應用程式專用密碼（16 碼）</div>
+    </div>
+    <div class="pwbar-input-wrap">
+      <input type="password" class="pwbar-input" id="inp-pw" value="" placeholder="貼上 16 碼 App Password" autocomplete="off" spellcheck="false">
+      <button class="pwbar-eye" id="btn-pw-eye" title="顯示/隱藏密碼" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <span class="pwbar-status" id="pw-status">0 / 16</span>
+  </div>
+
+  <!-- ─── Stepper ─── -->
+  <nav class="stepnav" id="stepnav"></nav>
+
+  <!-- ─── Wizard body ─── -->
+  <main class="main">
+    <div class="wizard-head">
+      <div class="mono small dim" id="step-counter">STEP 01 / 05</div>
+      <h2 class="wizard-title" id="step-title">申報年月</h2>
+      <p class="wizard-desc" id="step-desc">設定要寄送哪個月的核銷文件。年月會用來定位 N年MM月/ 子資料夾，並插入到信件主旨。</p>
+    </div>
+
+    <!-- Step 1 — 申報年月 -->
+    <div class="wizard-body" data-step="0">
+      <div class="step-body">
+        <div class="config-grid">
+          <div class="field">
+            <div class="mono small dim field-label">YEAR · 民國</div>
+            <input type="number" value="115" class="num-input" id="inp-year">
+          </div>
+          <div class="field">
+            <div class="mono small dim field-label">MONTH · 月份</div>
+            <button class="combo" id="month-combo">
+              <span><span class="mono combo-label" id="month-label">04</span><span class="combo-suffix">月</span></span>
+              <span class="combo-chev">▾</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 — 核銷文件根資料夾 + 區別 -->
+    <div class="wizard-body" data-step="1" hidden>
+      <div class="step-body">
+        <div class="file-line" id="fl-output" data-pick="folder" data-target="output">
+          <span class="fl-dot empty"></span>
+          <span class="fl-content">
+            <span class="mono small fl-name-anim" id="fl-output-name">（尚未選擇）</span>
+            <span class="mono small dim" id="fl-output-path"></span>
+          </span>
+          <span class="fl-action">變更 →</span>
+        </div>
+        <div class="zones">
+          <div class="zones-head">
+            <h3>區別 · 勾選要寄哪幾區</h3>
+            <span class="dim small">115年04月／</span>
+            <button class="zones-toggle-all" id="zone-toggle-all">
+              <span class="mono small">↻</span> 重新偵測
+            </button>
+          </div>
+          <div class="zones-grid" id="zones-grid">
+            <div class="dim small" style="padding:8px">（請先選核銷文件根資料夾，然後按「重新偵測」）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 — 人員個資 -->
+    <div class="wizard-body" data-step="2" hidden>
+      <div class="step-body">
+        <div class="file-line" id="fl-people-db" data-pick="file" data-accept="xlsx" data-target="peopleDb">
+          <span class="fl-dot empty"></span>
+          <span class="fl-content">
+            <span class="mono small fl-name-anim" id="fl-people-name">（尚未選擇）</span>
+            <span class="mono small dim" id="fl-people-path"></span>
+          </span>
+          <span class="fl-action">變更 →</span>
+        </div>
+        <div class="actions">
+          <button class="btn-ghost"><span class="btn-icon">✎</span> 開啟編輯</button>
+          <span class="hint">用來把姓名對應到 Email、職稱、診所</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4 — 寄件 Gmail + 範例連結 -->
+    <div class="wizard-body" data-step="3" hidden>
+      <div class="step-body">
+        <div class="email-field">
+          <div class="mono small dim field-label">SENDER · 寄件 Gmail</div>
+          <input type="email" class="email-input" placeholder="your-name@gmail.com" value="tpma.healthtw@gmail.com" id="inp-sender">
+        </div>
+        <div class="email-field">
+          <div class="mono small dim field-label">DRIVE · 領據填寫範例（選填）</div>
+          <input type="text" class="url-input" value="https://drive.google.com/file/d/1av7mFUfX991NePTgkTQZry1jri6yMpjR/view?usp=drive_link" id="inp-drive">
+          <div class="small dim" style="margin-top:6px;">填了就不附範本 PDF，改在信中放連結</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5 — 主旨 + 置頂訊息 + 補充說明 + 預覽 -->
+    <div class="wizard-body" data-step="4" hidden>
+      <div class="step-body">
+        <div class="email-field">
+          <div class="mono small dim field-label">SUBJECT · 信件主旨</div>
+          <input type="text" class="url-input" id="inp-subject" value="{年}年{月}月 健康台灣深耕計畫 核銷文件 — {姓名}">
+          <div class="small dim" style="margin-top:6px;">可使用 <span class="mono">{年}</span> <span class="mono">{月}</span> <span class="mono">{姓名}</span> <span class="mono">{職稱}</span> <span class="mono">{診所}</span> 變數</div>
+        </div>
+        <div class="email-field">
+          <div class="mono small dim field-label">DEADLINE · 領據寄回截止日期（會出現在信中）</div>
+          <input type="text" class="url-input" id="inp-deadline" placeholder="例：5/15 或 下週四" value="">
+          <div class="small dim" style="margin-top:6px;">留空白＝信中顯示「<span class="mono">(下週四)</span>」</div>
+        </div>
+        <div class="email-field">
+          <div class="mono small dim field-label">REVIEWER · 計畫人員（可複選多位；都不勾＝不預審，直接寄給所有合作端）</div>
+          <div class="reviewer-toolbar">
+            <button type="button" class="btn-mini" id="btn-reviewer-all">全選</button>
+            <button type="button" class="btn-mini" id="btn-reviewer-none">全不選</button>
+            <span class="small dim" style="margin-left:auto;">來源：個資檔工作頁「計畫人員個資」</span>
+          </div>
+          <div id="reviewer-list" class="reviewer-list">
+            <div class="dim small" style="padding:8px">（請先在上一步選好個資檔）</div>
+          </div>
+          <div class="reviewer-custom-row">
+            <span class="mono small dim">＋ 自訂 Email（多位用 , 分隔）</span>
+            <input type="text" id="inp-reviewer-custom" class="url-input" placeholder="例：boss@example.com, lead@example.com">
+          </div>
+          <div class="reviewer-summary small" id="reviewer-summary">未勾選任何項目 — 將不預審，直接寄給所有合作端</div>
+          <input type="hidden" id="inp-reviewer">
+        </div>
+        <div class="textbox-field">
+          <div class="mono small dim field-label">PINNED · 置頂訊息（選填，會放在信件最上方）</div>
+          <textarea class="textbox-input" id="inp-pinned" placeholder="例：本月寄送時間異動，請於 5/10 前確認收到並回信。" style="min-height:48px;"></textarea>
+        </div>
+        <div class="textbox-field">
+          <div class="mono small dim field-label">EXTRA · 補充說明 / 更新通知（選填）</div>
+          <textarea class="textbox-input" id="inp-extra" placeholder="本月新增「處方處置費」項目，請於 5/15 前回傳領據…"></textarea>
+        </div>
+        <div class="preview-panel">
+          <div class="preview-head">
+            <h3>信件範本預覽</h3>
+            <span class="preview-readonly">唯讀 · 即時更新</span>
+          </div>
+          <div class="preview-body" id="preview-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6 — 寄送清單 -->
+    <div class="wizard-body" data-step="5" hidden>
+      <div class="step-body">
+        <div class="sendlist-toolbar">
+          <div class="sendlist-summary">
+            <span class="mono small dim">TARGETS</span>
+            <span class="mono" id="sl-total">—</span>
+            <span class="genbar-unit">人 · 可寄</span>
+            <span class="mono" id="sl-sendable">—</span>
+            <span class="genbar-unit">封</span>
+          </div>
+          <div class="sendlist-actions">
+            <button class="btn-ghost btn-mini" id="btn-rescan">↻ 重新掃描</button>
+            <button class="btn-ghost btn-mini" id="btn-toggle-all">全選／取消</button>
+            <button class="btn-ghost btn-mini" id="btn-preview-reviewer">📧 先寄預審給計畫人員</button>
+            <button class="btn-accent" id="btn-send-all">▶ 寄給所有人</button>
+            <button class="btn-ghost btn-mini" id="btn-cancel-send" hidden>⛔ 中止</button>
+          </div>
+        </div>
+
+        <div class="reviewer-banner" id="reviewer-banner">
+          <span class="rv-dot" id="rv-dot"></span>
+          <span class="rv-text" id="rv-text">未設定計畫人員 Email — 將直接寄給所有人（可至上一步設定）</span>
+          <span class="rv-meta mono small dim" id="rv-meta"></span>
+        </div>
+
+        <div class="progress-wrap" id="progress-wrap" hidden>
+          <div class="progress-row">
+            <span class="mono small dim" id="pg-status">準備中…</span>
+            <span class="mono small dim" id="pg-count">0 / 0</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="pg-fill"></div></div>
+        </div>
+
+        <div class="sendlist-table-wrap">
+          <table class="sendlist-table">
+            <thead>
+              <tr>
+                <th class="sl-col-sel"><input type="checkbox" id="sl-head-sel" checked></th>
+                <th class="sl-col-name">姓名</th>
+                <th class="sl-col-role">角色</th>
+                <th class="sl-col-clinic">所屬</th>
+                <th class="sl-col-email">Email</th>
+                <th class="sl-col-zone">區別</th>
+                <th class="sl-col-att">附件</th>
+                <th class="sl-col-status">狀態</th>
+                <th class="sl-col-act"></th>
+              </tr>
+            </thead>
+            <tbody id="sl-tbody">
+              <tr><td colspan="9" class="sl-empty">尚未掃描，請按右上「重新掃描」或回到上一步調整設定。</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="log-panel">
+          <div class="log-head">
+            <span class="mono small dim">LOG</span>
+            <button class="btn-ghost btn-mini" id="btn-log-clear">清空</button>
+          </div>
+          <div class="log-body" id="log-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wizard nav -->
+    <div class="wizard-nav">
+      <button class="btn-ghost" id="btn-prev"><span class="btn-icon">←</span> 上一步</button>
+      <div class="wnav-jump-wrap">
+        <button class="wnav-jump" id="btn-jump">跳至…<span class="combo-chev">▾</span></button>
+        <div class="wnav-menu" id="jump-menu"></div>
+      </div>
+      <button class="btn-accent" id="btn-next">下一步 <span class="btn-icon">→</span></button>
+    </div>
+  </main>
+
+  <!-- ─── Generate bar ─── -->
+  <div class="genbar">
+    <div class="genbar-info">
+      <div class="mono small dim">READY TO SCAN</div>
+      <div class="genbar-summary">
+        <span class="mono genbar-num" id="bar-zones">3</span>
+        <span class="genbar-unit">區 ·</span>
+        <span class="mono dim" id="bar-period">115/04</span>
+      </div>
+    </div>
+    <div class="genbar-status mono small dim" id="bar-status">掃描 N年MM月/ 下勾選的區，建出寄送清單</div>
+    <button class="btn-primary" id="btn-scan" onmousemove="(e=>{const r=e.currentTarget.getBoundingClientRect();e.currentTarget.style.setProperty('--mx',(e.clientX-r.left)+'px');e.currentTarget.style.setProperty('--my',(e.clientY-r.top)+'px')})(event)">
+      <span class="btn-content">📋 掃描並開啟寄送預覽 <span class="arrow">→</span></span>
+    </button>
+  </div>
+
+  <!-- ─── Footer ─── -->
+  <footer class="footer">
+    <span>Gmail 寄送器</span>
+    <span class="mono">2.0.2 · build 2026-05-11 · 預審轉寄計畫人員 / 個資多 Email / App Password localStorage</span>
+  </footer>
+</div>
+
+<script>
+const STEPS = [
+  { n: "01", title: "申報年月", desc: "設定要寄送哪個月的核銷文件。年月會用來定位 N年MM月/ 子資料夾，並插入到信件主旨。" },
+  { n: "02", title: "核銷文件根資料夾", desc: "選擇產生器輸出的根資料夾，並勾選要寄送的區別（中山／北投／士林／課程老師）。" },
+  { n: "03", title: "人員個資", desc: "讀取 Excel，把姓名對應到 Email、職稱、診所。沒對應到的會自動標成「略過」。" },
+  { n: "04", title: "寄件 Gmail", desc: "Gmail App Password 在最後一步寄出時才輸入。可選填領據填寫範例的 Drive 連結。" },
+  { n: "05", title: "補充說明 / 預覽", desc: "輸入補充說明會即時併入每封信。確認預覽無誤後即可掃描寄送清單。" },
+  { n: "06", title: "寄送清單", desc: "掃描後逐人列出 Email、附件數與狀態。可單筆寄送或批次寄出，過程顯示在下方進度區。" },
+];
+let cur = 0;
+
+const stepnavEl = document.getElementById("stepnav");
+function renderStepnav() {
+  stepnavEl.innerHTML = "";
+  STEPS.forEach((s, i) => {
+    if (i > 0) {
+      const ln = document.createElement("span");
+      ln.className = "stepnav-line" + (i <= cur ? " active" : "");
+      stepnavEl.appendChild(ln);
+    }
+    const btn = document.createElement("button");
+    const state = i === cur ? "current" : (i < cur ? "visited" : "future");
+    btn.className = "stepnav-item " + state;
+    btn.innerHTML = `
+      <span class="stepnav-circle">
+        ${i < cur ? '<span class="stepnav-tick">✓</span>' : `<span class="mono">${s.n}</span>`}
+      </span>
+      <span class="stepnav-label">${s.title}</span>`;
+    btn.onclick = () => goTo(i);
+    stepnavEl.appendChild(btn);
+  });
+}
+function goTo(i) {
+  if (i < 0 || i >= STEPS.length) return;
+  cur = i;
+  document.querySelectorAll("[data-step]").forEach(el => {
+    el.hidden = +el.dataset.step !== cur;
+  });
+  document.getElementById("step-counter").textContent = `STEP ${STEPS[cur].n} / ${String(STEPS.length).padStart(2,"0")}`;
+  document.getElementById("step-title").textContent = STEPS[cur].title;
+  document.getElementById("step-desc").textContent = STEPS[cur].desc;
+  document.getElementById("btn-prev").disabled = cur === 0;
+  const next = document.getElementById("btn-next");
+  next.style.visibility = cur === STEPS.length - 1 ? "hidden" : "visible";
+  renderStepnav();
+}
+/* ─── 密碼顯示切換 + localStorage 自動記憶 ───
+ * App Password 不寫死在原始碼裡(避免被 Google/GitHub secret scan 撤銷)。
+ * 首次手動貼入後存到 localStorage,下次開頁面自動帶回。
+ * 只在「16 碼齊全」時才寫入,避免半打的時候被存。
+ */
+const PW_STORAGE_KEY = "tpma_gmail_app_pw";
+const pwInput = document.getElementById("inp-pw");
+const pwEye = document.getElementById("btn-pw-eye");
+const pwStatus = document.getElementById("pw-status");
+pwEye.onclick = () => {
+  pwInput.type = pwInput.type === "password" ? "text" : "password";
+};
+function refreshPwStatus() {
+  const v = pwInput.value.replace(/\s/g, "");
+  if (v.length === 16) {
+    pwStatus.textContent = "已記住";
+    pwStatus.style.color = "var(--ok, #16a34a)";
+    pwStatus.style.background = "rgba(22, 163, 74, 0.08)";
+  } else {
+    pwStatus.textContent = `${v.length} / 16`;
+    pwStatus.style.color = "var(--warn, #d97706)";
+    pwStatus.style.background = "rgba(217, 119, 6, 0.1)";
+  }
+}
+pwInput.oninput = () => {
+  const v = pwInput.value.replace(/\s/g, "");
+  if (v.length === 16) {
+    try { localStorage.setItem(PW_STORAGE_KEY, pwInput.value); } catch (_) {}
+  }
+  refreshPwStatus();
+};
+// 還原上次儲存的密碼
+try {
+  const saved = localStorage.getItem(PW_STORAGE_KEY);
+  if (saved) {
+    pwInput.value = saved;
+  }
+} catch (_) {}
+refreshPwStatus();
+
+document.getElementById("btn-prev").onclick = () => goTo(cur - 1);
+document.getElementById("btn-next").onclick = () => goTo(cur + 1);
+
+/* ─── 跳至下拉選單 ─── */
+const jumpBtn = document.getElementById("btn-jump");
+const jumpMenu = document.getElementById("jump-menu");
+function buildJumpMenu() {
+  jumpMenu.innerHTML = STEPS.map((s, i) =>
+    `<button class="wnav-menu-item${i === cur ? " active" : ""}" data-step="${i}">
+       <span class="num">${String(i + 1).padStart(2, "0")}</span>
+       <span>${s.title}</span>
+     </button>`
+  ).join("");
+  jumpMenu.querySelectorAll(".wnav-menu-item").forEach(el => {
+    el.onclick = () => {
+      goTo(Number(el.dataset.step));
+      closeJumpMenu();
+    };
+  });
+}
+function openJumpMenu() {
+  buildJumpMenu();
+  jumpMenu.classList.add("open");
+  jumpBtn.classList.add("open");
+}
+function closeJumpMenu() {
+  jumpMenu.classList.remove("open");
+  jumpBtn.classList.remove("open");
+}
+jumpBtn.onclick = (e) => {
+  e.stopPropagation();
+  jumpMenu.classList.contains("open") ? closeJumpMenu() : openJumpMenu();
+};
+document.addEventListener("click", (e) => {
+  if (!jumpMenu.contains(e.target) && e.target !== jumpBtn) closeJumpMenu();
+});
+
+/* ─── 區別 chip（動態） ─── */
+function syncZoneStat() {
+  const n = document.querySelectorAll(".zone-chip.on").length;
+  document.getElementById("hero-zones").innerHTML = `${n}<span class="stat-unit"> 區</span>`;
+  document.getElementById("bar-zones").textContent = n;
+}
+function renderZones(zoneNames) {
+  const grid = document.getElementById("zones-grid");
+  grid.innerHTML = "";
+  if (!zoneNames || zoneNames.length === 0) {
+    grid.innerHTML = '<div class="dim small" style="padding:8px">（找不到區別資料夾，請確認年月與根目錄）</div>';
+    syncZoneStat();
+    return;
+  }
+  zoneNames.forEach(z => {
+    const btn = document.createElement("button");
+    btn.className = "zone-chip on";
+    btn.dataset.zone = z;
+    btn.innerHTML = `
+      <span class="zone-mini-check"><span class="zone-mini-check-mark">✓</span></span>
+      <span class="zone-name"></span>`;
+    btn.querySelector(".zone-name").textContent = z;
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("on");
+      const mc = btn.querySelector(".zone-mini-check");
+      mc.innerHTML = btn.classList.contains("on")
+        ? '<span class="zone-mini-check-mark">✓</span>'
+        : "";
+      syncZoneStat();
+    });
+    grid.appendChild(btn);
+  });
+  syncZoneStat();
+}
+async function detectZones() {
+  if (!STATE.output) {
+    alert("請先選擇核銷文件根資料夾");
+    return;
+  }
+  try {
+    const y = parseInt(yearInput.value || "115", 10);
+    const zones = await PYAPI().listZones(STATE.output, y, month);
+    renderZones(zones);
+    appendLog(
+      `✓ 偵測到 ${zones.length} 個區別${zones.length ? "：" + zones.join("、") : "（資料夾為空）"}`,
+      zones.length ? "ok" : "err"
+    );
+  } catch (e) { alert("偵測失敗：" + e); appendLog("✗ " + e, "err"); }
+}
+document.getElementById("zone-toggle-all").onclick = detectZones;
+
+/* ─── 月份 combo（簡化） ─── */
+let month = 4;
+const monthCombo = document.getElementById("month-combo");
+monthCombo.onclick = () => {
+  setMonth(month === 12 ? 1 : month + 1);
+};
+function setMonth(m) {
+  m = parseInt(m, 10);
+  if (!Number.isFinite(m)) return;
+  if (m < 1) m = 1;
+  if (m > 12) m = 12;
+  month = m;
+  document.getElementById("month-label").textContent = String(month).padStart(2, "0");
+  syncPeriod();
+  renderPreview();
+}
+const yearInput = document.getElementById("inp-year");
+yearInput.oninput = () => { syncPeriod(); renderPreview(); };
+function syncPeriod() {
+  const y = yearInput.value || "115";
+  const m = String(month).padStart(2, "0");
+  document.getElementById("hero-period").textContent = `${y} / ${m}`;
+  document.getElementById("bar-period").textContent = `${y}/${m}`;
+}
+
+/* ─── 預覽信件範本 ─── */
+function renderPreview() {
+  const y = yearInput.value || "115";
+  const m = String(month).padStart(2, "0");
+  const drive = document.getElementById("inp-drive").value.trim();
+  const extra = document.getElementById("inp-extra").value.trim();
+  const pinned = document.getElementById("inp-pinned").value.trim();
+  const subjectTpl = document.getElementById("inp-subject").value.trim();
+  const deadline = (document.getElementById("inp-deadline")?.value || "").trim() || "(下週四)";
+  const subject = subjectTpl
+    .replace(/\{年\}/g, y).replace(/\{月\}/g, m)
+    .replace(/\{姓名\}/g, "{姓名}").replace(/\{職稱\}/g, "{職稱}").replace(/\{診所\}/g, "{診所}");
+  const files = ["{姓名}_明細領據.pdf"];
+  if (!drive) files.push("領據填寫範例.pdf");
+
+  let body = "";
+  if (pinned) body += `[PIN-OPEN]📌 ${pinned}[PIN-CLOSE]`;
+  body += `${y}年${m}月 健康台灣深耕計畫 核銷文件\n\n`;
+  body += `{姓名} {職稱}（{診所}）您好：\n\n`;
+  body += `隨信附上 ${y}年${m}月 健康台灣深耕計畫核銷文件，請查收：\n`;
+  files.forEach(f => body += `  • ${f}\n`);
+  if (drive) body += `\n領據填寫範例：${drive}\n`;
+  body += `\n請於 ${deadline} 前將領據用印後寄回辦公室，地址如下：\n`;
+  body += `  台北市北投區中央南路一段45號-1（社區駐點辦公室）\n\n`;
+  if (extra) body += `[EXTRA-OPEN]📢 補充說明\n${extra}[EXTRA-CLOSE]\n\n`;
+  body += `如有疑問請來電 (02)2891-7453 或回信至 tpma.healthtw@gmail.com\n\n`;
+  body += `臺北市醫師公會 敬上`;
+
+  const subjectSafe = subject.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safe = body
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\[PIN-OPEN\]([\s\S]*?)\[PIN-CLOSE\]/g, '<span class="pinned-block">$1</span>')
+    .replace(/\[EXTRA-OPEN\]([\s\S]*?)\[EXTRA-CLOSE\]/g, '<span class="extra-block">$1</span>')
+    .replace(/(\d+年\d+月 健康台灣深耕計畫 核銷文件)/, '<strong>$1</strong>');
+  document.getElementById("preview-body").innerHTML =
+    `<span class="preview-subject"><span class="mono">主旨</span>${subjectSafe}</span>` + safe;
+}
+document.getElementById("inp-drive").oninput = renderPreview;
+document.getElementById("inp-extra").oninput = renderPreview;
+document.getElementById("inp-pinned").oninput = renderPreview;
+document.getElementById("inp-subject").oninput = renderPreview;
+document.getElementById("inp-deadline").oninput = renderPreview;
+
+/* ─── 後端橋接（HTTP + SSE）+ Step 6 寄送清單 ─── */
+const PYAPI = (() => {
+  const cache = {};
+  const call = (method) => async (...args) => {
+    const res = await fetch(`/api/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ args }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.err || "API error");
+    return data.result;
+  };
+  const proxy = new Proxy({}, {
+    get: (_, name) => (cache[name] ||= call(name)),
+  });
+  return () => proxy;
+})();
+
+(() => {
+  const es = new EventSource("/api/events");
+  ["log-line", "progress-update", "job-update", "send-finished", "send-error"].forEach(name => {
+    es.addEventListener(name, ev => {
+      let detail = ev.data;
+      try { detail = JSON.parse(ev.data); } catch (_) {}
+      window.dispatchEvent(new CustomEvent(name, { detail }));
+    });
+  });
+})();
+
+let JOBS = [];
+const STATE = { output: "", peopleDb: "" };
+
+const PATH_UI = {
+  output:   { line: "fl-output",    name: "fl-output-name", path: "fl-output-path" },
+  peopleDb: { line: "fl-people-db", name: "fl-people-name", path: "fl-people-path" },
+};
+
+function replayAnim(el) {
+  if (!el) return;
+  el.style.animation = "none";
+  void el.offsetWidth;  // 強制 reflow
+  el.style.animation = "";
+}
+
+function setPath(target, fullPath) {
+  STATE[target] = fullPath || "";
+  const ids = PATH_UI[target]; if (!ids) return;
+  const lineEl = document.getElementById(ids.line);
+  const nameEl = document.getElementById(ids.name);
+  const pathEl = document.getElementById(ids.path);
+  const dotEl = lineEl?.querySelector(".fl-dot");
+  const contentEl = lineEl?.querySelector(".fl-content");
+
+  if (!fullPath) {
+    if (nameEl) nameEl.textContent = "（尚未選擇）";
+    if (pathEl) pathEl.textContent = "";
+    if (dotEl) dotEl.classList.add("empty");
+    return;
+  }
+
+  const sep = fullPath.includes("\\") ? "\\" : "/";
+  const idx = fullPath.lastIndexOf(sep);
+  const base = idx >= 0 ? fullPath.slice(idx + 1) : fullPath;
+  const dir  = idx >= 0 ? fullPath.slice(0, idx) : "";
+  if (nameEl) nameEl.textContent = base || fullPath;
+  if (pathEl) pathEl.textContent = dir ? ` · ${dir}` : "";
+  if (dotEl) dotEl.classList.remove("empty");
+
+  // 重播動畫（檔名滑光、整列漸入、綠點脈衝）
+  replayAnim(nameEl);
+  replayAnim(contentEl);
+  replayAnim(dotEl);
+}
+
+// 用 event delegation：點 file-line 任何位置（包含 fl-dot / fl-content / fl-action / 中間空白）
+// 都會冒泡到 document，由這裡判斷是否為 file-line 並開對話框。
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest(".file-line[data-pick]");
+  if (!el) return;
+  e.preventDefault();
+  const kind   = el.dataset.pick;
+  const target = el.dataset.target;
+  const accept = el.dataset.accept || "";
+  appendLog(`📂 開啟${kind === "folder" ? "選擇資料夾" : "選擇檔案"}對話框…`);
+  try {
+    const p = kind === "folder"
+      ? await PYAPI().pickFolder()
+      : await PYAPI().pickFile(accept);
+    if (p) {
+      setPath(target, p);
+      appendLog(`✓ 已選擇：${p}`, "ok");
+      if (target === "output") detectZones();
+      if (target === "peopleDb") loadReviewers();
+    } else {
+      appendLog("（已取消選擇）");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("選取失敗：" + err);
+    appendLog("✗ 選取失敗：" + err, "err");
+  }
+});
+
+function collectSettings() {
+  const zones = [...document.querySelectorAll(".zone-chip.on")].map(c => c.dataset.zone);
+  return {
+    year: parseInt(yearInput.value || "115", 10),
+    month: month,
+    output: STATE.output,
+    peopleDb: STATE.peopleDb,
+    senderEmail: document.getElementById("inp-sender").value.trim(),
+    reviewerEmail: document.getElementById("inp-reviewer").value.trim(),
+    templateDriveLink: document.getElementById("inp-drive").value.trim(),
+    extraMessage: document.getElementById("inp-extra").value,
+    pinnedMessage: document.getElementById("inp-pinned").value,
+    subjectTemplate: document.getElementById("inp-subject").value.trim(),
+    deadline: document.getElementById("inp-deadline").value.trim(),
+    selectedZones: zones,
+  };
+}
+
+/* ─── 預審狀態 ───
+ * REVIEWER_STATE.confirmed = true 才允許按「寄給所有人」(當有填 reviewer 時)
+ * 沒填 reviewer = 直接放行(向後相容,不強迫所有人都要走預審)
+ * 任何會讓「上一封預審」失效的動作(改 reviewer email / 重新掃描 / 改設定回 Step 6)
+ * 都要重置 confirmed。
+ */
+const REVIEWER_STATE = { confirmed: false, lastReviewer: "", lastSampleIdx: -1, lastSamples: [] };
+
+function updateReviewerBanner() {
+  const banner = document.getElementById("reviewer-banner");
+  const dot = document.getElementById("rv-dot");
+  const text = document.getElementById("rv-text");
+  const meta = document.getElementById("rv-meta");
+  const btnPreview = document.getElementById("btn-preview-reviewer");
+  const btnSendAll = document.getElementById("btn-send-all");
+  const reviewer = (document.getElementById("inp-reviewer")?.value || "").trim();
+
+  banner.classList.remove("pending", "sent", "error");
+  meta.textContent = "";
+
+  if (!reviewer) {
+    text.textContent = "未設定計畫人員 — 將直接寄給所有合作端（可至上一步設定）";
+    btnPreview.disabled = true;
+    btnSendAll.disabled = false;
+    btnSendAll.textContent = "▶ 寄給所有人";
+    return;
+  }
+
+  btnPreview.disabled = false;
+
+  // 數一下幾位 reviewer
+  const count = reviewer.split(",").map(s => s.trim()).filter(Boolean).length;
+  const label = count > 1 ? `${count} 位計畫人員` : reviewer;
+
+  if (REVIEWER_STATE.confirmed && REVIEWER_STATE.lastReviewer === reviewer) {
+    banner.classList.add("sent");
+    text.textContent = `預審已寄至 ${label}，請確認內容後再寄給所有人`;
+    const ss = REVIEWER_STATE.lastSamples || [];
+    if (ss.length) {
+      meta.textContent = `樣本：` + ss.map(s => `${s.sample_name}（${s.category || "綜合"}）`).join("、");
+    } else if (REVIEWER_STATE.lastSampleIdx >= 0 && JOBS[REVIEWER_STATE.lastSampleIdx]) {
+      meta.textContent = `樣本：${JOBS[REVIEWER_STATE.lastSampleIdx].person_name}`;
+    }
+    btnSendAll.disabled = false;
+    btnSendAll.textContent = "▶ 確認無誤、寄給所有人";
+  } else {
+    banner.classList.add("pending");
+    text.textContent = `請先按「先寄預審」讓 ${label} 確認內容`;
+    btnSendAll.disabled = true;
+    btnSendAll.textContent = "▶ 寄給所有人（請先預審）";
+  }
+}
+
+function resetReviewerConfirmation(reason) {
+  if (REVIEWER_STATE.confirmed && reason) {
+    appendLog(`ⓘ 預審確認已失效：${reason}`);
+  }
+  REVIEWER_STATE.confirmed = false;
+  REVIEWER_STATE.lastReviewer = "";
+  REVIEWER_STATE.lastSampleIdx = -1;
+  REVIEWER_STATE.lastSamples = [];
+  updateReviewerBanner();
+}
+
+const logBody = document.getElementById("log-body");
+function appendLog(line, cls) {
+  const t = new Date().toTimeString().slice(0, 8);
+  const span = document.createElement("div");
+  if (cls) span.className = cls;
+  span.textContent = `[${t}] ${line}`;
+  logBody.appendChild(span);
+  logBody.scrollTop = logBody.scrollHeight;
+}
+window.addEventListener("log-line", e => {
+  const l = e.detail || "";
+  appendLog(l, l.includes("✓") ? "ok" : (l.includes("✗") ? "err" : ""));
+});
+
+const pgWrap = document.getElementById("progress-wrap");
+const pgStatus = document.getElementById("pg-status");
+const pgCount = document.getElementById("pg-count");
+const pgFill = document.getElementById("pg-fill");
+window.addEventListener("progress-update", e => {
+  const d = e.detail || {};
+  pgWrap.hidden = false;
+  pgStatus.textContent = d.status || "";
+  pgCount.textContent = `${d.done || 0} / ${d.total || 0}`;
+  pgFill.style.width = `${Math.round((d.pct || 0) * 100)}%`;
+});
+
+window.addEventListener("job-update", e => {
+  const j = e.detail; if (!j) return;
+  JOBS[j.idx] = j;
+  renderJobRow(j);
+});
+window.addEventListener("send-finished", e => {
+  const d = e.detail || {};
+  appendLog(`寄送結束：成功 ${d.sent}，失敗 ${d.failed}，共 ${d.total}`, d.failed ? "err" : "ok");
+  document.getElementById("btn-cancel-send").hidden = true;
+  document.getElementById("btn-rescan").disabled = false;
+  // 一輪寄送完成後預審狀態歸零，避免下一輪略過確認
+  resetReviewerConfirmation("");
+});
+window.addEventListener("send-error", e => {
+  alert((e.detail && e.detail.title || "錯誤") + "\n\n" + (e.detail && e.detail.message || ""));
+});
+
+const tbody = document.getElementById("sl-tbody");
+function renderJobs() {
+  if (!JOBS.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="sl-empty">尚未掃描，請按右上「重新掃描」或回到上一步調整設定。</td></tr>';
+    return;
+  }
+  tbody.innerHTML = "";
+  JOBS.forEach(j => {
+    const tr = document.createElement("tr");
+    tr.dataset.idx = j.idx;
+    tr.className = j.status;
+    tr.innerHTML = rowHtml(j);
+    tbody.appendChild(tr);
+  });
+  bindRowEvents();
+  updateSummary();
+}
+function rowHtml(j) {
+  const dis = j.status !== "pending" ? "disabled" : "";
+  const chk = j.selected ? "checked" : "";
+  const statusLabel = {pending:"待寄", sent:"已寄出", failed:"失敗", skipped:"略過"}[j.status] || j.status;
+  return `
+    <td><input type="checkbox" class="sl-sel" ${chk} ${dis}></td>
+    <td><strong>${esc(j.person_name)}</strong></td>
+    <td>${esc(j.role)}</td>
+    <td>${esc(j.clinic_name)}</td>
+    <td class="sl-col-email">${esc(j.to_email) || "<span class='dim'>(無)</span>"}</td>
+    <td>${esc(j.zone)}</td>
+    <td><span class="mono">${j.attachments_count}</span></td>
+    <td><span class="sl-status ${j.status}">${statusLabel}</span>${j.error ? `<div class='sl-err'>${esc(j.error)}</div>` : ""}</td>
+    <td>${j.status === "pending" ? '<button class="sl-act" data-act="send">寄送</button>' : ""}</td>`;
+}
+function renderJobRow(j) {
+  const tr = tbody.querySelector(`tr[data-idx="${j.idx}"]`);
+  if (!tr) return;
+  tr.className = j.status;
+  tr.innerHTML = rowHtml(j);
+  bindRowEvents(tr);
+  updateSummary();
+}
+function bindRowEvents(scope) {
+  const root = scope || tbody;
+  root.querySelectorAll(".sl-sel").forEach(cb => {
+    cb.onchange = () => {
+      const idx = +cb.closest("tr").dataset.idx;
+      JOBS[idx].selected = cb.checked;
+      PYAPI().setSelected(idx, cb.checked);
+      updateSummary();
+    };
+  });
+  root.querySelectorAll('.sl-act[data-act="send"]').forEach(btn => {
+    btn.onclick = async () => {
+      const idx = +btn.closest("tr").dataset.idx;
+      const pw = document.getElementById("inp-pw").value;
+      try {
+        appendLog(`手動寄送 ${JOBS[idx].person_name}…`);
+        const updated = await PYAPI().sendOne(pw, idx);
+        JOBS[idx] = updated;
+        renderJobRow(updated);
+      } catch (e) { alert("寄送失敗：" + e); }
+    };
+  });
+}
+function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function updateSummary() {
+  document.getElementById("sl-total").textContent = JOBS.length;
+  document.getElementById("sl-sendable").textContent =
+    JOBS.filter(j => j.status === "pending" && j.selected).length;
+}
+
+async function doScan() {
+  try {
+    appendLog("開始掃描…");
+    const res = await PYAPI().scanJobs(collectSettings());
+    JOBS = res.jobs;
+    renderJobs();
+    goTo(5);
+    // 重新掃描會讓附件可能改變，之前的預審確認失效
+    resetReviewerConfirmation("已重新掃描寄送清單");
+    appendLog(`✓ 掃描完成：${res.total} 人，可寄 ${res.sendable} 封`, "ok");
+  } catch (e) { alert("掃描失敗：" + e); appendLog("✗ " + e, "err"); }
+}
+
+document.getElementById("btn-scan").onclick = doScan;
+document.getElementById("btn-rescan").onclick = doScan;
+document.getElementById("btn-toggle-all").onclick = () => {
+  const anyOff = JOBS.some(j => j.status === "pending" && !j.selected);
+  JOBS.forEach(j => { if (j.status === "pending") j.selected = anyOff; });
+  JOBS.forEach(j => { if (j.status === "pending") PYAPI().setSelected(j.idx, j.selected); });
+  renderJobs();
+};
+document.getElementById("sl-head-sel").onchange = e => {
+  JOBS.forEach(j => { if (j.status === "pending") j.selected = e.target.checked; });
+  JOBS.forEach(j => { if (j.status === "pending") PYAPI().setSelected(j.idx, j.selected); });
+  renderJobs();
+};
+document.getElementById("btn-send-all").onclick = async () => {
+  const pw = document.getElementById("inp-pw").value;
+  if (pw.replace(/\s/g, "").length !== 16) { alert("請先填入 16 碼 App Password"); return; }
+  if (!JOBS.some(j => j.status === "pending" && j.selected)) { alert("沒有勾選任何可寄項目"); return; }
+
+  const reviewer = document.getElementById("inp-reviewer").value.trim();
+  if (reviewer && !(REVIEWER_STATE.confirmed && REVIEWER_STATE.lastReviewer === reviewer)) {
+    const cnt = reviewer.split(",").map(s => s.trim()).filter(Boolean).length;
+    const who = cnt > 1 ? `${cnt} 位計畫人員（${reviewer}）` : reviewer;
+    alert(`已設定 ${who}，請先按「先寄預審」並確認內容後再寄出。\n如要略過預審，請至上一步「全不選」並清空「自訂 Email」。`);
+    return;
+  }
+
+  if (!confirm(`即將寄出 ${JOBS.filter(j=>j.status==="pending"&&j.selected).length} 封信，確定？`)) return;
+  document.getElementById("btn-send-all").disabled = true;
+  document.getElementById("btn-cancel-send").hidden = false;
+  document.getElementById("btn-rescan").disabled = true;
+  document.getElementById("btn-preview-reviewer").disabled = true;
+  const indices = JOBS.filter(j => j.status === "pending" && j.selected).map(j => j.idx);
+  try { await PYAPI().sendSelected(pw, indices); }
+  catch (e) {
+    alert("寄送失敗：" + e); appendLog("✗ " + e, "err");
+    document.getElementById("btn-cancel-send").hidden = true;
+    document.getElementById("btn-rescan").disabled = false;
+    updateReviewerBanner();
+  }
+};
+
+document.getElementById("btn-preview-reviewer").onclick = async () => {
+  const pw = document.getElementById("inp-pw").value;
+  if (pw.replace(/\s/g, "").length !== 16) { alert("請先填入 16 碼 App Password"); return; }
+  const reviewer = document.getElementById("inp-reviewer").value.trim();
+  if (!reviewer) { alert("請先至上一步勾選計畫人員 / 填寫自訂 Email"); return; }
+  if (!JOBS.some(j => j.status === "pending" && j.selected)) {
+    alert("沒有勾選任何可寄項目，無法產生預審樣本"); return;
+  }
+
+  const btn = document.getElementById("btn-preview-reviewer");
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "📧 寄送中…";
+  try {
+    appendLog(`📧 開始寄出預審信（隨機抽樣，每位計畫人員各一份）…`);
+    const res = await PYAPI().previewToReviewer(pw, reviewer);
+    const samples = Array.isArray(res.samples) ? res.samples : [];
+    const failed = Array.isArray(res.failed) ? res.failed : [];
+
+    REVIEWER_STATE.confirmed = samples.length > 0;
+    REVIEWER_STATE.lastReviewer = res.reviewer || reviewer;
+    REVIEWER_STATE.lastSampleIdx = samples.length ? samples[0].sample_idx : -1;
+    REVIEWER_STATE.lastSamples = samples;
+
+    samples.forEach(s => {
+      appendLog(`  ✓ ${s.reviewer} ← 樣本：${s.sample_name}（${s.category || "綜合"}）`, "ok");
+    });
+    failed.forEach(f => {
+      appendLog(`  ✗ ${f.reviewer} 寄送失敗：${f.err}`, "err");
+    });
+
+    if (failed.length && samples.length) {
+      alert(`部分預審寄送失敗（${failed.length}/${samples.length + failed.length}）。\n成功的部分仍可繼續，但建議檢查失敗訊息。`);
+    }
+  } catch (e) {
+    appendLog("  ✗ 預審寄送失敗：" + e, "err");
+    alert("預審寄送失敗：" + e);
+    const banner = document.getElementById("reviewer-banner");
+    banner.classList.remove("pending", "sent");
+    banner.classList.add("error");
+    document.getElementById("rv-text").textContent = "預審寄送失敗 — " + String(e).replace(/^Error: /, "");
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+    updateReviewerBanner();
+  }
+};
+
+/* ─── Reviewer 複選清單（計畫人員個資） ─── */
+let REVIEWERS = [];  // [{name, email, title}]
+const REVIEWER_CHECKED = new Set();  // email 字串集合
+
+async function loadReviewers() {
+  const listEl = document.getElementById("reviewer-list");
+  try {
+    REVIEWERS = await PYAPI().listReviewers(STATE.peopleDb || "");
+  } catch (e) {
+    REVIEWERS = [];
+    appendLog("✗ 載入計畫人員清單失敗：" + e, "err");
+  }
+  // 預設全不勾(使用者主動選)
+  REVIEWER_CHECKED.clear();
+  renderReviewerList();
+  syncReviewerValue();
+  resetReviewerConfirmation("");
+  appendLog(`✓ 載入計畫人員清單：${REVIEWERS.length} 位`, REVIEWERS.length ? "ok" : "");
+}
+
+function renderReviewerList() {
+  const listEl = document.getElementById("reviewer-list");
+  if (!REVIEWERS.length) {
+    listEl.innerHTML = '<div class="dim small" style="padding:8px">（個資檔中找不到「計畫人員個資」工作頁，或工作頁為空。可改用下方「自訂 Email」）</div>';
+    return;
+  }
+  listEl.innerHTML = "";
+  REVIEWERS.forEach(r => {
+    const on = REVIEWER_CHECKED.has(r.email);
+    const div = document.createElement("div");
+    div.className = "reviewer-chip" + (on ? " on" : "");
+    div.dataset.email = r.email;
+    div.innerHTML = `
+      <span class="reviewer-chip-check">${on ? '<span class="reviewer-chip-check-mark">✓</span>' : ""}</span>
+      <span class="reviewer-chip-meta">
+        <span class="name"></span>
+        <span class="title"></span>
+        <span class="email"></span>
+      </span>`;
+    div.querySelector(".name").textContent = r.name;
+    div.querySelector(".title").textContent = r.title ? `（${r.title}）` : "";
+    div.querySelector(".email").textContent = r.email;
+    div.onclick = () => {
+      if (REVIEWER_CHECKED.has(r.email)) REVIEWER_CHECKED.delete(r.email);
+      else REVIEWER_CHECKED.add(r.email);
+      renderReviewerList();
+      syncReviewerValue();
+      resetReviewerConfirmation("已調整預審收件人");
+    };
+    listEl.appendChild(div);
+  });
+}
+
+function syncReviewerValue() {
+  // 把勾選的 email + 自訂 input 的 email 合併寫進隱藏的 #inp-reviewer
+  const customRaw = (document.getElementById("inp-reviewer-custom").value || "").trim();
+  // 接受逗號 / 分號 / 任何空白(含全形 / NBSP)分隔
+  const customs = customRaw
+    ? customRaw.split(/[,;\s　 ]+/).map(s => s.trim()).filter(Boolean)
+    : [];
+  const all = [];
+  REVIEWERS.forEach(r => {
+    if (REVIEWER_CHECKED.has(r.email)) all.push(r.email.trim());
+  });
+  customs.forEach(e => { if (!all.includes(e)) all.push(e); });
+
+  document.getElementById("inp-reviewer").value = all.join(", ");
+
+  const summary = document.getElementById("reviewer-summary");
+  if (all.length === 0) {
+    summary.classList.remove("has");
+    summary.textContent = "未勾選任何項目 — 將不預審，直接寄給所有合作端";
+  } else {
+    summary.classList.add("has");
+    summary.textContent = `已選 ${all.length} 位 · 預審信將同時寄給：${all.join("、")}`;
+  }
+}
+
+document.getElementById("btn-reviewer-all").onclick = () => {
+  REVIEWERS.forEach(r => REVIEWER_CHECKED.add(r.email));
+  renderReviewerList();
+  syncReviewerValue();
+  resetReviewerConfirmation("已調整預審收件人");
+};
+document.getElementById("btn-reviewer-none").onclick = () => {
+  REVIEWER_CHECKED.clear();
+  renderReviewerList();
+  syncReviewerValue();
+  resetReviewerConfirmation("已調整預審收件人");
+};
+document.getElementById("inp-reviewer-custom").oninput = () => {
+  syncReviewerValue();
+  resetReviewerConfirmation("已調整預審收件人");
+};
+document.getElementById("btn-cancel-send").onclick = () => {
+  PYAPI().cancelSend();
+};
+document.getElementById("btn-log-clear").onclick = () => { logBody.innerHTML = ""; };
+
+/* ─── 初始化 ─── */
+renderStepnav();
+goTo(0);
+syncZoneStat();
+updateReviewerBanner();
+
+// 從後端讀取預設值
+(async () => {
+  try {
+    const s = await PYAPI().getInitialState();
+    yearInput.value = s.year;
+    setMonth(s.month);
+    document.getElementById("inp-sender").value = s.senderEmail || "";
+    if (s.output)   setPath("output",   s.output);
+    if (s.peopleDb) setPath("peopleDb", s.peopleDb);
+    appendLog("✓ 已連接後端", "ok");
+    // 載入計畫人員下拉清單(以剛拿到的 peopleDb 為準)
+    loadReviewers();
+  } catch (e) { console.warn(e); appendLog("✗ 後端連線失敗：" + e, "err"); }
+})();
+syncPeriod();
+renderPreview();
+</script>
+</body>
+</html>

@@ -125,6 +125,61 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
     return len(merged)
 
 
+def load_reviewers(path: str) -> list[dict]:
+    """讀取個資 Excel 的「計畫人員個資」工作頁，回傳 [{name, email, title}, ...]
+
+    第二個工作頁格式（第一列為欄位名稱）：
+        計畫人員姓名 | gmail | 職稱
+
+    找不到該工作頁、檔案不存在或讀取失敗時回空 list（呼叫端要寬容處理）。
+    """
+    if not path or not os.path.exists(path):
+        return []
+
+    try:
+        wb = openpyxl.load_workbook(path, data_only=True)
+    except Exception:
+        return []
+
+    target = None
+    for name in wb.sheetnames:
+        if "計畫人員" in name:
+            target = wb[name]
+            break
+    if target is None:
+        return []
+
+    # 找欄位位置
+    name_col = email_col = title_col = -1
+    for cell in target[1]:
+        if cell.value is None:
+            continue
+        h = str(cell.value).strip().lower()
+        if name_col < 0 and ("姓名" in h or "name" in h):
+            name_col = cell.column - 1
+        elif email_col < 0 and ("mail" in h or "email" in h):
+            email_col = cell.column - 1
+        elif title_col < 0 and ("職稱" in h or "title" in h):
+            title_col = cell.column - 1
+
+    if name_col < 0 or email_col < 0:
+        return []
+
+    out: list[dict] = []
+    for row in target.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) <= max(name_col, email_col):
+            continue
+        name = (str(row[name_col]).strip() if row[name_col] else "")
+        email = (str(row[email_col]).strip() if row[email_col] else "")
+        title = ""
+        if 0 <= title_col < len(row) and row[title_col]:
+            title = str(row[title_col]).strip()
+        if not name or not email:
+            continue
+        out.append({"name": name, "email": email, "title": title})
+    return out
+
+
 def load_people_db(path: str) -> dict[str, ReceiptInfo]:
     """讀取個資 Excel，回傳 {姓名: ReceiptInfo}"""
     if not path or not os.path.exists(path):
