@@ -12,11 +12,13 @@ import os
 import openpyxl
 from models import ReceiptInfo
 
-COLUMNS = ["姓名", "角色", "所屬診所", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號", "Email"]
+COLUMNS = ["姓名", "角色", "所屬診所", "身分證字號", "戶籍地址", "聯絡電話", "戶名", "銀行及分行", "銀行代碼", "帳號", "Email", "身分別"]
 
 FIELD_MAP = {
     "姓名":     "recipient_name",
     "角色":     "role",
+    "身分別":    "occupation",   # 報稅類別判斷：醫師/營養師/藥師/護理師/運動教練/大學社大老師
+    "職業":     "occupation",   # 別名
     "所屬診所":  "clinic_name",
     "身分證字號": "id_number",
     "戶籍地址":  "address",
@@ -28,6 +30,18 @@ FIELD_MAP = {
     "帳號":     "account_number",
     "Email":    "email",
 }
+
+
+def _cell_str(v) -> str:
+    """將 Excel 儲存格值轉為乾淨字串。
+    數字型帳號/電話/身分證會被 openpyxl 讀成 float（如 721168845196.0），
+    若直接 str() 會多出 .0；此處整數值的 float 先轉 int 再轉字串。
+    """
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v).strip()
 
 
 def create_template(path: str):
@@ -42,19 +56,22 @@ def create_template(path: str):
         cell.font = openpyxl.styles.Font(bold=True)
 
     # 欄寬
-    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28]
+    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28, 12]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
     # 範例資料（第二列）
     ws.append(["王永良", "醫師", "", "A123456789", "台北市中山區中山北路一段1號",
                 "02-1234-5678", "王永良", "台灣銀行中山分行", "004", "123456789012",
-                "wang@example.com"])
+                "wang@example.com", "醫師"])
     ws.append(["周建青", "診所行政人員", "何叔芳小兒科診所", "", "",
-                "", "周建青", "", "", "", ""])
+                "", "周建青", "", "", "", "", ""])
+    ws.append(["林營養", "課程老師", "", "B123456789", "台北市…",
+                "", "林營養", "玉山銀行", "808", "0987654321", "", "營養師"])
     # 備註列：角色說明
     note_row = ws.max_row + 1
-    ws.cell(row=note_row, column=1, value="※ 角色填寫：醫師 / 課程老師 / 診所行政人員")
+    ws.cell(row=note_row, column=1,
+            value="※ 角色：醫師 / 課程老師 / 診所行政人員　｜　身分別僅需區分營養師(執業所得)與其他課程老師(薪資)，診所行政固定7000免填")
     ws.cell(row=note_row, column=1).font = openpyxl.styles.Font(color="808080", italic=True)
 
     wb.save(path)
@@ -103,7 +120,7 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
         cell = ws.cell(row=1, column=col, value=name)
         cell.font = openpyxl.styles.Font(bold=True)
 
-    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28]
+    widths = [10, 10, 20, 14, 30, 14, 10, 20, 10, 20, 28, 12]
     for col, w in enumerate(widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
 
@@ -120,6 +137,7 @@ def export_to_db(lookup: dict, path: str, overwrite: bool = False):
         ws.cell(row=row_idx, column=9, value=info.bank_code or "")
         ws.cell(row=row_idx, column=10, value=info.account_number or "")
         ws.cell(row=row_idx, column=11, value=info.email or "")
+        ws.cell(row=row_idx, column=12, value=info.occupation or "")
 
     wb.save(path)
     return len(merged)
@@ -143,14 +161,20 @@ def load_people_db(path: str) -> dict[str, ReceiptInfo]:
             headers[str(cell.value).strip()] = cell.column - 1  # 0-based index
 
     if "姓名" not in headers:
-        return {}
+        # 容錯：第一欄為姓名但標題列空白/未命名（常見於匯出檔），
+        # 仍將第一欄視為姓名，避免整份個資讀不到。
+        first = ws.cell(1, 1).value
+        if first is None or not str(first).strip():
+            headers["姓名"] = 0
+        else:
+            return {}
 
     lookup: dict[str, ReceiptInfo] = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
         name_idx = headers["姓名"]
         if name_idx >= len(row):
             continue
-        name = str(row[name_idx]).strip() if row[name_idx] else ""
+        name = _cell_str(row[name_idx]) if row[name_idx] else ""
         if name == "None":
             name = ""
 
@@ -159,7 +183,7 @@ def load_people_db(path: str) -> dict[str, ReceiptInfo]:
         if "所屬診所" in headers:
             cidx = headers["所屬診所"]
             if cidx < len(row) and row[cidx]:
-                clinic_val = str(row[cidx]).strip()
+                clinic_val = _cell_str(row[cidx])
 
         # 完全空白（連所屬診所都沒）才跳過
         if not name and not clinic_val:
@@ -171,7 +195,7 @@ def load_people_db(path: str) -> dict[str, ReceiptInfo]:
                 continue
             idx = headers[col_name]
             if idx < len(row) and row[idx] is not None:
-                setattr(info, field, str(row[idx]).strip())
+                setattr(info, field, _cell_str(row[idx]))
 
         if name:
             lookup[name] = info

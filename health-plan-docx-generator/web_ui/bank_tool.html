@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>富邦匯款上傳檔 — 匯入核銷資料</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { background:#FAFAF9; font-family:-apple-system,"Microsoft JhengHei",sans-serif; color:#262626; margin:0; }
+  .wrap { max-width:680px; margin:0 auto; padding:28px 24px 40px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#737373; font-size:13px; margin:0 0 20px; }
+  .card { background:#fff; border:1px solid #E7E5E4; border-radius:12px; padding:18px; margin-bottom:16px; }
+  .lbl { font-size:13px; font-weight:600; margin-bottom:6px; display:block; }
+  .path { font-family:ui-monospace,monospace; font-size:12px; color:#525252; word-break:break-all;
+          background:#F5F5F4; border:1px solid #E7E5E4; border-radius:8px; padding:8px 10px; min-height:18px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid #D6D3D1; background:#fff; padding:8px 14px; }
+  button.primary { background:#D4452C; color:#fff; border-color:#D4452C; font-weight:600; }
+  button.primary:disabled { opacity:.5; cursor:not-allowed; }
+  input[type=number] { font:inherit; width:80px; padding:6px 8px; border:1px solid #D6D3D1; border-radius:8px; }
+  .hint { color:#737373; font-size:12px; }
+  .stat { display:flex; gap:18px; flex-wrap:wrap; font-size:14px; margin:6px 0; }
+  .stat b { font-size:18px; }
+  .ok { color:#15803D; } .warn { color:#B45309; } .err { color:#B91C1C; }
+  .log { font-family:ui-monospace,monospace; font-size:11px; color:#525252; background:#1C1917; color:#D6D3D1;
+         border-radius:8px; padding:10px; height:180px; overflow:auto; white-space:pre-wrap; }
+  table.skip { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+  table.skip td, table.skip th { border:1px solid #E7E5E4; padding:4px 8px; text-align:left; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script type="text/babel" src="bank_tool.jsx"></script>
+</body>
+</html>

@@ -59,6 +59,7 @@ class ReceiptInfo:
     role: str = ""  # 角色：醫師 / 課程老師 / 診所行政人員
     clinic_name: str = ""  # 所屬診所（診所行政人員用）
     email: str = ""  # Email（寄送核銷文件用）
+    occupation: str = ""  # 身分別/職業（醫師/營養師/藥師/護理師/運動教練/大學社大老師）→ 報稅類別
 
 
 @dataclass

@@ -25,10 +25,10 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls, qn
 
 from models import ReceiptInfo
+from tax_rules import withhold, category_for, nhi_threshold
 
-TAX_THRESHOLD = 20000
-NHI_RATE = 0.0211
-INCOME_TAX_RATE = 0.10
+# 為相容既有匯入而保留；實際扣繳改由 tax_rules.withhold 依報稅類別計算
+from config import INCOME_TAX_THRESHOLD as TAX_THRESHOLD, NHI_RATE, INCOME_TAX_RATE
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "word_templates")
@@ -115,7 +115,9 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     _replace_amount_in_paragraphs(all_texts, receipt.amount)
 
     if not _is_health_mgmt(fee_type):
-        _fill_tax_amounts(doc, receipt.amount)
+        role_hint = "課程老師" if _is_treatment(fee_type) else "醫師"
+        category = category_for(receipt.occupation, role_hint)
+        _fill_tax_amounts(doc, receipt.amount, category)
 
     _replace_name(all_texts, receipt.recipient_name)
 
@@ -437,24 +439,18 @@ def _fill_summary_table_health_mgmt(doc, people_count: int,
 #  扣稅版：應付/代扣 2.11%/代扣 10%/實付 nested table
 # ============================================================
 
-def _fill_tax_amounts(doc, total_amount: int):
+def _fill_tax_amounts(doc, total_amount: int, category: str = ""):
     """填扣稅版 nested table 的「應付/代扣2.11%/代扣10%/實付」4 cells。
-    - amount >= 20000: 正常計算扣繳
-    - amount <  20000: 代扣兩格寫「不需扣稅」，實付 = 應付
+
+    依報稅類別（category）決定二代健保門檻（執業所得 20000 / 薪資 29500）；
+    所得稅 10% 門檻固定 20000。二代健保採「達（含）」＝大於等於，所得稅採「超過」
+    嚴格大於（詳見 tax_rules.withhold）。未達門檻該格寫「不需扣稅」。
     """
-    if needs_tax(total_amount):
-        nhi = round(total_amount * NHI_RATE)
-        income_tax = round(total_amount * INCOME_TAX_RATE)
-        actual = total_amount - nhi - income_tax
-        v_payable = f"{total_amount:,}"
-        v_nhi = f"{nhi:,}"
-        v_tax = f"{income_tax:,}"
-        v_actual = f"{actual:,}"
-    else:
-        v_payable = f"{total_amount:,}"
-        v_nhi = "不需扣稅"
-        v_tax = "不需扣稅"
-        v_actual = f"{total_amount:,}"
+    nhi, income_tax, actual = withhold(total_amount, category)
+    v_payable = f"{total_amount:,}"
+    v_nhi = f"{nhi:,}" if nhi > 0 else "不需扣稅"
+    v_tax = f"{income_tax:,}" if income_tax > 0 else "不需扣稅"
+    v_actual = f"{actual:,}"
 
     body = doc.element.body
     # 鎖定 nested table（3 直接 row，且第一列含「應付金額」+「實付金額」）

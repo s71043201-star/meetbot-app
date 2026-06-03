@@ -65,6 +65,9 @@ const App = () => {
       { key: "gen_treatment_receipt", name: "處方處置費 領據", checked: true },
       { key: "gen_treatment_summary", name: "處方處置費合併總表", checked: true },
     ]},
+    bank: { expanded: false, items: [
+      { key: "gen_bank_transfer", name: "富邦整批轉帳/匯款上傳檔（依領據帳戶自動填空）", checked: true },
+    ]},
   });
 
   // ── 進階：選定診所 ──
@@ -298,6 +301,12 @@ const App = () => {
     } catch (e) { flash(e.message, "err"); }
   };
 
+  const handleBankTool = async () => {
+    try {
+      await pywv.call("openBankTool");
+    } catch (e) { flash(e.message, "err"); }
+  };
+
   return (
     <div className="app">
       <TitleBar />
@@ -412,7 +421,7 @@ const App = () => {
           success={success}
         />
       </main>
-      <GenerateBar totalDocs={totalDocs} year={year} month={month} progress={progress} success={success} onEmail={handleEmail} />
+      <GenerateBar totalDocs={totalDocs} year={year} month={month} progress={progress} success={success} onEmail={handleEmail} onBankTool={handleBankTool} />
       <LogPanel showLog={showLog} setShowLog={setShowLog} logLines={logLines} />
       <footer className="footer">
         <span>核銷文件產生器</span>
@@ -771,8 +780,8 @@ const DocCard = ({ dKey, doc, onToggleAll, onToggle, onExpand }) => {
   const total = doc.items.length;
   const allChecked = checkedCount === total;
   const noneChecked = checkedCount === 0;
-  const titles = { doctor: "【醫師】處方費 / 處方執行費", clinic: "【診所】健康管理費", instructor: "【課程老師】處方處置費" };
-  const kinds = { doctor: "DOCTOR", clinic: "CLINIC", instructor: "INSTRUCTOR" };
+  const titles = { doctor: "【醫師】處方費 / 處方執行費", clinic: "【診所】健康管理費", instructor: "【課程老師】處方處置費", bank: "【匯款】富邦整批轉帳 / 匯款上傳檔" };
+  const kinds = { doctor: "DOCTOR", clinic: "CLINIC", instructor: "INSTRUCTOR", bank: "BANK" };
   return (
     <div className={`doc-card ${noneChecked ? "unchecked" : "checked"}`}>
       <div className="doc-row">
@@ -830,7 +839,7 @@ const BtnAccent = ({ icon, children, onClick }) => (
   </button>
 );
 
-const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail }) => {
+const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail, onBankTool }) => {
   const ref = React.useRef(null);
   const [stuck, setStuck] = React.useState(false);
   React.useEffect(() => {
@@ -855,7 +864,10 @@ const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail }) => 
       <div className="genbar-status mono small dim" style={{flex: 1, textAlign: "right"}}>
         {progress ? `${progress.label}${progress.file ? ` · ${progress.file}` : ""} · ${progress.pct}%` : success ? "✓ 已產出至資料夾" : "前往最後一步以產生"}
       </div>
-      <button className="btn-ghost" onClick={onEmail} style={{marginLeft: "16px"}}>
+      <button className="btn-ghost" onClick={onBankTool} style={{marginLeft: "16px"}}>
+        <span className="btn-icon">🏦</span> 匯入核銷資料→匯款檔
+      </button>
+      <button className="btn-ghost" onClick={onEmail} style={{marginLeft: "8px"}}>
         <span className="btn-icon">📧</span> 預覽並寄送 Gmail
       </button>
     </div>

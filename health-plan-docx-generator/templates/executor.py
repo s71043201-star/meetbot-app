@@ -30,6 +30,18 @@ PTYPE_SHORT = {"運動處方": "運動", "營養處方": "營養",
                "情緒調適處方": "情緒調適", "社會處方": "社會"}
 
 
+def _cell_grid(table):
+    """回傳快速取格函式 at(row, col)。
+
+    python-docx 的 table.cell(r,c) 每次呼叫都會重建整張表的儲存格清單，
+    在大表（如上百列的民眾明細）逐格呼叫會變成 O(n²)，CPU 燒滿近似當機。
+    這裡只建一次 table._cells，之後以索引存取（與 table.cell 結果相同）。
+    """
+    cells = table._cells
+    ncol = table._column_count
+    return lambda r, c: cells[r * ncol + c]
+
+
 def _write_unencrypted_list(unencrypted_by_dir: dict):
     """將每個 receipt 資料夾的未加密(身分證空白)名單寫成 未加密清單.txt。"""
     for receipt_dir, names in unencrypted_by_dir.items():
@@ -157,6 +169,7 @@ def generate_doctor_receipts(data: AllData,
                 bank_branch=prev.bank_branch,
                 bank_code=prev.bank_code,
                 account_number=prev.account_number,
+                occupation=prev.occupation,
             )
 
         has_presc = doc_data.prescription_fee > 0
@@ -356,44 +369,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
         os.makedirs(receipt_dir, exist_ok=True)
 
     def _find_clinic_person(clinic_name: str):
-        """在 receipt_lookup 裡找 所屬診所(clinic_name) 匹配的「診所行政人員」。
-
-        健管費領據的具領人應該是診所行政人員,絕不該抓到醫師資料。
-        優先順序:診所行政人員(有姓名)→ 診所行政人員(姓名空白佔位列)
-                → 其他非醫師角色(有姓名)→ 找不到
-        比對方式:精確 → 子字串雙向 → 最長共同前綴 ≥3
-        回傳 (recipient_name, ReceiptInfo) 或 ("", None)
-        """
-        if not receipt_lookup or not clinic_name:
-            return "", None
-
-        def _matches(cn):
-            if not cn:
-                return False
-            if cn == clinic_name or clinic_name == cn:
-                return True
-            if cn in clinic_name or clinic_name in cn:
-                return True
-            n = 0
-            for a, b in zip(clinic_name, cn):
-                if a == b:
-                    n += 1
-                else:
-                    break
-            return n >= 3
-
-        # 健管費領據邏輯:只取「診所行政人員」並對診所名稱匹配
-        matches = [info for info in receipt_lookup.values()
-                   if info.role == "診所行政人員"
-                   and _matches(info.clinic_name)]
-
-        if not matches:
-            return "", None
-
-        # 優先有姓名的列;若全部留白(佔位列),取第一筆
-        matches.sort(key=lambda i: 0 if i.recipient_name else 1)
-        best = matches[0]
-        return best.recipient_name or "", best
+        return find_clinic_admin(receipt_lookup, clinic_name)
 
     docx_info = []  # (name, total_docx, detail_docx, receipt_docx)
 
@@ -423,6 +399,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
                 bank_branch=prev.bank_branch,
                 bank_code=prev.bank_code,
                 account_number=prev.account_number,
+                occupation=prev.occupation,
             )
 
         # 民眾明細(直式 + 縮邊距)
@@ -519,6 +496,44 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, master_password=None, progres
         _write_unencrypted_list({receipt_dir: unencrypted_names})
 
 
+def find_clinic_admin(receipt_lookup: dict | None, clinic_name: str):
+    """在 receipt_lookup 裡找 所屬診所(clinic_name) 匹配的「診所行政人員」。
+
+    健管費領據的具領人應該是診所行政人員,絕不該抓到醫師資料。
+    比對方式:精確 → 子字串雙向 → 最長共同前綴 ≥3
+    優先有姓名的列;若全部留白(佔位列),取第一筆。
+    回傳 (recipient_name, ReceiptInfo) 或 ("", None)
+
+    供健管費領據與富邦匯款檔共用,確保具領人/帳戶來源一致。
+    """
+    if not receipt_lookup or not clinic_name:
+        return "", None
+
+    def _matches(cn):
+        if not cn:
+            return False
+        if cn == clinic_name or clinic_name == cn:
+            return True
+        if cn in clinic_name or clinic_name in cn:
+            return True
+        n = 0
+        for a, b in zip(clinic_name, cn):
+            if a == b:
+                n += 1
+            else:
+                break
+        return n >= 3
+
+    matches = [info for info in receipt_lookup.values()
+               if info.role == "診所行政人員"
+               and _matches(info.clinic_name)]
+    if not matches:
+        return "", None
+    matches.sort(key=lambda i: 0 if i.recipient_name else 1)
+    best = matches[0]
+    return best.recipient_name or "", best
+
+
 _PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
 
 
@@ -558,18 +573,19 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
     set_col_widths(table, PATIENT_COL_WIDTHS)
 
     fs = 12
+    cell_at = _cell_grid(table)
     headers = ["序號", "民眾姓名", "出生日期",
                "處方類型", "行政人員", "開立日期"]
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, pat in enumerate(patients):
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), hm.clinic_person or "", font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(pat.issue_date or ""), font_size=fs)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=fs)
+        set_cell_text(cell_at(i + 1, 1), pat.name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 2), pat.birth_date, font_size=fs)
+        set_cell_text(cell_at(i + 1, 3), pat.prescription_type, font_size=fs)
+        set_cell_text(cell_at(i + 1, 4), hm.clinic_person or "", font_size=fs)
+        set_cell_text(cell_at(i + 1, 5), str(pat.issue_date or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -631,17 +647,18 @@ def _add_doctor_patient_list_page(doc, data: AllData,
     date_header = "執行日期" if use_exec else "開立日期"
     headers = ["序號", "民眾姓名", "出生日期",
                "處方類型", "處方人員", date_header]
+    cell_at = _cell_grid(table)
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, pat in enumerate(patients):
         date_val = pat.exec_date if use_exec else getattr(pat, "issue_date", "")
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), doctor.doctor_name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(date_val or ""), font_size=fs)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=fs)
+        set_cell_text(cell_at(i + 1, 1), pat.name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 2), pat.birth_date, font_size=fs)
+        set_cell_text(cell_at(i + 1, 3), pat.prescription_type, font_size=fs)
+        set_cell_text(cell_at(i + 1, 4), doctor.doctor_name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 5), str(date_val or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -794,6 +811,7 @@ def generate_executor_receipts(data: AllData, output_dir: str,
                 bank_branch=receipt.bank_branch or prev.bank_branch,
                 bank_code=receipt.bank_code or prev.bank_code,
                 account_number=receipt.account_number or prev.account_number,
+                occupation=receipt.occupation or prev.occupation,
             )
 
         from templates.receipt import generate_receipt
@@ -852,6 +870,7 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
                 bank_branch=receipt.bank_branch or prev.bank_branch,
                 bank_code=receipt.bank_code or prev.bank_code,
                 account_number=receipt.account_number or prev.account_number,
+                occupation=receipt.occupation or prev.occupation,
             )
 
         # === 民眾明細表(單頁,直式,縮小邊距) ===
@@ -1036,19 +1055,20 @@ def _add_patient_list_page(doc, data: AllData, executor: ExecutorData):
     fs = 12  # 直式頁面 6 欄字體
     headers = ["序號", "民眾姓名", "出生日期",
                "處方類型", "處方人員", "執行日期"]
+    cell_at = _cell_grid(table)
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, p in enumerate(patients):
         # 民眾的處方類型以該筆紀錄為準(支援多類型);若空再 fallback
         row_ptype = p.prescription_type or executor.prescription_type
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), p.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), p.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), row_ptype, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), executor.executor_name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=fs)
+        set_cell_text(cell_at(i + 1, 1), p.name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 2), p.birth_date, font_size=fs)
+        set_cell_text(cell_at(i + 1, 3), row_ptype, font_size=fs)
+        set_cell_text(cell_at(i + 1, 4), executor.executor_name, font_size=fs)
         exec_date = getattr(p, "exec_date", "")
-        set_cell_text(table.cell(i + 1, 5), str(exec_date), font_size=fs)
+        set_cell_text(cell_at(i + 1, 5), str(exec_date), font_size=fs)
 
     # 底部摘要 — 靠左、粗體
     p_elem = doc.add_paragraph()

@@ -51,6 +51,10 @@ from templates.executor import (
     merge_executor_pdfs,
 )
 from receipt_reader import load_receipts_from_dir
+from bank_transfer_writer import (
+    collect_scope_payees, generate_bank_transfer_file,
+)
+from bank_receipts_reader import read_payees_from_output
 from people_db import load_people_db, create_template, export_to_db
 from email_sender import build_email_jobs
 import regions as regions_mod
@@ -75,6 +79,9 @@ DEFAULT_TEMPLATES = {
     "execution": os.path.join(TEMPLATE_DIR, "處方執行費_template.docx"),
     "health_mgmt": os.path.join(TEMPLATE_DIR, "健康管理費_template.docx"),
 }
+
+# 富邦整批轉帳/匯款上傳檔範本（內建，隨匯出自動填空產出）
+BANK_TEMPLATE = os.path.join(TEMPLATE_DIR, "富邦匯款範本.xlsm")
 
 PORT = 5173
 
@@ -182,6 +189,44 @@ class JsApi:
             return True
         except Exception:
             return False
+
+    # ─── 富邦匯款獨立工具（匯入已產出核銷資料 → 只產生匯款檔）───
+    def getBankToolInit(self):
+        today = date.today()
+        return {
+            "year": today.year - 1911,
+            "month": today.month,
+            "output": os.path.join(APP_DIR, "核銷文件"),
+        }
+
+    def openBankTool(self):
+        webbrowser.open(f"http://127.0.0.1:{PORT}/bank_tool.html")
+        return True
+
+    def generateBankFromReceipts(self, folder, year, month, people_db=""):
+        folder = (folder or "").strip()
+        if not folder or not os.path.isdir(folder):
+            raise RuntimeError("請選擇已產出的核銷月份資料夾")
+        year = int(year)
+        month = int(month)
+        people_lookup = {}
+        if people_db and os.path.exists(people_db):
+            _log(f"讀取個資檔（補身分別）：{people_db}")
+            people_lookup = load_people_db(people_db)
+        _log(f"讀取已產出領據：{folder}")
+        payees = read_payees_from_output(
+            folder, people_lookup=people_lookup, progress_cb=_log)
+        if not payees:
+            raise RuntimeError("此資料夾內找不到任何領據（*領據*.docx）")
+        out_path, stats = generate_bank_transfer_file(
+            payees, year, month, folder,
+            template_path=BANK_TEMPLATE, progress_cb=_log)
+        if out_path:
+            try:
+                os.startfile(folder)
+            except Exception:
+                pass
+        return {"path": out_path or "", "stats": stats}
 
     # ─── Google Drive 同步 ───
     def _regions_cache_path(self):
@@ -376,6 +421,9 @@ class JsApi:
 
         _progress(0.15, "產生 Word 文件中…")
 
+        gen_bank = s.get("gen_bank_transfer", True)
+        bank_payees = []
+
         all_pending = []
         merge_bundles = []
         for label, allowed, thr, mdir, prod_exec in scopes:
@@ -393,6 +441,8 @@ class JsApi:
                 receipt_lookup, prod_exec, s)
             all_pending.extend(pending)
             merge_bundles.append((hi, ei, di))
+            if gen_bank:
+                collect_scope_payees(bank_payees, ds, receipt_lookup, prod_exec)
 
         if all_pending:
             _log(f"\n批次轉換 {len(all_pending)} 份 Word → PDF…")
@@ -412,6 +462,16 @@ class JsApi:
             if hi: merge_health_mgmt_pdfs(*hi, master_password=master_password)
             if ei: merge_executor_pdfs(*ei, master_password=master_password)
             if di: merge_doctor_receipt_pdfs(di, master_password=master_password)
+
+        # === 富邦整批轉帳/匯款上傳檔（填入內建範本，與領據同月份）===
+        if gen_bank and bank_payees:
+            try:
+                _progress(0.99, "產生富邦匯款上傳檔…")
+                generate_bank_transfer_file(
+                    bank_payees, year, month, month_root,
+                    template_path=BANK_TEMPLATE, progress_cb=_log)
+            except Exception as e:
+                _log(f"[WARN] 富邦匯款上傳檔產生失敗：{e}")
 
         _progress(1.0, "✓ 全部完成", "", "success")
         _log(f"\n完成！輸出至: {output}")
