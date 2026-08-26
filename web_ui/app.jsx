@@ -1,4 +1,4 @@
-// 核銷文件產生器 v39 — 美化版 + pywebview 真實 API
+// 核銷文件產生器 v40 — 美化版 + pywebview 真實 API
 // 視覺從 v34 美化版移植，事件全部接 window.pywebview.api
 
 const REGION_NAMES = ["北投", "士林", "中山"];
@@ -65,6 +65,9 @@ const App = () => {
       { key: "gen_treatment_receipt", name: "處方處置費 領據", checked: true },
       { key: "gen_treatment_summary", name: "處方處置費合併總表", checked: true },
     ]},
+    bank: { expanded: false, items: [
+      { key: "gen_bank_transfer", name: "富邦整批轉帳/匯款上傳檔（依領據帳戶自動填空）", checked: true },
+    ]},
   });
 
   // ── 進階：選定診所 ──
@@ -79,6 +82,13 @@ const App = () => {
   const [currentStep, setCurrentStep] = React.useState(0);
   const [maxReached, setMaxReached] = React.useState(0);
   const [toast, setToast] = React.useState(null); // {msg, kind}
+  const [masterPassword, setMasterPassword] = React.useState(""); // PDF 驗證主密碼
+  const [cloudPwModal, setCloudPwModal] = React.useState(false); // 從雲端帶入密碼框
+  const [cloudPwInput, setCloudPwInput] = React.useState("");
+  const [cloudPwErr, setCloudPwErr] = React.useState("");
+  const [cloudBusy, setCloudBusy] = React.useState(false);
+  const [peopleFromCloud, setPeopleFromCloud] = React.useState(false);
+  const [regionsFromCloud, setRegionsFromCloud] = React.useState(false);
 
   // 拿到所有勾選旗標的 flat object
   const docFlags = React.useMemo(() => {
@@ -198,6 +208,42 @@ const App = () => {
     } catch (e) { flash(e.message, "err"); }
   };
 
+  const syncRegionsFromCloud = async () => {
+    try {
+      const r = await pywv.call("syncRegionsFromDrive");
+      if (r && r.ok) {
+        if (r.path) setRegionsDb(r.path);
+        setRegionsFromCloud(true);
+        flash("✓ 診所分區已從雲端更新");
+      } else {
+        flash((r && r.message) || "雲端同步失敗", "err");
+      }
+    } catch (e) {
+      flash((e && e.message) || "雲端同步失敗", "err");
+    }
+  };
+
+  const submitCloudPeople = async () => {
+    setCloudPwErr("");
+    setCloudBusy(true);
+    try {
+      const r = await pywv.call("syncPeopleFromDrive", cloudPwInput);
+      if (!r || !r.ok) {
+        setCloudPwErr((r && r.message) || "帶入失敗");
+        return;
+      }
+      setPeopleDb(r.path);
+      setPeopleFromCloud(true);
+      flash("✓ 人員個資已從雲端帶入");
+      setCloudPwModal(false);
+      setCloudPwInput("");
+    } catch (e) {
+      setCloudPwErr((e && e.message) || "帶入失敗");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const openClinicPicker = async () => {
     try {
       const r = await pywv.call("loadClinics", regionsDb, excel);
@@ -237,6 +283,7 @@ const App = () => {
       output, peopleDb, regionsDb,
       minByRegion: thresholds,
       selectedClinics: selectedClinics ? [...selectedClinics] : null,
+      masterPassword,
       ...docFlags,
     };
     try {
@@ -251,6 +298,12 @@ const App = () => {
     if (!output) { flash("請先選擇輸出資料夾", "err"); goTo(5); return; }
     try {
       await pywv.call("openEmailPreview", { year, month, output, peopleDb, senderEmail: "" });
+    } catch (e) { flash(e.message, "err"); }
+  };
+
+  const handleBankTool = async () => {
+    try {
+      await pywv.call("openBankTool");
     } catch (e) { flash(e.message, "err"); }
   };
 
@@ -287,8 +340,14 @@ const App = () => {
           )}
           {currentStep === 3 && (
             <div className="step-body">
-              <FileLine path={peopleDb} placeholder="尚未選擇個資檔" onPick={() => pickFile(setPeopleDb, "xlsx")} />
+              <FileLine
+                path={peopleDb}
+                placeholder="尚未選擇個資檔"
+                onPick={() => { setPeopleFromCloud(false); pickFile(setPeopleDb, "xlsx"); }}
+                badge={peopleFromCloud ? "☁ 雲端帶入" : null}
+              />
               <div className="actions">
+                <BtnAccent icon="☁" onClick={() => { setCloudPwErr(""); setCloudPwInput(""); setCloudPwModal(true); }}>從雲端帶入（需密碼）</BtnAccent>
                 <BtnGhost icon="＋" onClick={createPeopleTpl}>建立空白範本</BtnGhost>
                 <BtnGhost icon="✎" onClick={() => peopleDb && pywv.call("openFile", peopleDb)}>開啟編輯</BtnGhost>
                 <BtnAccent icon="↺" onClick={importFromReceipts}>從舊領據匯入</BtnAccent>
@@ -298,8 +357,14 @@ const App = () => {
           )}
           {currentStep === 4 && (
             <div className="step-body">
-              <FileLine path={regionsDb} placeholder="尚未選擇分區檔" onPick={() => pickFile(setRegionsDb, "xlsx")} />
+              <FileLine
+                path={regionsDb}
+                placeholder="尚未選擇分區檔"
+                onPick={() => { setRegionsFromCloud(false); pickFile(setRegionsDb, "xlsx"); }}
+                badge={regionsFromCloud ? "☁ 雲端帶入" : null}
+              />
               <div className="actions">
+                <BtnAccent icon="☁" onClick={syncRegionsFromCloud}>從雲端帶入最新分區</BtnAccent>
                 <BtnGhost icon="＋" onClick={createRegionsTpl}>建立空白範本</BtnGhost>
                 <BtnGhost icon="✎" onClick={() => regionsDb && pywv.call("openFile", regionsDb)}>開啟編輯</BtnGhost>
                 <BtnAccent icon="▦" onClick={openClinicPicker}>選擇要產生的診所</BtnAccent>
@@ -316,8 +381,30 @@ const App = () => {
             <div className="step-body">
               <FileLine path={output} placeholder="尚未選擇輸出資料夾" onPick={() => pickFolder(setOutput)} folder />
               <div className="actions">
-                <BtnGhost icon="📂" onClick={() => output && pywv.call("openFile", output)}>開啟資料夾</BtnGhost>
+                <BtnGhost icon="📂" onClick={async () => {
+                  if (!output) { flash("請先選擇輸出資料夾", "err"); return; }
+                  try {
+                    const exists = await pywv.call("fileExists", output);
+                    if (!exists) { flash("資料夾不存在或尚未建立", "err"); return; }
+                    await pywv.call("openFile", output);
+                  } catch (e) { flash((e && e.message) || "開啟失敗", "err"); }
+                }}>開啟資料夾</BtnGhost>
                 <span className="hint">最終 Word/PDF/Excel 會放在這個資料夾下，依年月分組</span>
+              </div>
+              <div style={{ marginTop: 18 }}>
+                <label className="mono small dim" style={{ display: "block", marginBottom: 6 }}>
+                  🔒 PDF 驗證主密碼（選填）
+                </label>
+                <input
+                  type="password"
+                  value={masterPassword}
+                  onChange={(e) => setMasterPassword(e.target.value)}
+                  placeholder="留空＝不設主密碼"
+                  style={{ width: "100%", padding: "10px 12px", border: "1px solid var(--line, #ddd)", borderRadius: 8, fontSize: 14 }}
+                />
+                <span className="hint" style={{ display: "block", marginTop: 6 }}>
+                  合併 PDF 預設用該人身分證加密；填了主密碼後你也能用此密碼開啟所有 PDF（驗證用）。身分證空白者不加密，會在 receipt 資料夾留「未加密清單.txt」。
+                </span>
               </div>
             </div>
           )}
@@ -334,18 +421,69 @@ const App = () => {
           success={success}
         />
       </main>
-      <GenerateBar totalDocs={totalDocs} year={year} month={month} progress={progress} success={success} onEmail={handleEmail} />
+      <GenerateBar totalDocs={totalDocs} year={year} month={month} progress={progress} success={success} onEmail={handleEmail} onBankTool={handleBankTool} />
       <LogPanel showLog={showLog} setShowLog={setShowLog} logLines={logLines} />
       <footer className="footer">
         <span>核銷文件產生器</span>
-        <span className="mono">v39 · pywebview 版</span>
+        <span className="mono">v40 · pywebview 版</span>
       </footer>
       {success && <SuccessToast count={totalDocs} year={year} month={month} onOpen={() => output && pywv.call("openFile", output)} />}
       {toast && <FlashToast {...toast} />}
       {clinicPicker && <ClinicPickerModal data={clinicPicker} onClose={() => setClinicPicker(null)} onConfirm={(sel) => { setSelectedClinics(sel); setClinicPicker(null); }} />}
+      {cloudPwModal && (
+        <CloudPasswordModal
+          value={cloudPwInput}
+          err={cloudPwErr}
+          busy={cloudBusy}
+          onChange={setCloudPwInput}
+          onClose={() => !cloudBusy && setCloudPwModal(false)}
+          onSubmit={submitCloudPeople}
+        />
+      )}
     </div>
   );
 };
+
+// 🔒 雲端帶入個資 — 密碼框
+const CloudPasswordModal = ({ value, err, busy, onChange, onClose, onSubmit }) => (
+  <div style={{
+    position: "fixed", inset: 0, background: "rgba(0,0,0,.4)",
+    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
+  }} onClick={onClose}>
+    <div style={{
+      background: "#fff", borderRadius: 14, width: "min(440px, 92vw)",
+      padding: "24px 26px",
+      boxShadow: "0 20px 60px rgba(0,0,0,.25)",
+    }} onClick={(e) => e.stopPropagation()}>
+      <div className="mono small dim">CLOUD IMPORT</div>
+      <h3 style={{ margin: "4px 0 14px", fontSize: 20 }}>🔒 從雲端帶入人員個資</h3>
+      <p style={{ margin: "0 0 14px", fontSize: 13, color: "#777" }}>
+        個資檔需密碼才能從 Google Drive 下載，下載後會覆蓋本機快取。
+      </p>
+      <input
+        type="password"
+        autoFocus
+        value={value}
+        disabled={busy}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !busy) onSubmit(); }}
+        placeholder="輸入密碼"
+        style={{ width: "100%", padding: "10px 12px", border: "1px solid #DDD", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}
+      />
+      {err && (
+        <div style={{ marginTop: 10, color: "#C0392B", fontSize: 13 }}>
+          ⚠ {err}
+        </div>
+      )}
+      <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+        <button className="btn-accent" disabled={busy || !value} onClick={onSubmit}>
+          {busy ? "下載中…" : "確認帶入"}
+        </button>
+      </div>
+    </div>
+  </div>
+);
 
 // ─── 子元件 ───────────────────────────────────────────
 
@@ -355,7 +493,7 @@ const TitleBar = () => (
     <span className="mono small">核銷產生器</span>
     <span className="mono small dim">/ 健康台灣深耕計畫</span>
     <span className="tb-controls">
-      <span className="mono small dim">v39 · pywebview</span>
+      <span className="mono small dim">v40 · pywebview</span>
     </span>
   </div>
 );
@@ -514,7 +652,7 @@ const FilePicker = ({ label, path, hint, onPick, onClear, required }) => {
   );
 };
 
-const FileLine = ({ path, placeholder, onPick, folder }) => {
+const FileLine = ({ path, placeholder, onPick, folder, badge }) => {
   const filename = path ? path.split(/[\\/]/).pop() : "";
   const dir = path ? path.replace(/[\\/][^\\/]*$/, "") : "";
   return (
@@ -522,6 +660,13 @@ const FileLine = ({ path, placeholder, onPick, folder }) => {
       <span className="fl-dot"></span>
       <span className="fl-content">
         <span className="mono small fl-name-anim">{filename || placeholder}</span>
+        {badge && (
+          <span style={{
+            marginLeft: 8, padding: "2px 8px", fontSize: 11,
+            background: "#E8F5E9", color: "#2E7D32",
+            borderRadius: 10, fontWeight: 600, letterSpacing: "0.04em",
+          }}>{badge}</span>
+        )}
         {dir && <span className="mono small dim fl-path"> · {dir}</span>}
       </span>
       <span className="fl-action">{folder ? "選擇資料夾" : "變更"} →</span>
@@ -635,8 +780,8 @@ const DocCard = ({ dKey, doc, onToggleAll, onToggle, onExpand }) => {
   const total = doc.items.length;
   const allChecked = checkedCount === total;
   const noneChecked = checkedCount === 0;
-  const titles = { doctor: "【醫師】處方費 / 處方執行費", clinic: "【診所】健康管理費", instructor: "【課程老師】處方處置費" };
-  const kinds = { doctor: "DOCTOR", clinic: "CLINIC", instructor: "INSTRUCTOR" };
+  const titles = { doctor: "【醫師】處方費 / 處方執行費", clinic: "【診所】健康管理費", instructor: "【課程老師】處方處置費", bank: "【匯款】富邦整批轉帳 / 匯款上傳檔" };
+  const kinds = { doctor: "DOCTOR", clinic: "CLINIC", instructor: "INSTRUCTOR", bank: "BANK" };
   return (
     <div className={`doc-card ${noneChecked ? "unchecked" : "checked"}`}>
       <div className="doc-row">
@@ -694,7 +839,7 @@ const BtnAccent = ({ icon, children, onClick }) => (
   </button>
 );
 
-const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail }) => {
+const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail, onBankTool }) => {
   const ref = React.useRef(null);
   const [stuck, setStuck] = React.useState(false);
   React.useEffect(() => {
@@ -719,7 +864,10 @@ const GenerateBar = ({ totalDocs, year, month, progress, success, onEmail }) => 
       <div className="genbar-status mono small dim" style={{flex: 1, textAlign: "right"}}>
         {progress ? `${progress.label}${progress.file ? ` · ${progress.file}` : ""} · ${progress.pct}%` : success ? "✓ 已產出至資料夾" : "前往最後一步以產生"}
       </div>
-      <button className="btn-ghost" onClick={onEmail} style={{marginLeft: "16px"}}>
+      <button className="btn-ghost" onClick={onBankTool} style={{marginLeft: "16px"}}>
+        <span className="btn-icon">🏦</span> 匯入核銷資料→匯款檔
+      </button>
+      <button className="btn-ghost" onClick={onEmail} style={{marginLeft: "8px"}}>
         <span className="btn-icon">📧</span> 預覽並寄送 Gmail
       </button>
     </div>

@@ -1,0 +1,47 @@
+{
+  "HEALTH_MGMT_FEE": 7000,
+  "FEE_PER_PRESCRIPTION": 300,
+  "FEE_PER_EXECUTION": 100,
+  "FEE_PER_TREATMENT": 400,
+  "TREATMENT_FEE_RULES": [
+    {
+      "label": "處方PLUS2",
+      "fee": 200,
+      "keywords": [
+        "PLUS2",
+        "PLUS 2"
+      ]
+    },
+    {
+      "label": "線上微課程",
+      "fee": 100,
+      "keywords": [
+        "線上微課程",
+        "視訊",
+        "遠距"
+      ]
+    }
+  ],
+  "TREATMENT_FEE_DEFAULT_LABEL": "一般實體課程",
+  "ONLINE_COURSE_NAMES": [
+    "1⾃律神經調節法 : 15分鐘迅速告別焦慮",
+    "1外食也能吃健康：便當店與超商的聰明選擇",
+    "1居家全齡肌力",
+    "1美麗禪繞畫",
+    "2【香氣音療】身心共振放鬆處方",
+    "2太極有氧(Tai Chi Synergy)",
+    "2綠色療癒與社交",
+    "2腸道好，人不老，打造全齡免疫的腸腦軸線",
+    "3只要一句話讓你開心玩日本",
+    "3居家彼拉提斯",
+    "3打開食品黑盒子",
+    "3舒心粉彩輕鬆畫",
+    "4控糖大作戰：低GI 如何對抗身體慢性發炎",
+    "4漢方有氧_萬馬奔騰",
+    "4破解失眠惡性循環，三招找回自然好眠",
+    "4輕鬆學，AI成專屬顧問"
+  ],
+  "PEOPLE_DIVISOR": 4,
+  "MIN_PRESCRIPTIONS_DEFAULT": 20,
+  "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing"
+}

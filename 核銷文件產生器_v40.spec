@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# 核銷文件產生器 v39 — pywebview 版打包設定（onefile）
+# 核銷文件產生器 v40 — pywebview 版打包設定（onefile）
 
 block_cipher = None
 
@@ -42,7 +42,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='核銷文件產生器_v39',
+    name='核銷文件產生器_v40',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

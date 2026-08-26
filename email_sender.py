@@ -32,23 +32,6 @@ _EMAIL_RE = re.compile(
 )
 
 
-def _split_email_field(raw: str) -> list[str]:
-    """把個資 Email 欄位拆成多個 email(逗號/分號/任何 Unicode 空白分隔)。
-
-    各段內任何 Unicode 空白(含 NBSP、零寬空白、全形空白…)都會被剝除,
-    避免 Excel 複製貼上夾帶不可見字元時,後續的 is_valid_email_format()
-    把單一 email 誤判為「含空白」。同 email 也會去重。
-    """
-    if not raw:
-        return []
-    out: list[str] = []
-    for part in re.split(r"[,;\s]+", raw):
-        e = "".join(c for c in part if not c.isspace())
-        if e and e not in out:
-            out.append(e)
-    return out
-
-
 def is_valid_email_format(email: str) -> tuple[bool, str]:
     """回傳 (是否合法, 不合法時的原因說明)。"""
     if not email:
@@ -133,7 +116,6 @@ class EmailJob:
     roc_month: int = 0
     template_drive_link: str = ""
     extra_message: str = ""
-    deadline: str = ""
 
     # 該人員屬於哪一區(中山/北投/士林/課程老師…),預覽視窗用來分組篩選
     zone: str = ""
@@ -182,7 +164,6 @@ def build_body(
     attachments: list[str],
     template_drive_link: str = "",
     extra_message: str = "",
-    deadline: str = "",
 ) -> str:
     """根據附件檔名自動列出內容。
 
@@ -265,7 +246,7 @@ def build_body(
         f"健康台灣深耕計畫社區駐點辦公室\n"
         f"  {OFFICE_ADDRESS}\n"
         f"\n"
-        f"煩請於{(deadline.strip() or '(下週四)')}前寄回,以利本會核銷作業。\n"
+        f"煩請於(下週四)前寄回,以利本會核銷作業。\n"
         f"\n"
         f"如有任何問題,歡迎來電 {CONTACT_PHONE} 或 Email 至 {CONTACT_EMAIL}\n"
         f"與本會聯繫。\n"
@@ -341,7 +322,6 @@ def build_email_jobs(
     template_drive_link: str = "",
     extra_message: str = "",
     allowed_zones: list[str] | None = None,
-    deadline: str = "",
 ) -> list[EmailJob]:
     """掃描 month_dir 下所有合併 PDF，以姓名分組組成 EmailJob 列表。
 
@@ -424,74 +404,65 @@ def build_email_jobs(
 
         role = info.role if info else ""
         clinic = info.clinic_name if info else ""
-        raw_email = (info.email if info else "")
-
-        # 同一個人允許在個資填多個 email(逗號/分號/空白分隔)→ 各自拆成一筆 job
-        emails = _split_email_field(raw_email)
-        # 沒填 email 也保留一筆 skipped,讓使用者在預覽清單看到「無 Email」
-        if not emails:
-            emails = [""]
+        email = (info.email if info else "").strip()
 
         subject = build_subject(roc_year, roc_month, clinic)
         body = build_body(name, role, clinic, roc_year, roc_month, files,
                           template_drive_link=template_drive_link,
-                          extra_message=extra_message,
-                          deadline=deadline)
+                          extra_message=extra_message)
 
-        for email in emails:
-            job = EmailJob(
-                person_name=name,
-                role=role,
-                clinic_name=clinic,
-                to_email=email,
-                subject=subject,
-                body=body,
-                attachments=files,
-                selected=True,
-                status="pending",
-                # 寄送前重建 body 用
-                roc_year=roc_year,
-                roc_month=roc_month,
-                template_drive_link=template_drive_link,
-                extra_message=extra_message,
-                deadline=deadline,
-                zone=person_zone,
-            )
+        job = EmailJob(
+            person_name=name,
+            role=role,
+            clinic_name=clinic,
+            to_email=email,
+            subject=subject,
+            body=body,
+            attachments=files,
+            selected=True,
+            status="pending",
+            # 寄送前重建 body 用
+            roc_year=roc_year,
+            roc_month=roc_month,
+            template_drive_link=template_drive_link,
+            extra_message=extra_message,
+            zone=person_zone,
+        )
 
-            # 判斷是否可寄
-            if not info:
+        # 判斷是否可寄
+        if not info:
+            job.status = "skipped"
+            job.error = "個資缺漏(人員個資.xlsx 查無此姓名)"
+            job.selected = False
+        elif not email:
+            job.status = "skipped"
+            job.error = "無 Email(請補填人員個資.xlsx Email 欄)"
+            job.selected = False
+        elif not files:
+            job.status = "skipped"
+            job.error = "無附件"
+            job.selected = False
+        else:
+            ok, reason = is_valid_email_format(email)
+            if not ok:
+                # 在送出前先擋掉格式錯誤的 Email,
+                # 不浪費一次 Gmail SMTP 嘗試(否則 Gmail 會回 553 5.1.3)。
                 job.status = "skipped"
-                job.error = "個資缺漏(人員個資.xlsx 查無此姓名)"
+                job.error = (f"Email 格式不正確:{reason}"
+                             f"(請修正人員個資.xlsx → {email})")
                 job.selected = False
-            elif not email:
-                job.status = "skipped"
-                job.error = "無 Email(請補填人員個資.xlsx Email 欄)"
-                job.selected = False
-            elif not files:
-                job.status = "skipped"
-                job.error = "無附件"
-                job.selected = False
-            else:
-                ok, reason = is_valid_email_format(email)
-                if not ok:
-                    # 在送出前先擋掉格式錯誤的 Email,
-                    # 不浪費一次 Gmail SMTP 嘗試(否則 Gmail 會回 553 5.1.3)。
-                    job.status = "skipped"
-                    job.error = (f"Email 格式不正確:{reason}"
-                                 f"(請修正人員個資.xlsx → {email})")
-                    job.selected = False
 
-            if job.status == "pending":
-                # 預檢:附件總大小超過 Gmail 限制就直接跳過
-                total = job.total_attachment_bytes
-                if total > ATTACHMENT_SIZE_LIMIT_BYTES:
-                    size_mb = total / 1024 / 1024
-                    job.status = "skipped"
-                    job.error = (f"附件 {size_mb:.1f} MB 超過 Gmail 18 MB 上限,"
-                                 f"請手動分批寄送或壓縮 PDF")
-                    job.selected = False
+        if job.status == "pending":
+            # 預檢:附件總大小超過 Gmail 限制就直接跳過
+            total = job.total_attachment_bytes
+            if total > ATTACHMENT_SIZE_LIMIT_BYTES:
+                size_mb = total / 1024 / 1024
+                job.status = "skipped"
+                job.error = (f"附件 {size_mb:.1f} MB 超過 Gmail 18 MB 上限,"
+                             f"請手動分批寄送或壓縮 PDF")
+                job.selected = False
 
-            jobs.append(job)
+        jobs.append(job)
 
     return jobs
 
@@ -569,7 +540,6 @@ def _ensure_body_matches_attachments(job: EmailJob) -> None:
         attachments=job.attachments,
         template_drive_link=job.template_drive_link,
         extra_message=job.extra_message,
-        deadline=job.deadline,
     )
 
 

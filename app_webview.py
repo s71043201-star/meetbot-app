@@ -1,4 +1,4 @@
-"""核銷文件產生器 — pywebview 入口（v39 白底 webview 版）
+"""核銷文件產生器 — pywebview 入口（v40 白底 webview 版）
 
 把 v38 customtkinter 的 GUI 換成 HTML/JS 前端，但邏輯（reader/excel_writer/
 templates/email_sender 等）完全沿用 v37/v38 的 .py 檔。
@@ -42,9 +42,17 @@ from templates.executor import (
     merge_executor_pdfs,
 )
 from receipt_reader import load_receipts_from_dir
-from people_db import load_people_db, create_template, export_to_db
+from bank_transfer_writer import (
+    collect_scope_payees, generate_bank_transfer_file,
+)
+from bank_receipts_reader import read_payees_from_output
+from people_db import load_people_db, create_template, export_to_db, build_name_overrides
 from email_sender import build_email_jobs
 import regions as regions_mod
+import gdrive_sync
+from config import (
+    REGIONS_DRIVE_URL, PEOPLE_DB_DRIVE_URL, PEOPLE_DB_PASSWORD,
+)
 
 
 if getattr(sys, "frozen", False):
@@ -62,6 +70,9 @@ DEFAULT_TEMPLATES = {
     "execution": os.path.join(TEMPLATE_DIR, "處方執行費_template.docx"),
     "health_mgmt": os.path.join(TEMPLATE_DIR, "健康管理費_template.docx"),
 }
+
+# 富邦整批轉帳/匯款上傳檔範本（內建，隨匯出自動填空產出）
+BANK_TEMPLATE = os.path.join(TEMPLATE_DIR, "富邦匯款範本.xlsm")
 
 
 class JsApi:
@@ -125,6 +136,94 @@ class JsApi:
             return True
         except Exception as e:
             return False
+
+    # ─── 富邦匯款獨立工具（匯入已產出核銷資料 → 只產生匯款檔）───
+    def getBankToolInit(self):
+        today = date.today()
+        return {
+            "year": today.year - 1911,
+            "month": today.month,
+            "output": os.path.join(APP_DIR, "核銷文件"),
+        }
+
+    def openBankTool(self):
+        url = os.path.join(WEB_DIR, "bank_tool.html")
+        try:
+            webview.create_window("富邦匯款上傳檔", url, js_api=self,
+                                  width=760, height=680)
+        except Exception as e:
+            self._log(f"⚠ 開啟富邦匯款視窗失敗：{e}")
+            return False
+        return True
+
+    def generateBankFromReceipts(self, folder, year, month, people_db=""):
+        folder = (folder or "").strip()
+        if not folder or not os.path.isdir(folder):
+            raise RuntimeError("請選擇已產出的核銷月份資料夾")
+        year = int(year)
+        month = int(month)
+        people_lookup = {}
+        if people_db and os.path.exists(people_db):
+            self._log(f"讀取個資檔（補身分別）：{people_db}")
+            people_lookup = load_people_db(people_db)
+        self._log(f"讀取已產出領據：{folder}")
+        payees = read_payees_from_output(
+            folder, people_lookup=people_lookup, progress_cb=self._log)
+        if not payees:
+            raise RuntimeError("此資料夾內找不到任何領據（*領據*.docx）")
+        out_path, stats = generate_bank_transfer_file(
+            payees, year, month, folder,
+            template_path=BANK_TEMPLATE, progress_cb=self._log)
+        if out_path:
+            try:
+                os.startfile(folder)
+            except Exception:
+                pass
+        return {"path": out_path or "", "stats": stats}
+
+    # ─── Google Drive 同步 ───
+    def _regions_cache_path(self):
+        return os.path.join(APP_DIR, "診所分區.xlsx")
+
+    def _people_cache_path(self):
+        return os.path.join(APP_DIR, "人員個資.xlsx")
+
+    def syncRegionsFromDrive(self):
+        """背景下載診所分區 → APP_DIR/診所分區.xlsx；失敗時保留原本機檔。
+        無密碼，回傳 {ok, path, message}。
+        """
+        dest = self._regions_cache_path()
+        if not REGIONS_DRIVE_URL:
+            return {"ok": False, "path": dest if os.path.exists(dest) else "",
+                    "message": "未設定雲端連結"}
+        try:
+            gdrive_sync.download_xlsx(REGIONS_DRIVE_URL, dest)
+            self._log(f"✓ 診所分區已從雲端更新：{dest}")
+            return {"ok": True, "path": dest, "message": "雲端同步完成"}
+        except Exception as e:
+            self._log(f"⚠ 診所分區雲端同步失敗，使用本機快取：{e}")
+            return {"ok": False,
+                    "path": dest if os.path.exists(dest) else "",
+                    "message": f"雲端同步失敗：{e}"}
+
+    def syncPeopleFromDrive(self, password):
+        """密碼正確才下載人員個資 → APP_DIR/人員個資.xlsx。
+        回傳 {ok, path, message}。
+        """
+        if not password or password != PEOPLE_DB_PASSWORD:
+            return {"ok": False, "path": "", "message": "密碼錯誤"}
+
+        dest = self._people_cache_path()
+        if not PEOPLE_DB_DRIVE_URL:
+            return {"ok": False, "path": "", "message": "未設定雲端連結"}
+        try:
+            gdrive_sync.download_xlsx(PEOPLE_DB_DRIVE_URL, dest)
+            self._log(f"✓ 人員個資已從雲端帶入：{dest}")
+            return {"ok": True, "path": dest, "message": "雲端帶入完成"}
+        except Exception as e:
+            self._log(f"⚠ 人員個資雲端帶入失敗：{e}")
+            return {"ok": False, "path": "",
+                    "message": f"雲端帶入失敗：{e}"}
 
     # ─── people db ───
     def createPeopleTemplate(self, path):
@@ -221,25 +320,33 @@ class JsApi:
         self._log("讀取 Excel 中...")
         self._progress(0.05, "讀取 Excel…", os.path.basename(issuance))
 
+        # 先載共用檔，建「登入帳號→真名」對照，讀處方紀錄時就地正規化，
+        # 避免「開立醫師/執行人員」欄被填成系統帳號時同一人被拆成兩組。
+        receipt_lookup = {}
+        if s.get("peopleDb") and os.path.exists(s["peopleDb"]):
+            self._log("讀取個資檔…")
+            receipt_lookup = load_people_db(s["peopleDb"])
+        name_overrides = build_name_overrides(receipt_lookup)
+
         data = read_prescription_report(
             issuance, execution_path=execution,
             report_year=year, report_month=month,
-            min_prescriptions=0)
+            min_prescriptions=0, name_overrides=name_overrides)
         raw_iss = read_raw_records(issuance)
         raw_exe = read_raw_records(execution) if execution != issuance else raw_iss
 
         self._log(f"  醫師: {len(data.doctors)} 位 | 診所: {len(data.health_mgmts)} 間")
 
-        receipt_lookup = {}
-        if s.get("peopleDb") and os.path.exists(s["peopleDb"]):
-            self._log("讀取個資檔…")
-            receipt_lookup = load_people_db(s["peopleDb"])
-
-        clinic_to_person = {
-            info.clinic_name: (info.recipient_name or "")
-            for info in receipt_lookup.values()
-            if info.role == "診所行政人員" and info.clinic_name
-        }
+        clinic_to_person = {}
+        for info in receipt_lookup.values():
+            if info.role != "診所行政人員":
+                continue
+            person = info.recipient_name or ""
+            # 診所名 與 登入帳號 都當 key，來源「開立診所」欄填哪種都對得到
+            if info.clinic_name:
+                clinic_to_person[info.clinic_name] = person
+            if info.clinic_account:
+                clinic_to_person[info.clinic_account] = person
         for hm in data.health_mgmts:
             inst = hm.medical_institution
             if inst in clinic_to_person:
@@ -302,6 +409,9 @@ class JsApi:
 
         self._progress(0.15, "產生 Word 文件中…")
 
+        gen_bank = s.get("gen_bank_transfer", True)
+        bank_payees = []
+
         all_pending = []
         merge_bundles = []
         for label, allowed, thr, mdir, prod_exec in scopes:
@@ -319,6 +429,8 @@ class JsApi:
                 receipt_lookup, prod_exec, s)
             all_pending.extend(pending)
             merge_bundles.append((hi, ei, di))
+            if gen_bank:
+                collect_scope_payees(bank_payees, ds, receipt_lookup, prod_exec)
 
         if all_pending:
             self._log(f"\n批次轉換 {len(all_pending)} 份 Word → PDF…")
@@ -332,10 +444,22 @@ class JsApi:
                     self._log(f"  [{done}/{total}] {name}")
             _convert_docx_list_to_pdf(all_pending, progress_cb=pdf_cb)
 
+        master_password = (s.get("masterPassword") or "").strip() or None
+
         for hi, ei, di in merge_bundles:
-            if hi: merge_health_mgmt_pdfs(*hi)
-            if ei: merge_executor_pdfs(*ei)
-            if di: merge_doctor_receipt_pdfs(di)
+            if hi: merge_health_mgmt_pdfs(*hi, master_password=master_password)
+            if ei: merge_executor_pdfs(*ei, master_password=master_password)
+            if di: merge_doctor_receipt_pdfs(di, master_password=master_password)
+
+        # === 富邦整批轉帳/匯款上傳檔（填入內建範本，與領據同月份）===
+        if gen_bank and bank_payees:
+            try:
+                self._progress(0.99, "產生富邦匯款上傳檔…")
+                generate_bank_transfer_file(
+                    bank_payees, year, month, month_root,
+                    template_path=BANK_TEMPLATE, progress_cb=self._log)
+            except Exception as e:
+                self._log(f"[WARN] 富邦匯款上傳檔產生失敗：{e}")
 
         self._progress(1.0, "✓ 全部完成", "", "success")
         self._log(f"\n完成！輸出至: {output}")
@@ -402,7 +526,7 @@ class JsApi:
             if dr:
                 d_info = dr
                 seen = set()
-                for _, _, dd, r, _ in dr:
+                for _, _, dd, r, _, _ in dr:
                     for p in (dd, r):
                         if p and p not in seen:
                             all_p.append(p)
@@ -436,7 +560,7 @@ class JsApi:
             if r:
                 hd, hrd = r
                 h_info = (hd, hrd)
-                for _, dd, rr in hd:
+                for _, dd, rr, _ in hd:
                     for p in (dd, rr):
                         if p: all_p.append(p)
             self._log(f"[{label}] 診所個人文件")
@@ -459,7 +583,7 @@ class JsApi:
             if r:
                 ed, erd = r
                 e_info = (ed, erd)
-                for _, _, dd, rr in ed:
+                for _, _, dd, rr, _ in ed:
                     for p in (dd, rr):
                         if p: all_p.append(p)
             self._log(f"[{label}] 老師個人文件")
@@ -494,12 +618,24 @@ def main():
     api = JsApi()
     html_path = os.path.join(WEB_DIR, "index.html")
     win = webview.create_window(
-        "⚡ 核銷文件產生器 v39",
+        "⚡ 核銷文件產生器 v40",
         url=html_path,
         js_api=api,
         width=1100, height=820,
         min_size=(960, 680))
     api.window = win
+
+    def _bg_regions_sync():
+        try:
+            gdrive_sync.download_xlsx(
+                REGIONS_DRIVE_URL, api._regions_cache_path())
+            api._log(f"✓ 診所分區已從雲端更新")
+        except Exception as e:
+            api._log(f"⚠ 診所分區雲端同步失敗，使用本機快取：{e}")
+
+    if REGIONS_DRIVE_URL:
+        threading.Thread(target=_bg_regions_sync, daemon=True).start()
+
     webview.start(debug=False)
 
 

@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 
 from docx.shared import Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -20,6 +21,12 @@ from templates.doc_utils import (
 )
 from templates.receipt import generate_receipt
 from config import FEE_PER_TREATMENT, FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
+from treatment_fees import (
+    DEFAULT_LABEL as TREATMENT_DEFAULT_LABEL,
+    fee_for_label as treatment_fee_for_label,
+    ordered_labels as treatment_labels,
+    total_amount as treatment_total_amount,
+)
 # 直式 A4 邊距 1.5cm，可用寬度約 18cm ≈ 6,480,000 EMU
 DATA_COL_WIDTHS = [950000, 2100000, 1400000, 1750000]
 PATIENT_COL_WIDTHS = [550000, 950000, 1200000, 1500000, 1100000, 1180000]
@@ -30,6 +37,34 @@ PTYPE_SHORT = {"運動處方": "運動", "營養處方": "營養",
                "情緒調適處方": "情緒調適", "社會處方": "社會"}
 
 
+def _cell_grid(table):
+    """回傳快速取格函式 at(row, col)。
+
+    python-docx 的 table.cell(r,c) 每次呼叫都會重建整張表的儲存格清單，
+    在大表（如上百列的民眾明細）逐格呼叫會變成 O(n²)，CPU 燒滿近似當機。
+    這裡只建一次 table._cells，之後以索引存取（與 table.cell 結果相同）。
+    """
+    cells = table._cells
+    ncol = table._column_count
+    return lambda r, c: cells[r * ncol + c]
+
+
+def _write_unencrypted_list(unencrypted_by_dir: dict):
+    """將每個 receipt 資料夾的未加密(身分證空白)名單寫成 未加密清單.txt。"""
+    for receipt_dir, names in unencrypted_by_dir.items():
+        if not names:
+            continue
+        try:
+            os.makedirs(receipt_dir, exist_ok=True)
+            txt_path = os.path.join(receipt_dir, "未加密清單.txt")
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write("以下人員因身分證字號空白，PDF 未加密：\n")
+                for n in names:
+                    f.write(f"- {n}\n")
+        except OSError:
+            pass
+
+
 def _present_types(executor: ExecutorData) -> list[str]:
     """回傳此執行人員實際有的處方類型,按固定順序。"""
     counts = executor.type_counts or {}
@@ -38,6 +73,41 @@ def _present_types(executor: ExecutorData) -> list[str]:
     if executor.prescription_type:
         return [executor.prescription_type]
     return []
+
+
+def _course_counts(executor: ExecutorData) -> dict:
+    """取得此執行人員的費率分流份數 {費率標籤: {處方類型: 人次}}。
+
+    來源檔沒有「執行課程」欄(舊格式)時 course_counts 為空，
+    退回把全部人次歸「一般課程」400 元，維持舊行為。
+    """
+    if executor.course_counts:
+        return executor.course_counts
+    counts = executor.type_counts or {
+        executor.prescription_type: executor.service_count}
+    return {TREATMENT_DEFAULT_LABEL: {k: v for k, v in counts.items() if v}}
+
+
+def _active_labels(executor: ExecutorData) -> list:
+    """實際有人次的費率標籤，照固定顯示順序"""
+    cc = _course_counts(executor)
+    labels = [lb for lb in treatment_labels()
+              if sum((cc.get(lb) or {}).values()) > 0]
+    for lb in cc:
+        if lb not in labels and sum((cc.get(lb) or {}).values()) > 0:
+            labels.append(lb)
+    return labels
+
+
+def _executor_amount(executor: ExecutorData) -> int:
+    """申報總金額 — 逐筆按各自費率累加，不再用「總人次 × 400」。
+
+    reader 已把金額算進 receipt.amount，這裡優先用它；
+    沒有 receipt 時(單元測試等)再由 course_counts 重算。
+    """
+    if executor.receipt and executor.receipt.amount > 0:
+        return executor.receipt.amount
+    return treatment_total_amount(_course_counts(executor))
 
 
 def _build_executor_fee_type(executor: ExecutorData) -> str:
@@ -122,7 +192,7 @@ def generate_doctor_receipts(data: AllData,
         os.makedirs(receipt_dir, exist_ok=True)
 
     # 蒐集每位醫師的 docx 路徑（kind: "presc" / "exec"）
-    # list of (kind, name, detail_docx, receipt_docx, receipt_dir)
+    # list of (kind, name, detail_docx, receipt_docx, receipt_dir, id_number)
     docx_info = []
 
     for doc_data in data.doctors:
@@ -141,6 +211,7 @@ def generate_doctor_receipts(data: AllData,
                 bank_branch=prev.bank_branch,
                 bank_code=prev.bank_code,
                 account_number=prev.account_number,
+                occupation=prev.occupation,
             )
 
         has_presc = doc_data.prescription_fee > 0
@@ -190,6 +261,7 @@ def generate_doctor_receipts(data: AllData,
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx) if merged_receipt_docx else None,
                 receipt_dir,
+                base_receipt.id_number,
             ))
 
         # === 處方執行費民眾明細 ===
@@ -209,6 +281,7 @@ def generate_doctor_receipts(data: AllData,
                 os.path.abspath(detail_docx),
                 os.path.abspath(merged_receipt_docx) if merged_receipt_docx else None,
                 receipt_dir,
+                base_receipt.id_number,
             ))
 
         # 若三種子類別都不產但仍要記錄領據(讓 PDF 合併能找到),
@@ -218,15 +291,17 @@ def generate_doctor_receipts(data: AllData,
                 "receipt_only", name, None,
                 os.path.abspath(merged_receipt_docx),
                 receipt_dir,
+                base_receipt.id_number,
             ))
         elif emit_receipt and merged_receipt_docx \
                 and not emit_presc_detail and not emit_exec_detail:
             # 只勾領據,沒勾任何明細 — 讓 docx_info 至少有一筆
-            if not any(n == name for _, n, _, _, _ in docx_info):
+            if not any(n == name for _, n, _, _, _, _ in docx_info):
                 docx_info.append((
                     "receipt_only", name, None,
                     os.path.abspath(merged_receipt_docx),
                     receipt_dir,
+                    base_receipt.id_number,
                 ))
 
     if not also_pdf or not docx_info:
@@ -236,7 +311,7 @@ def generate_doctor_receipts(data: AllData,
     # 領據是 處方費 / 執行費 兩 docx_info 共用，去重避免重複轉換
     all_docx = []
     seen = set()
-    for _, _, d, r, _ in docx_info:
+    for _, _, d, r, _, _ in docx_info:
         for path in (d, r):
             if path and path not in seen:
                 all_docx.append(path)
@@ -251,12 +326,14 @@ def generate_doctor_receipts(data: AllData,
     return docx_info
 
 
-def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
+def merge_doctor_receipt_pdfs(docx_info, master_password=None, progress_cb=None):
     """合併醫師「明細(處方費+執行費可能各一) + 領據」每人 1 份 PDF。
-    docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir)
+    docx_info tuple: (kind, name, detail_docx, receipt_docx, receipt_dir, id_number)
+    身分證字號當 user_password；master_password 當 owner_password
+    （兩者皆可開啟 PDF）。身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from pypdf import PdfWriter as PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
@@ -265,15 +342,20 @@ def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
 
     # 把同醫師的 entries 收成一組
     by_doctor = {}
-    for kind, name, detail_docx, receipt_docx, receipt_dir in docx_info:
+    for kind, name, detail_docx, receipt_docx, receipt_dir, id_number in docx_info:
         bucket = by_doctor.setdefault(name, {
             "presc_detail": None, "exec_detail": None,
             "receipt": receipt_docx, "receipt_dir": receipt_dir,
+            "id_number": id_number,
         })
         if kind == "presc":
             bucket["presc_detail"] = detail_docx
         elif kind == "exec":
             bucket["exec_detail"] = detail_docx
+        if not bucket.get("id_number") and id_number:
+            bucket["id_number"] = id_number
+
+    unencrypted_by_dir: dict[str, list[str]] = {}
 
     for name, b in by_doctor.items():
         ordered = []
@@ -288,15 +370,20 @@ def merge_doctor_receipt_pdfs(docx_info, progress_cb=None):
             continue
         receipt_dir = b["receipt_dir"]
         final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
+        user_pw = normalize_id_number(b.get("id_number"))
         try:
-            merger = PdfMerger()
-            for p in ordered:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                ordered, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            if not user_pw:
+                unencrypted_by_dir.setdefault(receipt_dir, []).append(name)
         except Exception as e:
             if progress_cb:
                 progress_cb(f"  [WARN] {name} PDF 合併失敗: {e}")
+
+    _write_unencrypted_list(unencrypted_by_dir)
 
 
 def generate_health_mgmt_individual_docs(data: AllData,
@@ -324,44 +411,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
         os.makedirs(receipt_dir, exist_ok=True)
 
     def _find_clinic_person(clinic_name: str):
-        """在 receipt_lookup 裡找 所屬診所(clinic_name) 匹配的「診所行政人員」。
-
-        健管費領據的具領人應該是診所行政人員,絕不該抓到醫師資料。
-        優先順序:診所行政人員(有姓名)→ 診所行政人員(姓名空白佔位列)
-                → 其他非醫師角色(有姓名)→ 找不到
-        比對方式:精確 → 子字串雙向 → 最長共同前綴 ≥3
-        回傳 (recipient_name, ReceiptInfo) 或 ("", None)
-        """
-        if not receipt_lookup or not clinic_name:
-            return "", None
-
-        def _matches(cn):
-            if not cn:
-                return False
-            if cn == clinic_name or clinic_name == cn:
-                return True
-            if cn in clinic_name or clinic_name in cn:
-                return True
-            n = 0
-            for a, b in zip(clinic_name, cn):
-                if a == b:
-                    n += 1
-                else:
-                    break
-            return n >= 3
-
-        # 健管費領據邏輯:只取「診所行政人員」並對診所名稱匹配
-        matches = [info for info in receipt_lookup.values()
-                   if info.role == "診所行政人員"
-                   and _matches(info.clinic_name)]
-
-        if not matches:
-            return "", None
-
-        # 優先有姓名的列;若全部留白(佔位列),取第一筆
-        matches.sort(key=lambda i: 0 if i.recipient_name else 1)
-        best = matches[0]
-        return best.recipient_name or "", best
+        return find_clinic_admin(receipt_lookup, clinic_name)
 
     docx_info = []  # (name, total_docx, detail_docx, receipt_docx)
 
@@ -391,6 +441,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
                 bank_branch=prev.bank_branch,
                 bank_code=prev.bank_code,
                 account_number=prev.account_number,
+                occupation=prev.occupation,
             )
 
         # 民眾明細(直式 + 縮邊距)
@@ -423,6 +474,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
                 person,
                 os.path.abspath(detail_docx) if detail_docx else None,
                 os.path.abspath(receipt_docx) if receipt_docx else None,
+                base_receipt.id_number,
             ))
 
     if not also_pdf or not docx_info:
@@ -430,7 +482,7 @@ def generate_health_mgmt_individual_docs(data: AllData,
 
     # 批次轉 PDF(明細 + 領據;不再合併 PDF)
     all_docx = []
-    for _, d, r in docx_info:
+    for _, d, r, _ in docx_info:
         for p in (d, r):
             if p:
                 all_docx.append(p)
@@ -444,16 +496,20 @@ def generate_health_mgmt_individual_docs(data: AllData,
     return docx_info, receipt_dir
 
 
-def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
+def merge_health_mgmt_pdfs(docx_info, receipt_dir, master_password=None, progress_cb=None):
     """合併健康管理費「明細 + 領據」每人 1 份 PDF。
-    docx_info tuple: (person, detail_docx, receipt_docx)
+    docx_info tuple: (person, detail_docx, receipt_docx, id_number)
+    身分證字號當 user_password；master_password 當 owner_password。
+    身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from pypdf import PdfWriter as PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
-    for person, detail_docx, receipt_docx in docx_info:
+    unencrypted_names: list[str] = []
+
+    for person, detail_docx, receipt_docx, id_number in docx_info:
         # 兩者可能其中之一為 None(該項未勾選產出)
         if not detail_docx or not receipt_docx:
             continue
@@ -465,15 +521,75 @@ def merge_health_mgmt_pdfs(docx_info, receipt_dir, progress_cb=None):
             continue
 
         final_pdf = os.path.join(receipt_dir, f"{person}_明細領據.pdf")
+        user_pw = normalize_id_number(id_number)
         try:
-            merger = PdfMerger()
-            for p in pdfs:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                pdfs, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            if not user_pw:
+                unencrypted_names.append(person)
         except Exception as e:
             if progress_cb:
                 progress_cb(f"  [WARN] {person} 健康管理費 PDF 合併失敗: {e}")
+
+    if unencrypted_names:
+        _write_unencrypted_list({receipt_dir: unencrypted_names})
+
+
+def find_clinic_admin(receipt_lookup: dict | None, clinic_name: str):
+    """在 receipt_lookup 裡找 診所(clinic_name) 匹配的「診所行政人員」。
+
+    傳入的 clinic_name 實際是來源檔的「開立診所」欄，可能是中文診所名，
+    也可能是系統登入帳號（如 Koanclinic6、09062811AA）。因此比對分兩層：
+      1. 登入帳號(clinic_account) 精確比對 ← 帳號無法模糊比對，須完全相同
+      2. 所屬診所(clinic_name) 精確 → 子字串雙向 → 最長共同前綴 ≥3
+
+    健管費領據的具領人應該是診所行政人員,絕不該抓到醫師資料。
+    優先有姓名的列;若全部留白(佔位列),取第一筆。
+    回傳 (recipient_name, ReceiptInfo) 或 ("", None)
+
+    供健管費領據與富邦匯款檔共用,確保具領人/帳戶來源一致。
+    """
+    if not receipt_lookup or not clinic_name:
+        return "", None
+
+    key = clinic_name.strip()
+
+    def _account_matches(info):
+        acct = (info.clinic_account or "").strip()
+        return bool(acct) and acct == key
+
+    def _matches(cn):
+        if not cn:
+            return False
+        if cn == clinic_name or clinic_name == cn:
+            return True
+        if cn in clinic_name or clinic_name in cn:
+            return True
+        n = 0
+        for a, b in zip(clinic_name, cn):
+            if a == b:
+                n += 1
+            else:
+                break
+        return n >= 3
+
+    admins = [info for info in receipt_lookup.values()
+              if info.role == "診所行政人員"]
+
+    # 1) 登入帳號精確比對優先（來源「開立診所」欄填系統帳號時走這條）
+    matches = [info for info in admins if _account_matches(info)]
+    # 2) 帳號對不到才退回用中文診所名模糊比對
+    if not matches:
+        matches = [info for info in admins if _matches(info.clinic_name)]
+
+    if not matches:
+        return "", None
+    matches.sort(key=lambda i: 0 if i.recipient_name else 1)
+    best = matches[0]
+    return best.recipient_name or "", best
 
 
 _PRESCRIPTION_GROUP_ORDER = ["運動處方", "營養處方", "情緒調適處方", "社會處方"]
@@ -515,18 +631,19 @@ def _add_clinic_patient_list_page(doc, data: AllData, hm):
     set_col_widths(table, PATIENT_COL_WIDTHS)
 
     fs = 12
+    cell_at = _cell_grid(table)
     headers = ["序號", "民眾姓名", "出生日期",
                "處方類型", "行政人員", "開立日期"]
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, pat in enumerate(patients):
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), hm.clinic_person or "", font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(pat.issue_date or ""), font_size=fs)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=fs)
+        set_cell_text(cell_at(i + 1, 1), pat.name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 2), pat.birth_date, font_size=fs)
+        set_cell_text(cell_at(i + 1, 3), pat.prescription_type, font_size=fs)
+        set_cell_text(cell_at(i + 1, 4), hm.clinic_person or "", font_size=fs)
+        set_cell_text(cell_at(i + 1, 5), str(pat.issue_date or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -588,17 +705,18 @@ def _add_doctor_patient_list_page(doc, data: AllData,
     date_header = "執行日期" if use_exec else "開立日期"
     headers = ["序號", "民眾姓名", "出生日期",
                "處方類型", "處方人員", date_header]
+    cell_at = _cell_grid(table)
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, pat in enumerate(patients):
         date_val = pat.exec_date if use_exec else getattr(pat, "issue_date", "")
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), pat.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), pat.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), pat.prescription_type, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), doctor.doctor_name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 5), str(date_val or ""), font_size=fs)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=fs)
+        set_cell_text(cell_at(i + 1, 1), pat.name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 2), pat.birth_date, font_size=fs)
+        set_cell_text(cell_at(i + 1, 3), pat.prescription_type, font_size=fs)
+        set_cell_text(cell_at(i + 1, 4), doctor.doctor_name, font_size=fs)
+        set_cell_text(cell_at(i + 1, 5), str(date_val or ""), font_size=fs)
 
     p_elem = doc.add_paragraph()
     p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -696,7 +814,7 @@ def _merge_docx_to_pdf(docx_paths: list, output_dir: str, name: str):
     """將多份 docx 轉成 PDF 後合併"""
     try:
         import win32com.client
-        import pypdf
+        import PyPDF2
     except ImportError:
         return
 
@@ -718,7 +836,7 @@ def _merge_docx_to_pdf(docx_paths: list, output_dir: str, name: str):
 
     if len(pdf_paths) >= 2:
         merged_path = os.path.join(output_dir, f"{name}_領據合併.pdf")
-        merger = pypdf.PdfWriter()
+        merger = PyPDF2.PdfMerger()
         for p in pdf_paths:
             merger.append(p)
         merger.write(merged_path)
@@ -751,6 +869,7 @@ def generate_executor_receipts(data: AllData, output_dir: str,
                 bank_branch=receipt.bank_branch or prev.bank_branch,
                 bank_code=receipt.bank_code or prev.bank_code,
                 account_number=receipt.account_number or prev.account_number,
+                occupation=receipt.occupation or prev.occupation,
             )
 
         from templates.receipt import generate_receipt
@@ -758,8 +877,7 @@ def generate_executor_receipts(data: AllData, output_dir: str,
         generate_receipt(
             receipt, data.report_year, data.report_month,
             out_path, fee_type=executor.prescription_type + "處方處置費",
-            treatment_counts={executor.prescription_type: executor.service_count},
-            fee_per_treatment=FEE_PER_TREATMENT,
+            treatment_course_counts=_course_counts(executor),
         )
 
 
@@ -809,6 +927,7 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
                 bank_branch=receipt.bank_branch or prev.bank_branch,
                 bank_code=receipt.bank_code or prev.bank_code,
                 account_number=receipt.account_number or prev.account_number,
+                occupation=receipt.occupation or prev.occupation,
             )
 
         # === 民眾明細表(單頁,直式,縮小邊距) ===
@@ -825,8 +944,9 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
             doc.save(detail_docx)
 
         # === 領據(直式,用模板) ===
-        # 多類型時 fee_type 列出所有類型,treatment_counts 一次帶全;
-        # 模板的 4×6 pivot 表會自動依 PIVOT_COL_ORDER 填各類份數與金額。
+        # 多類型時 fee_type 列出所有類型,份數依「費率(課程型態) × 處方類型」帶全;
+        # pivot 表的欄仍是 PIVOT_COL_ORDER 四類處方,列則依實際用到的費率
+        # (一般課程 400 / 處方PLUS2 200 / 視訊課程 100) 動態長出來。
         receipt_docx = None
         if emit_receipt:
             receipt_docx = os.path.join(receipt_dir, f"{name}_領據.docx")
@@ -834,23 +954,22 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
                 receipt, data.report_year, data.report_month,
                 receipt_docx,
                 fee_type=_build_executor_fee_type(executor),
-                treatment_counts=executor.type_counts or
-                                 {executor.prescription_type: executor.service_count},
-                fee_per_treatment=FEE_PER_TREATMENT,
+                treatment_course_counts=_course_counts(executor),
             )
 
         if detail_docx or receipt_docx:
             docx_info.append((
                 name, ptype,
                 os.path.abspath(detail_docx) if detail_docx else None,
-                os.path.abspath(receipt_docx) if receipt_docx else None))
+                os.path.abspath(receipt_docx) if receipt_docx else None,
+                receipt.id_number))
 
     if not also_pdf or not docx_info:
         return docx_info, receipt_dir
 
     # === 批次轉 PDF(明細 + 領據;不再合併 PDF)===
     all_docx = []
-    for _, _, d, r in docx_info:
+    for _, _, d, r, _ in docx_info:
         for p in (d, r):
             if p:
                 all_docx.append(p)
@@ -859,16 +978,24 @@ def generate_executor_merged_docs(data: AllData, month_dir: str,
     return docx_info, receipt_dir
 
 
-def merge_executor_pdfs(docx_info, receipt_dir):
+def merge_executor_pdfs(docx_info, receipt_dir, master_password=None):
     """合併處方處置費「明細 + 領據」每人 1 份 PDF。
-    docx_info tuple: (name, ptype, detail_docx, receipt_docx)
+    docx_info tuple: (name, ptype, detail_docx, receipt_docx, id_number)
+    身分證字號當 user_password；master_password 當 owner_password。
+    身分證空白 → 不加密，並列入 未加密清單.txt。
     """
     try:
-        from pypdf import PdfWriter as PdfMerger
+        from pdf_merge import merge_pdfs_encrypted, normalize_id_number
     except ImportError:
         return
 
-    for name, ptype, detail_docx, receipt_docx in docx_info:
+    # 同一姓名可能因多 ptype 出現多筆，去重避免重複加密同檔
+    seen_names: set[str] = set()
+    unencrypted_names: list[str] = []
+
+    for name, ptype, detail_docx, receipt_docx, id_number in docx_info:
+        if name in seen_names:
+            continue
         if not detail_docx or not receipt_docx:
             continue
         pdfs = [
@@ -879,14 +1006,21 @@ def merge_executor_pdfs(docx_info, receipt_dir):
             continue
 
         final_pdf = os.path.join(receipt_dir, f"{name}_明細領據.pdf")
+        user_pw = normalize_id_number(id_number)
         try:
-            merger = PdfMerger()
-            for p in pdfs:
-                merger.append(p)
-            merger.write(final_pdf)
-            merger.close()
+            merge_pdfs_encrypted(
+                pdfs, final_pdf,
+                user_password=user_pw or None,
+                owner_password=master_password or None,
+            )
+            seen_names.add(name)
+            if not user_pw:
+                unencrypted_names.append(name)
         except Exception as e:
             print(f"  [WARN] {name} 處方處置費 PDF 合併失敗: {e}")
+
+    if unencrypted_names:
+        _write_unencrypted_list({receipt_dir: unencrypted_names})
 
 
 # ── Page builders ──────────────────────────────────────
@@ -909,100 +1043,170 @@ def _add_treatment_fee_page(doc, data: AllData, executor: ExecutorData):
     ], col_widths=[info_total // 4, info_total * 3 // 4], font_size=12)
     p = doc.add_paragraph(); compact_paragraph(p)
 
-    types = _present_types(executor) or [executor.prescription_type or ""]
-    counts = executor.type_counts or {executor.prescription_type: executor.service_count}
+    cc = _course_counts(executor)
+    labels = _active_labels(executor)
+    multi_rate = len(labels) > 1
 
-    # 行數: 1 標頭 + N 類型 + 1 總計
-    table = doc.add_table(rows=2 + len(types), cols=4)
+    # 每一列 = (費率/課程型態, 處方類型)；費率不同單價不同，不能併成一列
+    rows_data = []
+    for lb in labels:
+        per_type = cc.get(lb) or {}
+        for pt in PTYPE_ORDER:
+            cnt = per_type.get(pt, 0)
+            if cnt > 0:
+                rows_data.append((lb, pt, cnt, treatment_fee_for_label(lb)))
+    if not rows_data:
+        pt = executor.prescription_type or ""
+        rows_data = [(TREATMENT_DEFAULT_LABEL, pt, 0, FEE_PER_TREATMENT)]
+
+    # 單一費率時維持舊版 4 欄版面；多費率才多一欄「課程型態」
+    if multi_rate:
+        headers = ["編號", "課程型態", "處方類型", "服務人次", "申報金額(元)"]
+        col_widths = [700000, 1500000, 1650000, 1050000, 1300000]
+    else:
+        headers = ["編號", "處方類型", "服務人次", "申報金額(元)"]
+        col_widths = DATA_COL_WIDTHS
+
+    # 行數: 1 標頭 + N 資料列 + 1 總計
+    table = doc.add_table(rows=2 + len(rows_data), cols=len(headers))
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    set_col_widths(table, DATA_COL_WIDTHS)
+    set_col_widths(table, col_widths)
 
-    headers = ["編號", "處方類型", "服務人次", "申報金額(元)"]
     for i, h in enumerate(headers):
         set_cell_text(table.cell(0, i), h, bold=True, font_size=14)
 
     grand_count = 0
     grand_amount = 0
-    for r, pt in enumerate(types, start=1):
-        cnt = counts.get(pt, 0)
-        amt = cnt * FEE_PER_TREATMENT
+    for r, (lb, pt, cnt, unit) in enumerate(rows_data, start=1):
+        amt = cnt * unit
         grand_count += cnt
         grand_amount += amt
-        set_cell_text(table.cell(r, 0), str(r), font_size=14)
-        set_cell_text(table.cell(r, 1), pt, align="left", font_size=14)
-        set_cell_text(table.cell(r, 2), str(cnt), font_size=14)
-        set_cell_text(table.cell(r, 3), f"${amt:,}", font_size=14)
+        cols = [str(r)]
+        if multi_rate:
+            cols.append(lb)
+        cols += [pt, str(cnt), f"${amt:,}"]
+        for c, val in enumerate(cols):
+            set_cell_text(table.cell(r, c),
+                          val, align="left" if c == len(cols) - 3 else "center",
+                          font_size=14)
 
-    total_row = 1 + len(types)
+    total_row = 1 + len(rows_data)
+    last = len(headers) - 1
     set_cell_text(table.cell(total_row, 0), "", font_size=14)
     set_cell_text(table.cell(total_row, 1), "總計", bold=True, font_size=14)
-    set_cell_text(table.cell(total_row, 2), str(grand_count), bold=True, font_size=14)
-    set_cell_text(table.cell(total_row, 3), f"${grand_amount:,}", bold=True, font_size=14)
+    for c in range(2, last - 1):
+        set_cell_text(table.cell(total_row, c), "", font_size=14)
+    set_cell_text(table.cell(total_row, last - 1), str(grand_count),
+                  bold=True, font_size=14)
+    set_cell_text(table.cell(total_row, last), f"${grand_amount:,}",
+                  bold=True, font_size=14)
 
     p = doc.add_paragraph(); compact_paragraph(p)
+    if multi_rate:
+        rate_desc = "、".join(
+            f"{lb} {treatment_fee_for_label(lb)} 元" for lb in labels)
+        calc_note = f"處方處置費計算方式：每筆執行依課程型態計價 — {rate_desc}"
+    else:
+        unit = treatment_fee_for_label(labels[0]) if labels else FEE_PER_TREATMENT
+        calc_note = f"處方處置費計算方式：服務人次 × 每人次處置費 {unit} 元"
     add_note(doc, [
-        f"處方處置費計算方式：服務人次 × 每人次處置費 {FEE_PER_TREATMENT} 元",
+        calc_note,
         "本表不含個人資料，僅供核銷統計使用",
     ], font_size=12)
 
 
+def _exec_date_key(p):
+    """民眾明細的執行日期排序鍵。
+
+    來源是 'YYYY/MM/DD' 字串,抽成 8 位數字比對即可;格式異常或空白的
+    排到最後,不讓它們卡在中間破壞日期順序。
+    """
+    raw = str(getattr(p, "exec_date", "") or "")
+    digits = re.sub(r"\D", "", raw)[:8]
+    return (0, digits) if len(digits) == 8 else (1, raw)
+
+
+def _patient_rate_label(p) -> str:
+    """民眾明細那一筆屬於哪一種費率(舊資料沒有 course_label 時歸一般實體課程)"""
+    return getattr(p, "course_label", "") or TREATMENT_DEFAULT_LABEL
+
+
 def _add_patient_list_page(doc, data: AllData, executor: ExecutorData):
+    """民眾明細 — 每一種費率(課程型態)各印一頁。
+
+    費率不同單價就不同,混在同一張表裡看不出某筆為什麼是 200 而不是 400,
+    所以依課程型態分頁,每頁表格下方註記該費率的計算式;多費率時最後一頁
+    再補一行跨費率的總申報金額。
+    """
     patients = executor.patients
+    groups = []
+    for lb in _active_labels(executor):
+        g = [p for p in patients if _patient_rate_label(p) == lb]
+        if g:
+            # 每一頁內依執行日期排序;穩定排序,同一天維持原本的處方類型順序
+            groups.append((lb, sorted(g, key=_exec_date_key)))
+    if not groups:   # 沒有任何明細(理論上不會)—— 仍印一張空表
+        groups = [(TREATMENT_DEFAULT_LABEL, sorted(patients, key=_exec_date_key))]
+
+    multi = len(groups) > 1
+    for idx, (label, group) in enumerate(groups):
+        if idx > 0:
+            add_page_break(doc)
+        _add_rate_patient_page(doc, data, executor, label, group,
+                               show_grand_total=(multi and idx == len(groups) - 1),
+                               tag_rate=multi)
+
+
+def _add_rate_patient_page(doc, data: AllData, executor: ExecutorData,
+                           label: str, patients: list,
+                           show_grand_total: bool, tag_rate: bool):
+    """單一費率的一頁明細"""
     num = len(patients)
-    amount = executor.service_count * FEE_PER_TREATMENT
+    unit = treatment_fee_for_label(label)
+    subtotal = num * unit
     prefix = f"{data.report_year}年{data.report_month:02d}月"
 
-    # 多類型時標題不冠類型,單類型則保留原本「{類型}處方處置費總表」格式
-    types = _present_types(executor)
-    if len(types) <= 1:
-        title_prefix = executor.prescription_type
-    else:
-        title_prefix = ""
+    # 這一頁涵蓋的處方類型;單一類型才把類型冠在標題(沿用原本格式)
+    page_types = [pt for pt in PTYPE_ORDER
+                  if any((p.prescription_type or "") == pt for p in patients)]
+    title_prefix = page_types[0] if len(page_types) == 1 else ""
 
-    # 標頭
     add_title(doc, "台北市醫師公會健康台灣深耕計畫", size=16)
     add_title(doc, "臺北市慢性病防治全人健康智慧整合照護計畫", size=16)
-    add_title(doc,
-              f"{title_prefix}處方處置費總表-{executor.executor_name}",
-              size=16)
+    title = f"{title_prefix}處方處置費總表-{executor.executor_name}"
+    if tag_rate:
+        title += f"（{label}）"
+    add_title(doc, title, size=16)
 
-    # 表格 6 欄(含執行日期)
     num_rows = max(num, 1) + 1
-    table = doc.add_table(rows=num_rows, cols=6)
+    headers = ["序號", "民眾姓名", "出生日期",
+               "處方類型", "處方人員", "執行日期"]
+    table = doc.add_table(rows=num_rows, cols=len(headers))
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     set_col_widths(table, PATIENT_COL_WIDTHS)
 
     fs = 12  # 直式頁面 6 欄字體
-    headers = ["序號", "民眾姓名", "出生日期",
-               "處方類型", "處方人員", "執行日期"]
+    cell_at = _cell_grid(table)
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=fs)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=fs)
 
     for i, p in enumerate(patients):
         # 民眾的處方類型以該筆紀錄為準(支援多類型);若空再 fallback
         row_ptype = p.prescription_type or executor.prescription_type
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=fs)
-        set_cell_text(table.cell(i + 1, 1), p.name, font_size=fs)
-        set_cell_text(table.cell(i + 1, 2), p.birth_date, font_size=fs)
-        set_cell_text(table.cell(i + 1, 3), row_ptype, font_size=fs)
-        set_cell_text(table.cell(i + 1, 4), executor.executor_name, font_size=fs)
-        exec_date = getattr(p, "exec_date", "")
-        set_cell_text(table.cell(i + 1, 5), str(exec_date), font_size=fs)
+        vals = [str(i + 1), p.name, p.birth_date, row_ptype,
+                executor.executor_name, str(getattr(p, "exec_date", ""))]
+        for c, val in enumerate(vals):
+            set_cell_text(cell_at(i + 1, c), val, font_size=fs)
 
-    # 底部摘要 — 靠左、粗體
-    p_elem = doc.add_paragraph()
-    p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    compact_paragraph(p_elem)
-    add_run(p_elem, f"總服務人次:{num}人", size=12, bold=True)
+    def _line(text):
+        el = doc.add_paragraph()
+        el.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        compact_paragraph(el)
+        add_run(el, text, size=12, bold=True)
 
-    p_elem = doc.add_paragraph()
-    p_elem.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    compact_paragraph(p_elem)
-    add_run(
-        p_elem,
-        f"{prefix}{title_prefix}處方處置費總申報金額(元):{amount:,}",
-        size=12, bold=True,
-    )
-
+    _line(f"本表服務人次:{num}人")
+    _line(f"處方處置費計算方式:{label} {num} 人次 × {unit:,} 元 = {subtotal:,} 元")
+    if show_grand_total:
+        _line(f"{prefix}處方處置費總申報金額(元):{_executor_amount(executor):,}")

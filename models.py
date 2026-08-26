@@ -42,6 +42,7 @@ class PatientRecord:
     exec_date: str = ""  # 執行日期
     issue_date: str = ""  # 開立日期
     prescription_type: str = ""  # 處方類型（運動/營養/情緒調適/社會 處方）
+    course_label: str = ""  # 處置費費率標籤（一般課程/處方PLUS2/視訊課程）— 由「執行課程」欄歸類
 
 
 @dataclass
@@ -58,7 +59,9 @@ class ReceiptInfo:
     amount: int = 0  # 應付金額
     role: str = ""  # 角色：醫師 / 課程老師 / 診所行政人員
     clinic_name: str = ""  # 所屬診所（診所行政人員用）
+    clinic_account: str = ""  # 登入帳號/機構代碼（對應來源檔「開立診所」欄的系統帳號）
     email: str = ""  # Email（寄送核銷文件用）
+    occupation: str = ""  # 身分別/職業（醫師/營養師/藥師/護理師/運動教練/大學社大老師）→ 報稅類別
 
 
 @dataclass
@@ -68,6 +71,10 @@ class ExecutorData:
     prescription_type: str  # 處方類型（多類型時為主要類型,僅作備註用）
     service_count: int = 0  # 全類型合計服務人次
     type_counts: Dict[str, int] = field(default_factory=dict)  # {運動處方: N, ...}
+    # 處置費費率分流：{費率標籤: {處方類型: 人次}}
+    #   例 {"一般課程": {"運動處方": 8}, "處方PLUS2": {"情緒調適處方": 12}}
+    #   空 dict 代表來源檔沒有「執行課程」欄（舊格式），此時全歸一般課程費率
+    course_counts: Dict[str, Dict[str, int]] = field(default_factory=dict)
     patients: List[PatientRecord] = field(default_factory=list)  # 已按類型排序
     receipt: Optional[ReceiptInfo] = None
 

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ============================================
-echo   核銷文件產生器 v39 (webview) 打包
+echo   核銷文件產生器 v40 (webview) 打包
 echo ============================================
 echo.
 
@@ -16,7 +16,7 @@ if exist dist rmdir /s /q dist
 
 echo.
 echo [3/3] PyInstaller 打包…
-pyinstaller 核銷文件產生器_v39.spec --clean --noconfirm
+pyinstaller 核銷文件產生器_v40.spec --clean --noconfirm
 if errorlevel 1 goto error
 
 echo.

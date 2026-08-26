@@ -22,7 +22,8 @@ from typing import Optional
 import openpyxl
 
 from models import AllData, DoctorPrescription, HealthManagement, ExecutorData, PatientRecord, ReceiptInfo
-from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION, FEE_PER_TREATMENT
+from config import FEE_PER_PRESCRIPTION, FEE_PER_EXECUTION
+from treatment_fees import classify_course, fee_for_label
 
 PRESCRIPTION_TYPES = {"運動處方", "營養處方", "情緒調適處方", "社會處方"}
 
@@ -38,10 +39,23 @@ COL_DOCTOR = 8
 COL_EXEC_UNIT = 12
 COL_EXEC_PERSON = 13
 COL_EXEC_DONE = 14
+COL_EXEC_COURSE = 15  # 執行課程（與執行單位一起決定處置費費率：PLUS2 200 / 線上 100 / 其餘 400）
 COL_EXEC_DATE = 16
 COL_PRESC_FEE = 17   # 處方費（每筆金額）
 COL_EXEC_FEE = 18    # 處方執行費（每筆金額）
 COL_DATE = 21
+
+
+def _course_of(row) -> tuple:
+    """取該筆紀錄的（執行課程, 執行單位）— 兩欄一起決定處置費費率。
+
+    PLUS2 標在「執行課程」(如 PLUS2-0819富洲里-運動)，
+    線上課程標在「執行單位」(= 線上微課程)，只看一欄會漏掉另一種。
+    舊格式來源檔欄數可能不足，缺欄時回空字串 → 歸「一般課程」400 元。
+    """
+    course = str(row[COL_EXEC_COURSE] or "") if len(row) > COL_EXEC_COURSE else ""
+    unit = str(row[COL_EXEC_UNIT] or "") if len(row) > COL_EXEC_UNIT else ""
+    return course, unit
 
 
 def _load_rows(filepath: str) -> list:
@@ -64,13 +78,25 @@ def read_prescription_report(issuance_path: str,
                              execution_path: str = "",
                              report_year: int = 115,
                              report_month: int = 4,
-                             min_prescriptions: int = 0) -> AllData:
+                             min_prescriptions: int = 0,
+                             name_overrides: Optional[dict] = None) -> AllData:
     """讀取處方紀錄並統計。
 
     - issuance_path: 開立處方紀錄 Excel（必要）— 計算處方費 + 健康管理費
     - execution_path: 執行處方紀錄 Excel（選填）— 計算處方執行費 + 處方處置費
                      若空，issuance_path 兼作執行紀錄（單檔舊行為）
+    - name_overrides: {系統登入帳號: 真名} 對照表（來自共用檔「登入帳號」欄）。
+                     來源系統偶爾把「開立醫師/執行人員」欄填成登入帳號（如
+                     Koanclinic6、09062811AA），會讓同一人被拆成兩組。此對照
+                     在分組前把帳號正規化成真名，避免拆分。
     """
+    overrides = name_overrides or {}
+
+    def _norm(val) -> str:
+        """把系統登入帳號正規化成真名（對不到就原樣回傳）"""
+        s = str(val or "")
+        return overrides.get(s.strip(), s)
+
     issuance_records = _load_rows(issuance_path)
     if execution_path and execution_path != issuance_path:
         execution_records = _load_rows(execution_path)
@@ -86,7 +112,7 @@ def read_prescription_report(issuance_path: str,
     for row in issuance_records:
         ptype = str(row[COL_PTYPE] or "")
         clinic = str(row[COL_CLINIC] or "")
-        doctor = str(row[COL_DOCTOR] or "")
+        doctor = _norm(row[COL_DOCTOR])  # 開立醫師：帳號→真名，避免拆組
         if ptype not in PRESCRIPTION_TYPES:
             continue
 
@@ -108,12 +134,12 @@ def read_prescription_report(issuance_path: str,
     for row in execution_records:
         ptype = str(row[COL_PTYPE] or "")
         clinic = str(row[COL_CLINIC] or "")
-        doctor = str(row[COL_DOCTOR] or "")
+        doctor = _norm(row[COL_DOCTOR])  # 開立醫師：帳號→真名，避免拆組
         if ptype not in PRESCRIPTION_TYPES:
             continue
 
         exec_date = row[COL_EXEC_DATE]
-        exec_person = row[COL_EXEC_PERSON]
+        exec_person = _norm(row[COL_EXEC_PERSON])  # 執行人員：帳號→真名
         exec_unit = row[COL_EXEC_UNIT]
         exec_done_flag = row[COL_EXEC_DONE]
 
@@ -237,7 +263,7 @@ def read_prescription_report(issuance_path: str,
                 name=str(row[COL_NAME] or ""),
                 id_number=str(row[COL_ID] or ""),
                 birth_date=str(row[COL_BIRTH] or ""),
-                prescriber=str(row[COL_DOCTOR] or ""),
+                prescriber=_norm(row[COL_DOCTOR]),  # 處方人員：帳號→真名
                 exec_date=str(row[COL_EXEC_DATE] or ""),
                 issue_date=issue_str,
                 prescription_type=ptype,
@@ -264,13 +290,30 @@ def read_prescription_report(issuance_path: str,
         type_counts = {pt: len(recs) for pt, recs in type_records.items() if recs}
         total_service = sum(type_counts.values())
 
-        # 民眾明細:依固定類型順序,(姓名+身分證+類型) 去重
+        # 處置費費率分流:每筆執行紀錄依「執行課程」欄歸類
+        #   一般課程 400 / 處方PLUS2 200 / 視訊課程 100(規則見 config.json)
+        # course_counts = {費率標籤: {處方類型: 人次}};金額逐筆按各自單價累加,
+        # 不再用「總人次 × 單一 400」。
+        course_counts: dict = defaultdict(lambda: defaultdict(int))
+        treatment_amount = 0
+        for ptype, recs in type_records.items():
+            for row in recs:
+                label = classify_course(*_course_of(row))
+                course_counts[label][ptype] += 1
+                treatment_amount += fee_for_label(label)
+        course_counts = {lb: dict(d) for lb, d in course_counts.items()}
+
+        # 民眾明細:依固定類型順序,(姓名+身分證+類型+費率) 去重。
+        # 費率要進 key —— 同一位民眾同一類處方若分別做了一般課程與 PLUS2,
+        # 是兩筆不同單價的給付,不能被去重吃掉,否則明細人次會少於計費人次、
+        # 明細表的算式跟領據金額對不起來。
         patients = []
         seen = set()
         for ptype in sorted(type_records.keys(),
                             key=lambda t: PTYPE_INDEX.get(t, 99)):
             for row in type_records[ptype]:
-                key = (row[COL_NAME], row[COL_ID], ptype)
+                row_label = classify_course(*_course_of(row))
+                key = (row[COL_NAME], row[COL_ID], ptype, row_label)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -281,6 +324,7 @@ def read_prescription_report(issuance_path: str,
                     prescriber=str(row[COL_DOCTOR] or ""),
                     exec_date=str(row[COL_EXEC_DATE] or ""),
                     prescription_type=ptype,
+                    course_label=row_label,
                 ))
 
         # 主要類型(僅供標題等備註,實際金額/份數以 type_counts 為準)
@@ -292,7 +336,7 @@ def read_prescription_report(issuance_path: str,
 
         exec_receipt = ReceiptInfo(
             recipient_name=exec_person,
-            amount=total_service * FEE_PER_TREATMENT,
+            amount=treatment_amount,
         )
 
         executors.append(ExecutorData(
@@ -300,6 +344,7 @@ def read_prescription_report(issuance_path: str,
             prescription_type=main_type,
             service_count=total_service,
             type_counts=type_counts,
+            course_counts=course_counts,
             patients=patients,
             receipt=exec_receipt,
         ))

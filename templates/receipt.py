@@ -5,7 +5,7 @@
   Body: 標題 + Table 0 (5×6 pivot：費用項目/4 處方/總計 × 處方處方費/處方執行費/金額)
         + 備註 + HR + 茲收到/此致/個資 + 中華民國
 - 領據_扣稅_template.docx：處方費+執行費合併版，amount >= 20000
-  Body: 標題 + Table 0 + 備註 + 大表格(含 nested 應付/代扣2.11%/代扣10%/實付 + 個資)
+  Body: 標題 + Table 0 + 備註 + 大表格(含 nested 應付/代扣2.11%/代扣所得稅/實付 + 個資)
         + 中華民國
 - 領據_處置費_template.docx：處置費，amount < 20000
   Body: 標題 + Table 0 (4×6 pivot：處方處置費/金額) + 備註 + HR + 茲收到/此致/個資 + 中華民國
@@ -13,9 +13,12 @@
   Body: 同扣稅但 Table 0 為處置費 4×6 pivot
 - 領據_健管費_template.docx：健管費 (5 欄表 含達標欄，不變)
 
-台灣扣繳：amount >= 20000 觸發 2.11% 二代健保 + 10% 所得稅扣繳
+台灣扣繳（依報稅類別）：
+  二代健保 2.11%：執業所得 >= 20,000 / 薪資 >= 29,500 即扣。
+  所得稅：執業所得 10%（> 20,000）/ 薪資 5%（> 90,500 起扣標準，不含）。
 """
 
+import copy
 import os
 import re
 from typing import Dict, Optional
@@ -25,10 +28,18 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls, qn
 
 from models import ReceiptInfo
+from treatment_fees import (
+    DEFAULT_LABEL as TREATMENT_DEFAULT_LABEL,
+    fee_for_label as treatment_fee_for_label,
+    ordered_labels as treatment_labels,
+)
+from tax_rules import (
+    withhold, category_for, nhi_threshold,
+    income_tax_rate, income_tax_threshold, SALARY,
+)
 
-TAX_THRESHOLD = 20000
-NHI_RATE = 0.0211
-INCOME_TAX_RATE = 0.10
+# 為相容既有匯入而保留；實際扣繳改由 tax_rules.withhold 依報稅類別計算
+from config import INCOME_TAX_THRESHOLD as TAX_THRESHOLD, NHI_RATE, INCOME_TAX_RATE
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "word_templates")
@@ -64,6 +75,7 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
                      fee_per_exec: int = 100,
                      # 處置費
                      treatment_counts: Optional[Dict[str, int]] = None,
+                     treatment_course_counts: Optional[Dict[str, Dict[str, int]]] = None,
                      fee_per_treatment: int = 400,
                      # 健管費
                      people_count: int = 0,
@@ -74,7 +86,10 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     Args:
         fee_type: 茲收到段落要塞的整段描述，會替換預設的「運動、營養、社會、情緒調適處方處方費」
         presc_counts/exec_counts: 處方費+執行費合併版的份數 dict（key = 處方類型名）
-        treatment_counts: 處置費 pivot 的份數 dict（單筆執行人員只 1 個 key）
+        treatment_counts: 處置費 pivot 的份數 dict（{處方類型: 人次}）— 舊呼叫端用，
+                          單一 400 元費率；未給 treatment_course_counts 時才生效
+        treatment_course_counts: 處置費費率分流後的份數（{費率標籤: {處方類型: 人次}}）。
+                          一般課程 400 / 處方PLUS2 200 / 視訊課程 100，pivot 表依此分列
         fee_per_presc/exec/treatment: 單份單價
         people_count/prescription_count/is_qualified: 健管費 Table 0 用
     """
@@ -105,7 +120,20 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
             doc, people_count, prescription_count,
             is_qualified, receipt.amount)
     elif _is_treatment(fee_type):
-        _fill_pivot_treatment(doc, treatment_counts or {}, fee_per_treatment)
+        # 費率分流：有 treatment_course_counts 就依課程型態分列；
+        # 舊呼叫端(或來源檔沒有「執行課程」欄)則全歸一般課程費率，版面同舊版。
+        course_counts = treatment_course_counts
+        if not course_counts:
+            course_counts = {
+                TREATMENT_DEFAULT_LABEL: dict(treatment_counts or {})
+            }
+        extra_rows = _fill_pivot_treatment(doc, course_counts)
+        _replace_treatment_note(all_texts, course_counts)
+        # 多長的列會把末行「中華民國…」頂到第二頁 → 回收等量留白維持一頁。
+        # 多回收 1 個當緩衝：金額位數多時「茲收到…元整」會多折一行(24pt)，
+        # 那本來是模板僅剩的餘裕，被多出的列吃掉就會超頁。
+        if extra_rows > 0:
+            _reclaim_blank_paragraphs(doc, extra_rows + 1)
     else:
         _fill_pivot_combined(doc, presc_counts or {}, exec_counts or {},
                               fee_per_presc, fee_per_exec)
@@ -115,7 +143,10 @@ def generate_receipt(receipt: ReceiptInfo, report_year: int,
     _replace_amount_in_paragraphs(all_texts, receipt.amount)
 
     if not _is_health_mgmt(fee_type):
-        _fill_tax_amounts(doc, receipt.amount)
+        role_hint = "課程老師" if _is_treatment(fee_type) else "醫師"
+        category = category_for(receipt.occupation, role_hint)
+        _fill_tax_box_text(doc, category)
+        _fill_tax_amounts(doc, receipt.amount, category)
 
     _replace_name(all_texts, receipt.recipient_name)
 
@@ -357,20 +388,56 @@ def _fill_pivot_combined(doc, presc_counts: Dict[str, int],
              [f"{grand_total:,}" if grand_total > 0 else "-"])
 
 
-def _fill_pivot_treatment(doc, treatment_counts: Dict[str, int],
-                           fee_per_treatment: int):
-    """填處置費 pivot 表 (4×6)
-    R0: 空 | 處方類型(gs=5)
-    R1: 費用項目(元) | 4 處方 | 總計
-    R2: 處方處置費 | 份數×4 | 總額
-    R3: 金額(元)   | 各類型金額×4 | 全部總計
+# 處置費列標籤的短稱 — 第一欄只有 3.83cm，實測 14pt 下超過 6 個中文字寬就
+# 折行變兩列、把領據頂到第二頁。各費率的單價寫在備註，這裡不重複。
+# 多費率時 R1 的欄名 — 把「處置費」放在這裡，各列就不必重複前綴。
+# 第一欄只有 3.83cm，實測「處置費-一般實體課程」「處置費項目(元)」都會折行，
+# 而「處置費項目」+ 各列全名剛好都排得進一行，且完全不用動頁面邊距
+# (改邊距會把下半部的扣稅表格與個資區擠爆)。
+TREATMENT_PIVOT_HEADER = "處置費項目"
+
+
+def _treatment_row_label(label: str) -> str:
+    """費率標籤 → pivot 表第一欄文字(費率全名，不加前綴)"""
+    return str(label)
+
+
+def _active_treatment_labels(course_counts) -> list:
+    """回傳「實際有人次」的費率標籤，照固定顯示順序。
+
+    只列有資料的費率是維持領據一頁的關鍵：單一費率時表格列數與舊版相同，
+    版面完全不變；兩種以上才長列。
+    """
+    counts = course_counts or {}
+    labels = [lb for lb in treatment_labels()
+              if sum((counts.get(lb) or {}).values()) > 0]
+    # config 改過而 ordered_labels 未收錄的自訂標籤也要列出，不能漏算金額
+    for lb in counts:
+        if lb not in labels and sum((counts.get(lb) or {}).values()) > 0:
+            labels.append(lb)
+    return labels
+
+
+def _fill_pivot_treatment(doc, course_counts: Dict[str, Dict[str, int]]):
+    """填處置費 pivot 表 — 依費率(課程型態)分列
+
+    course_counts: {費率標籤: {處方類型: 人次}}
+      例 {"一般課程": {"運動處方": 8}, "處方PLUS2": {"情緒調適處方": 12}}
+
+    模板本身只有 1 個資料列(R2)，實際有幾種費率就把它複製成幾列：
+      R0: 空 | 處方類型(gs=5)
+      R1: 費用項目(元) | 4 處方 | 總計
+      R2..Rn: 處置費/{型態} | 人次×4 | 該費率總額
+      末列: 金額(元) | 各處方類型金額×4 | 全部總計
+
+    單一費率時只有 1 個資料列，與舊版 4×6 完全相同(領據維持一頁)。
     """
     target = _find_pivot_table(doc)
     if target is None:
-        return
+        return 0
     all_rows = target.findall(qn("w:tr"))
     if len(all_rows) < 4:
-        return
+        return 0
 
     def fill_row(row_cells, values):
         if len(row_cells) < 6:
@@ -379,25 +446,153 @@ def _fill_pivot_treatment(doc, treatment_counts: Dict[str, int],
             if v is not None:
                 _set_cell_text(row_cells[1 + i], v)
 
-    # R2: 處方處置費
-    r2_cells = all_rows[2].findall(qn("w:tc"))
-    total_count = sum(treatment_counts.get(pt, 0) for pt in PIVOT_COL_ORDER)
-    total_amount = total_count * fee_per_treatment
-    fill_row(r2_cells, [
-        str(treatment_counts.get(pt, 0)) if treatment_counts.get(pt, 0) > 0 else "-"
-        for pt in PIVOT_COL_ORDER
-    ] + [f"{total_amount:,}" if total_amount > 0 else "-"])
+    labels = _active_treatment_labels(course_counts)
+    if not labels:
+        labels = [TREATMENT_DEFAULT_LABEL]
 
-    # R3: 金額(元)
-    r3_cells = all_rows[3].findall(qn("w:tc"))
+    # 單一且為預設費率 → 完全沿用模板(欄名「費用項目(元)」+「處方處置費」);
+    # 否則各列改印費率全名，欄名同步換成「處置費項目」把「處置費」帶進表裡。
+    if not (len(labels) == 1 and labels[0] == TREATMENT_DEFAULT_LABEL):
+        hdr_cells = all_rows[1].findall(qn("w:tc"))
+        if hdr_cells:
+            _set_cell_text(hdr_cells[0], TREATMENT_PIVOT_HEADER)
+
+    template_row = all_rows[2]   # 資料列範本
+    amount_row = all_rows[-1]    # 金額(元) 列，永遠留在最後
+
+    # 需要 len(labels) 個資料列：第 1 個用模板原列，其餘複製插在金額列之前
+    data_rows = [template_row]
+    for _ in range(len(labels) - 1):
+        new_row = copy.deepcopy(template_row)
+        amount_row.addprevious(new_row)
+        data_rows.append(new_row)
+
+    # 單一且為預設費率 → 第一欄沿用模板原文字「處方處置費」，版面零變動
+    single = (len(labels) == 1 and labels[0] == TREATMENT_DEFAULT_LABEL)
+
+    for row, label in zip(data_rows, labels):
+        cells = row.findall(qn("w:tc"))
+        if len(cells) < 6:
+            continue
+        per_type = course_counts.get(label) or {}
+        unit = treatment_fee_for_label(label)
+        if not single:
+            _set_cell_text(cells[0], _treatment_row_label(label))
+        row_total = sum(per_type.get(pt, 0) for pt in PIVOT_COL_ORDER) * unit
+        fill_row(cells, [
+            str(per_type.get(pt, 0)) if per_type.get(pt, 0) > 0 else "-"
+            for pt in PIVOT_COL_ORDER
+        ] + [f"{row_total:,}" if row_total > 0 else "-"])
+
+    # 末列 金額(元)：同一處方類型跨費率相加
+    amount_cells = amount_row.findall(qn("w:tc"))
     grand = 0
     per_col = []
     for pt in PIVOT_COL_ORDER:
-        amt = treatment_counts.get(pt, 0) * fee_per_treatment
+        amt = sum((course_counts.get(lb) or {}).get(pt, 0)
+                  * treatment_fee_for_label(lb) for lb in labels)
         per_col.append(f"{amt:,}" if amt > 0 else "-")
         grand += amt
-    fill_row(r3_cells, per_col +
+    fill_row(amount_cells, per_col +
              [f"{grand:,}" if grand > 0 else "-"])
+
+    # 比模板原本(1 個資料列)多出的列數 → 呼叫端據此回收等量留白
+    return len(labels) - 1
+
+
+def _reclaim_blank_paragraphs(doc, extra_rows: int) -> int:
+    """處置費領據多長幾列時，回收等量高度的空段落，讓領據維持一頁。
+
+    領據必須印在同一頁。pivot 表每多一個費率就多一列(14pt 字 + 儲存格
+    padding ≈ 16.5pt)，實測 3 種費率(多 2 列)就會把末行「中華民國 年 月 日」
+    頂到第二頁。文件裡本來有數個純留白空段落(每個約 15~19pt)，每多一列就
+    回收一個，高度剛好換回來。
+
+    回收順序刻意分散，避免某一處突然變擠：
+      1. pivot 表與「備註：」之間的空段落
+      2. 文末簽署留白(至少保留 1 個)
+
+    回傳實際回收的段落數(可能少於 extra_rows，模板留白不足時)。
+    """
+    if extra_rows <= 0:
+        return 0
+
+    body = doc.element.body
+    children = list(body)
+
+    def is_blank_p(el):
+        if el.tag != qn("w:p"):
+            return False
+        return not "".join(t.text or "" for t in el.iter(qn("w:t"))).strip()
+
+    first_tbl = next((i for i, el in enumerate(children)
+                      if el.tag == qn("w:tbl")), None)
+    last_tbl = next((i for i in range(len(children) - 1, -1, -1)
+                     if children[i].tag == qn("w:tbl")), None)
+    note_idx = next(
+        (i for i, el in enumerate(children)
+         if el.tag == qn("w:p")
+         and "備註" in "".join(t.text or "" for t in el.iter(qn("w:t")))),
+        None)
+
+    # 1) pivot 表之後、「備註：」之前
+    group_a = []
+    if first_tbl is not None and note_idx is not None and note_idx > first_tbl:
+        group_a = [el for el in children[first_tbl + 1:note_idx]
+                   if is_blank_p(el)]
+
+    # 2) 最後一個表格之後的文末留白(倒序回收，保留 1 個)
+    group_b = []
+    if last_tbl is not None:
+        tail_blanks = [el for el in children[last_tbl + 1:] if is_blank_p(el)]
+        group_b = list(reversed(tail_blanks))[1:]
+
+    # 3) 中段其他留白(備註與支領內容摘要之間、實付表格與個資之間)。
+    #    金額位數多時「茲收到…新臺幣 X 元整」會多折一行(24pt)，光靠 1、2 兩
+    #    處不一定夠，這裡當備援。
+    group_c = []
+    if note_idx is not None:
+        used = set(id(el) for el in group_a + group_b)
+        group_c = [el for el in children[note_idx + 1:]
+                   if is_blank_p(el) and id(el) not in used]
+        # 文末那個保留的留白不能動
+        if last_tbl is not None:
+            tail_blanks = [el for el in children[last_tbl + 1:] if is_blank_p(el)]
+            if tail_blanks:
+                keep = id(tail_blanks[-1])
+                group_c = [el for el in group_c if id(el) != keep]
+
+    removed = 0
+    for el in group_a + group_b + group_c:
+        if removed >= extra_rows:
+            break
+        parent = el.getparent()
+        if parent is not None:
+            parent.remove(el)
+            removed += 1
+    return removed
+
+
+def _replace_treatment_note(all_texts, course_counts: Dict[str, Dict[str, int]]):
+    """改寫備註的處置費計算方式。
+
+    模板寫死「開立人數*每份處方費400元」，費率分流後會與表格金額矛盾。
+    單一且為一般費率 → 不動(維持既有領據字句)。
+    多費率 → 換成單行精簡句，長度控制在一行內以免把領據頂到第二頁。
+    """
+    labels = _active_treatment_labels(course_counts)
+    if len(labels) <= 1 and (not labels or labels[0] == TREATMENT_DEFAULT_LABEL):
+        return
+
+    parts = [f"{lb} {treatment_fee_for_label(lb)} 元" for lb in labels]
+    note = "處方處置費計算方式：每筆執行－" + "、".join(parts)
+
+    for t in all_texts:
+        txt = t.text or ""
+        if "處方處置費計算方式" in txt:
+            t.text = note
+            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            return
 
 
 def _fill_summary_table_health_mgmt(doc, people_count: int,
@@ -434,27 +629,64 @@ def _fill_summary_table_health_mgmt(doc, people_count: int,
 
 
 # ============================================================
-#  扣稅版：應付/代扣 2.11%/代扣 10%/實付 nested table
+#  扣稅版：應付/代扣 2.11%/代扣所得稅/實付 nested table
 # ============================================================
 
-def _fill_tax_amounts(doc, total_amount: int):
-    """填扣稅版 nested table 的「應付/代扣2.11%/代扣10%/實付」4 cells。
-    - amount >= 20000: 正常計算扣繳
-    - amount <  20000: 代扣兩格寫「不需扣稅」，實付 = 應付
+def _fill_tax_box_text(doc, category: str = ""):
+    """依報稅類別動態改寫「代扣二代健保／所得稅」欄位的說明文字、稅率與標籤。
+
+    模板固定寫執行業務版（20,000 / 10% / 執行業務扣稅）。依 category 改成：
+      - 二代健保門檻（第 1 點數字）：執業所得 20,000 / 薪資 29,500
+      - 所得稅說明（第 2 點）：執業所得「扣繳執行業務 20,000 元以上」/
+                               薪資「扣繳薪資所得 90,500 元以上」
+      - 稅率格：執業所得 10% / 薪資 5%
+      - 標籤：執業所得「執行業務扣稅」/ 薪資「薪資所得稅」
     """
-    if needs_tax(total_amount):
-        nhi = round(total_amount * NHI_RATE)
-        income_tax = round(total_amount * INCOME_TAX_RATE)
-        actual = total_amount - nhi - income_tax
-        v_payable = f"{total_amount:,}"
-        v_nhi = f"{nhi:,}"
-        v_tax = f"{income_tax:,}"
-        v_actual = f"{actual:,}"
-    else:
-        v_payable = f"{total_amount:,}"
-        v_nhi = "不需扣稅"
-        v_tax = "不需扣稅"
-        v_actual = f"{total_amount:,}"
+    is_salary = category == SALARY
+    nhi_thr = nhi_threshold(category)                  # 20000 / 29500
+    it_thr = income_tax_threshold(category)            # 20000 / 90500
+    rate_pct = f"{round(income_tax_rate(category) * 100)}%"  # "10%" / "5%"
+    income_kind = "薪資所得" if is_salary else "執行業務"
+    income_label = "薪資所得稅" if is_salary else "執行業務扣稅"
+
+    for t in doc.element.body.iter(qn("w:t")):
+        txt = t.text or ""
+        if not txt:
+            continue
+        # 第 1 點：二代健保門檻數字（…執行業務 XX,XXX 元(含)以上執行代扣）
+        if "二代健保兼職人員給付金額達" in txt:
+            t.text = re.sub(
+                r"[\d,]+\s*元\(含\)以上執行代扣",
+                f"{nhi_thr:,}元(含)以上執行代扣", txt)
+        # 第 2 點：所得稅類別字樣 + 門檻數字
+        elif re.search(r"\d\s*[.．]\s*扣繳.*以上執行代扣", txt):
+            t.text = re.sub(
+                r"扣繳.*?以上執行代扣",
+                f"扣繳{income_kind}{it_thr:,}元以上執行代扣", txt)
+        # 稅率格：把「10%」改成對應稅率（2.11% 那格不動）
+        elif re.search(r"\d+(\.\d+)?\s*%", txt) and "2.11" not in txt:
+            t.text = re.sub(r"\d+(\.\d+)?\s*%", rate_pct, txt)
+        # 標籤格：執行業務扣稅 / 薪資所得稅（保留前後空白）
+        elif txt.strip() in ("執行業務扣稅", "薪資所得稅"):
+            t.text = txt.replace(txt.strip(), income_label)
+        else:
+            continue
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+
+
+def _fill_tax_amounts(doc, total_amount: int, category: str = ""):
+    """填扣稅版 nested table 的「應付/代扣2.11%/代扣所得稅/實付」4 cells。
+
+    依報稅類別（category）決定二代健保門檻（執業所得 20000 / 薪資 29500）與
+    所得稅費率/門檻（執業所得 10%、>20000 / 薪資 5%、>90500）。二代健保採
+    「達（含）」＝大於等於，所得稅採「超過」嚴格大於（詳見 tax_rules.withhold）。
+    未達門檻該格寫「不需扣稅」。
+    """
+    nhi, income_tax, actual = withhold(total_amount, category)
+    v_payable = f"{total_amount:,}"
+    v_nhi = f"{nhi:,}" if nhi > 0 else "不需扣稅"
+    v_tax = f"{income_tax:,}" if income_tax > 0 else "不需扣稅"
+    v_actual = f"{actual:,}"
 
     body = doc.element.body
     # 鎖定 nested table（3 直接 row，且第一列含「應付金額」+「實付金額」）

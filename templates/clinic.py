@@ -230,6 +230,13 @@ def _add_health_mgmt_page(doc, data: AllData, hm: HealthManagement,
     ])
 
 
+def _cell_grid(table):
+    """一次建表儲存格再以索引存取，避免 table.cell() 大表 O(n²) 燒 CPU。"""
+    cells = table._cells
+    ncol = table._column_count
+    return lambda r, c: cells[r * ncol + c]
+
+
 def _add_patient_list_page(doc, data: AllData):
     add_title(doc, "民眾明細表", size=14)
     p = doc.add_paragraph(); compact_paragraph(p)
@@ -239,17 +246,18 @@ def _add_patient_list_page(doc, data: AllData):
     set_table_borders(table)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
+    cell_at = _cell_grid(table)
     headers = ["序號", "民眾姓名", "民眾身分證字號",
                "民眾出生年月日(yyyy/mm/dd)", "處方人員姓名"]
     for i, h in enumerate(headers):
-        set_cell_text(table.cell(0, i), h, bold=True, font_size=10)
+        set_cell_text(cell_at(0, i), h, bold=True, font_size=10)
 
     for i, p in enumerate(data.patients):
-        set_cell_text(table.cell(i + 1, 0), str(i + 1), font_size=10)
-        set_cell_text(table.cell(i + 1, 1), p.name, font_size=10)
-        set_cell_text(table.cell(i + 1, 2), p.id_number, font_size=10)
-        set_cell_text(table.cell(i + 1, 3), p.birth_date, font_size=10)
-        set_cell_text(table.cell(i + 1, 4), p.prescriber, font_size=10)
+        set_cell_text(cell_at(i + 1, 0), str(i + 1), font_size=10)
+        set_cell_text(cell_at(i + 1, 1), p.name, font_size=10)
+        set_cell_text(cell_at(i + 1, 2), p.id_number, font_size=10)
+        set_cell_text(cell_at(i + 1, 3), p.birth_date, font_size=10)
+        set_cell_text(cell_at(i + 1, 4), p.prescriber, font_size=10)
 
     set_col_widths(table, [Cm(1.5), Cm(3), Cm(4), Cm(4.5), Cm(3)])
 

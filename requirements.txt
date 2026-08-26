@@ -1,4 +1,4 @@
-# 核銷文件產生器 v39 (pywebview 版)
+# 核銷文件產生器 v40 (pywebview 版)
 # Python >= 3.10 建議
 
 # Web 介面框架（HTML 內嵌視窗）
