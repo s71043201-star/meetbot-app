@@ -74,12 +74,14 @@ def _load_rows(filepath: str) -> list:
     return rows
 
 
-def read_prescription_report(issuance_path: str,
+def read_prescription_report(issuance_path: str = "",
                              execution_path: str = "",
                              report_year: int = 115,
                              report_month: int = 4,
                              min_prescriptions: int = 0,
-                             name_overrides: Optional[dict] = None) -> AllData:
+                             name_overrides: Optional[dict] = None,
+                             issuance_rows: Optional[list] = None,
+                             execution_rows: Optional[list] = None) -> AllData:
     """讀取處方紀錄並統計。
 
     - issuance_path: 開立處方紀錄 Excel（必要）— 計算處方費 + 健康管理費
@@ -97,11 +99,19 @@ def read_prescription_report(issuance_path: str,
         s = str(val or "")
         return overrides.get(s.strip(), s)
 
-    issuance_records = _load_rows(issuance_path)
-    if execution_path and execution_path != issuance_path:
-        execution_records = _load_rows(execution_path)
+    # 資料來源：直接給 rows（backend_api 抓來的）優先，否則讀 Excel。
+    # 兩者的 row 格式相同（backend_api.record_to_row 已對齊 Excel 22 欄順序），
+    # 所以底下的統計邏輯不必分辨來源。
+    if issuance_rows is not None or execution_rows is not None:
+        issuance_records = list(issuance_rows or [])
+        execution_records = list(execution_rows if execution_rows is not None
+                                 else issuance_records)
     else:
-        execution_records = issuance_records
+        issuance_records = _load_rows(issuance_path)
+        if execution_path and execution_path != issuance_path:
+            execution_records = _load_rows(execution_path)
+        else:
+            execution_records = issuance_records
 
     # === 1. 從「開立處方紀錄」收集：處方費、健管費、醫師開立民眾 ===
     doctor_prescription: dict = defaultdict(lambda: defaultdict(int))

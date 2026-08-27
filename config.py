@@ -86,9 +86,16 @@ _DEFAULTS: dict = {
     "MIN_PRESCRIPTIONS_DEFAULT": 20,
     # Google Drive 同步：診所分區（公開設定，非個資）
     "REGIONS_DRIVE_URL": "https://docs.google.com/spreadsheets/d/1i3hFvFBkwgemjz3W7IICXBy-Hc9Dd4-m/edit?usp=sharing",
+    # 健康處方管理系統後端 — 直接抓核銷資料，取代手動匯出兩個 Excel。
+    # 位址是公開的，帳密放 secrets.json（RX_ACCOUNT / RX_PASSWORD）。
+    # 產生器只做查詢,那組帳號給唯讀權限即可。
+    "RX_BACKEND_URL": "https://healthcheck-backend.delixir.cc",
+    "RX_ORIGIN": "https://healthcheck-rx.delixir.cc",
     # 以下為敏感值，預設留空；實際值放 secrets.json（不入 git）
     "PEOPLE_DB_DRIVE_URL": "",
     "PEOPLE_DB_PASSWORD": "",
+    "RX_ACCOUNT": "",
+    "RX_PASSWORD": "",
 }
 
 
@@ -153,6 +160,10 @@ MIN_PRESCRIPTIONS_DEFAULT: int = _CFG["MIN_PRESCRIPTIONS_DEFAULT"]
 REGIONS_DRIVE_URL: str = _CFG["REGIONS_DRIVE_URL"]
 PEOPLE_DB_DRIVE_URL: str = _CFG["PEOPLE_DB_DRIVE_URL"]
 PEOPLE_DB_PASSWORD: str = _CFG["PEOPLE_DB_PASSWORD"]
+RX_BACKEND_URL: str = _CFG["RX_BACKEND_URL"]
+RX_ORIGIN: str = _CFG["RX_ORIGIN"]
+RX_ACCOUNT: str = _CFG["RX_ACCOUNT"]
+RX_PASSWORD: str = _CFG["RX_PASSWORD"]
 
 
 def config_source() -> str:
